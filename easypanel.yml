@@ -1,0 +1,77 @@
+# Configuração específica para Easypanel
+# Este arquivo é usado pelo Easypanel para configurar o serviço
+
+# Nome do serviço (será usado internamente)
+name: sdr-ia
+
+# Configuração de build
+build:
+  # Usar Dockerfile do projeto
+  type: dockerfile
+  context: .
+  dockerfile: Dockerfile
+
+# Configuração de runtime
+runtime:
+  # Porta que a aplicação escuta internamente
+  port: 8000
+  
+  # Health check endpoint
+  healthcheck:
+    path: /health
+    interval: 30s
+    timeout: 10s
+    retries: 3
+
+# Recursos
+resources:
+  # Limites de recursos
+  limits:
+    cpu: 1000m      # 1 CPU
+    memory: 2048Mi  # 2GB RAM
+  
+  # Recursos mínimos reservados
+  requests:
+    cpu: 500m       # 0.5 CPU
+    memory: 1024Mi  # 1GB RAM
+
+# Volumes persistentes (se necessário)
+volumes:
+  - name: data
+    path: /app/data
+    size: 5Gi
+  
+  - name: logs
+    path: /app/logs
+    size: 1Gi
+
+# Variáveis de ambiente
+# Estas devem ser configuradas no painel do Easypanel
+# Veja .env.easypanel para a lista completa
+env:
+  # Conexões internas no Easypanel
+  - name: REDIS_URL
+    value: redis://redis:6379/0
+  
+  - name: EVOLUTION_API_URL
+    value: http://evolution-api:8080
+  
+  # Python
+  - name: PYTHONUNBUFFERED
+    value: "1"
+  
+  - name: ENVIRONMENT
+    value: production
+
+# Rede
+network:
+  # Usar rede padrão do Easypanel para comunicação entre serviços
+  name: easypanel
+
+# Auto-deploy do GitHub
+deploy:
+  # Branch para auto-deploy
+  branch: main
+  
+  # Ativar auto-deploy
+  auto: true
