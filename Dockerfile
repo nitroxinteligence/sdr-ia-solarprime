@@ -26,7 +26,11 @@ WORKDIR /build
 
 # Copiar requirements e instalar dependências Python
 COPY requirements.txt .
-RUN pip install --user --no-warn-script-location -r requirements.txt
+# Força atualização do pip e instalação limpa das dependências
+RUN pip install --upgrade pip && \
+    pip install --user --no-warn-script-location -r requirements.txt && \
+    # Força instalação do google-genai caso não tenha sido instalado
+    pip install --user --no-warn-script-location google-genai || true
 
 # Stage 2: Runtime
 FROM python:3.11-slim
@@ -52,6 +56,10 @@ RUN mkdir -p /app /app/logs /app/static && \
 
 # Copiar dependências Python do builder
 COPY --from=builder --chown=app:app /root/.local /home/app/.local
+
+# Verificar se google-genai está instalado e instalar se necessário
+RUN python -c "import importlib.util; exit(0 if importlib.util.find_spec('google_genai') else 1)" || \
+    pip install --user google-genai
 
 # Mudar para diretório da aplicação
 WORKDIR /app
