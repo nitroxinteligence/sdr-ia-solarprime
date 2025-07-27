@@ -28,6 +28,7 @@ tenacity==8.2.3
 colorama==0.4.6
 rich==13.7.1
 asyncio==3.4.3
+pytz==2024.1
 
 # Development
 pytest==8.2.2
