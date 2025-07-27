@@ -74,6 +74,10 @@ class RedisService:
         """Obtém valor do cache"""
         await self.connect()
         
+        # Se não há cliente (Redis não disponível), retornar None
+        if self.client is None:
+            return None
+        
         try:
             full_key = self._make_key(key)
             value = await self.client.get(full_key)
@@ -105,6 +109,10 @@ class RedisService:
         """Define valor no cache"""
         await self.connect()
         
+        # Se não há cliente (Redis não disponível), retornar False
+        if self.client is None:
+            return False
+        
         try:
             full_key = self._make_key(key)
             ttl = ttl or self.ttl_default
@@ -129,6 +137,10 @@ class RedisService:
         """Remove valor do cache"""
         await self.connect()
         
+        # Se não há cliente (Redis não disponível), retornar False
+        if self.client is None:
+            return False
+        
         try:
             full_key = self._make_key(key)
             result = await self.client.delete(full_key)
@@ -141,6 +153,10 @@ class RedisService:
     async def exists(self, key: str) -> bool:
         """Verifica se chave existe"""
         await self.connect()
+        
+        # Se não há cliente (Redis não disponível), retornar False
+        if self.client is None:
+            return False
         
         try:
             full_key = self._make_key(key)
