@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 from loguru import logger
 import base64
+from uuid import UUID
 
 # AGnO Framework - API Correta
 from agno.agent import Agent, AgentMemory
