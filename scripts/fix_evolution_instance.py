@@ -8,8 +8,13 @@ import asyncio
 import os
 from dotenv import load_dotenv
 import json
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt, Confirm
 
 load_dotenv()
+
+console = Console()
 
 async def main():
     base_url = os.getenv("EVOLUTION_API_URL", "")

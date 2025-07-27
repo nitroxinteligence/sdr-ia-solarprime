@@ -4,6 +4,15 @@ FastAPI Main Application
 API principal para o SDR SolarPrime
 """
 
+# Importar módulo de compatibilidade antes de qualquer outra coisa
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    import google_genai_compat
+except ImportError:
+    pass
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
