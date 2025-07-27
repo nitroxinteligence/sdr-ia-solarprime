@@ -52,7 +52,7 @@ async def detailed_health_check() -> Dict[str, Any]:
     
     # Verificar Gemini
     try:
-        import google.generativeai as genai
+        from google import genai
         health["checks"]["gemini"] = {
             "status": "healthy",
             "api_key_configured": bool(os.getenv("GEMINI_API_KEY"))
