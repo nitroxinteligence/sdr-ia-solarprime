@@ -20,8 +20,9 @@ async def health_check() -> Dict[str, Any]:
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "version": "1.0.0",
-        "agent": "Luna - SDR IA SolarPrime"
+        "version": "1.0.1",  # Atualizado para verificar deploy
+        "agent": "Luna - SDR IA SolarPrime",
+        "deploy_date": "2025-07-27T21:30:00Z"  # Marca temporal do deploy
     }
 
 

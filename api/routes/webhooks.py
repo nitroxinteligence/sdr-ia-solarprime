@@ -235,9 +235,24 @@ async def test_webhook():
 async def webhook_status():
     """Verifica status e configuração do webhook"""
     
+    # Testar normalização de eventos
+    test_events = [
+        "messages.upsert",
+        "MESSAGES_UPSERT",
+        "connection.update",
+        "CONNECTION_UPDATE"
+    ]
+    
+    normalized_events = {}
+    for event in test_events:
+        normalized = event.upper().replace(".", "_") if event else event
+        normalized_events[event] = normalized
+    
     return {
         "status": "active",
         "timestamp": datetime.now().isoformat(),
+        "version": "1.0.1-debug",  # Versão com debug
+        "event_normalization_test": normalized_events,
         "config": {
             "signature_validation": os.getenv("WEBHOOK_VALIDATE_SIGNATURE", "false"),
             "ip_validation": bool(os.getenv("ALLOWED_WEBHOOK_IPS")),
