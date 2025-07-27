@@ -77,7 +77,6 @@ class SDRAgent:
                 reasoning_min_steps=2,  # Mínimo 2 passos de raciocínio para vendas
                 reasoning_max_steps=5,  # Máximo 5 passos para não demorar
                 reasoning_model=None,  # Usa o mesmo modelo (Gemini 2.5 Pro)
-                markdown=True,  # Suporte a markdown nas respostas
                 memory=self.memory_config,
                 session_id=f"sdr_{phone_number}",  # ID único por lead
                 storage=self.storage,
@@ -87,8 +86,7 @@ class SDRAgent:
                     "conversation_history": []
                 },
                 # Configurações adicionais para vendas
-                debug_mode=config.debug,  # Ativa debug do reasoning se configurado
-                markdown=True  # Usa formatação markdown
+                debug_mode=config.debug  # Ativa debug do reasoning se configurado
             )
             logger.info(f"Novo agente criado para telefone: {phone_number}")
         return self.agents[phone_number]
