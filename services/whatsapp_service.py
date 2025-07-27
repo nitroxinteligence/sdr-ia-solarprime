@@ -38,6 +38,10 @@ class WhatsAppService:
         try:
             event_type = payload.get("event")
             
+            # Normalizar nome do evento (Evolution API v2 usa minúsculas com ponto)
+            if event_type:
+                event_type = event_type.upper().replace(".", "_")
+            
             if event_type == "MESSAGES_UPSERT":
                 # Nova mensagem recebida
                 return await self._handle_new_message(payload)
