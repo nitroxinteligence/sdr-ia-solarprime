@@ -80,7 +80,11 @@ class MessageRepository(BaseRepository[Message]):
             media_data=media_data
         )
         
-        return await self.create(message_data.dict())
+        # Converter UUIDs para string antes de salvar
+        data = message_data.dict()
+        if 'conversation_id' in data and data['conversation_id']:
+            data['conversation_id'] = str(data['conversation_id'])
+        return await self.create(data)
     
     async def save_assistant_message(
         self,
@@ -94,7 +98,11 @@ class MessageRepository(BaseRepository[Message]):
             content=content
         )
         
-        return await self.create(message_data.dict())
+        # Converter UUIDs para string antes de salvar
+        data = message_data.dict()
+        if 'conversation_id' in data and data['conversation_id']:
+            data['conversation_id'] = str(data['conversation_id'])
+        return await self.create(data)
     
     async def get_messages_with_media(
         self,
