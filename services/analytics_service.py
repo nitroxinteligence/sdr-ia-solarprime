@@ -28,7 +28,8 @@ class AnalyticsService:
     ):
         """Registra evento de analytics"""
         try:
-            await db.analytics.insert({
+            # Supabase não requer await para operações síncronas
+            db.analytics.insert({
                 "lead_id": str(lead_id) if lead_id else None,
                 "event_type": event_type,
                 "event_data": event_data,

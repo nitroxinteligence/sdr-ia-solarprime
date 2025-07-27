@@ -88,7 +88,7 @@ class SDRAgent:
                 },
                 # Configurações adicionais para vendas
                 debug_mode=config.debug,  # Ativa debug do reasoning se configurado
-                structured_output=True  # Garante respostas estruturadas
+                markdown=True  # Usa formatação markdown
             )
             logger.info(f"Novo agente criado para telefone: {phone_number}")
         return self.agents[phone_number]

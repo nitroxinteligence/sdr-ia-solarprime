@@ -37,12 +37,10 @@ class WhatsAppService:
         
         try:
             event_type = payload.get("event")
-            logger.info(f"Evento recebido (original): {event_type}")
             
             # Normalizar nome do evento (Evolution API v2 usa minúsculas com ponto)
             if event_type:
                 event_type = event_type.upper().replace(".", "_")
-                logger.info(f"Evento normalizado: {event_type}")
             
             if event_type == "MESSAGES_UPSERT":
                 # Nova mensagem recebida
@@ -340,14 +338,25 @@ class WhatsAppService:
         
         data = payload.get("data", [])
         
-        for update in data:
-            message_id = update.get("key", {}).get("id")
-            status = update.get("update", {}).get("status")
-            
-            if message_id and status:
-                logger.debug(f"Status da mensagem {message_id}: {status}")
+        # Garantir que data é uma lista
+        if not isinstance(data, list):
+            if isinstance(data, dict):
+                data = [data]
+            else:
+                logger.warning(f"Formato inesperado de data em message_update: {type(data)}")
+                return {"status": "error", "reason": "invalid_data_format"}
         
-        return {"status": "success", "updates": len(data)}
+        update_count = 0
+        for update in data:
+            if isinstance(update, dict):
+                message_id = update.get("key", {}).get("id")
+                status = update.get("update", {}).get("status")
+                
+                if message_id and status:
+                    logger.debug(f"Status da mensagem {message_id}: {status}")
+                    update_count += 1
+        
+        return {"status": "success", "updates": update_count}
     
     async def _handle_connection_update(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Processa mudança de status da conexão"""
