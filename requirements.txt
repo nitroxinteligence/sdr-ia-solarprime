@@ -23,7 +23,6 @@ celery==5.3.4
 
 # Retry and Circuit Breaker
 tenacity==8.2.3
-circuit-breaker==1.4.0
 
 # Utilities
 colorama==0.4.6
