@@ -28,9 +28,7 @@ WORKDIR /build
 COPY requirements.txt .
 # Força atualização do pip e instalação limpa das dependências
 RUN pip install --upgrade pip && \
-    pip install --user --no-warn-script-location -r requirements.txt && \
-    # Força instalação do google-genai caso não tenha sido instalado
-    pip install --user --no-warn-script-location google-genai || true
+    pip install --user --no-warn-script-location -r requirements.txt
 
 # Stage 2: Runtime
 FROM python:3.11-slim
@@ -57,9 +55,8 @@ RUN mkdir -p /app /app/logs /app/static && \
 # Copiar dependências Python do builder
 COPY --from=builder --chown=app:app /root/.local /home/app/.local
 
-# Verificar se google-genai está instalado e instalar se necessário
-RUN python -c "import importlib.util; exit(0 if importlib.util.find_spec('google_genai') else 1)" || \
-    pip install --user google-genai
+# Copiar o arquivo de compatibilidade primeiro
+COPY --chown=app:app google_genai_compat.py /home/app/.local/lib/python3.11/site-packages/
 
 # Mudar para diretório da aplicação
 WORKDIR /app
@@ -82,5 +79,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 EXPOSE 8000
 
 # Comando de inicialização otimizado para Easypanel
-# Reduzido para 2 workers para economizar recursos no container
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--access-log"]
+# Usa startup.py para garantir carregamento do módulo de compatibilidade
+CMD ["python", "startup.py"]

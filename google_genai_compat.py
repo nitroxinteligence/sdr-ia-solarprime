@@ -1,91 +1,97 @@
 """
 Google GenAI Compatibility Layer
 ================================
-Este arquivo cria um redirecionamento para resolver o problema de importação
-do módulo google.genai que o AGnO Framework está tentando usar.
+Este arquivo intercepta imports do AGnO Framework e cria a estrutura esperada.
 """
 
 import sys
+import importlib
 import importlib.util
 from types import ModuleType
-import logging
 
-logger = logging.getLogger(__name__)
+# IMPORTANTE: Este módulo deve ser carregado ANTES do AGnO Framework
+# Por isso, deve ser importado no início de api/main.py
 
-# Tentar várias formas de importar o pacote Google AI
-real_genai = None
-import_success = False
-
-# Tentativa 1: google-generativeai (pacote oficial)
+# Importar google.generativeai primeiro
 try:
     import google.generativeai as real_genai
-    import_success = True
-    logger.info("Successfully imported google.generativeai")
 except ImportError:
-    logger.warning("google.generativeai not found")
-
-# Tentativa 2: google-genai (pacote alternativo)
-if not import_success:
-    try:
-        import google_genai as real_genai
-        import_success = True
-        logger.info("Successfully imported google_genai")
-    except ImportError:
-        logger.warning("google_genai not found")
-
-# Tentativa 3: Verificar se google_genai está instalado mas não importável diretamente
-if not import_success:
-    spec = importlib.util.find_spec("google_genai")
-    if spec is not None:
-        try:
-            real_genai = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(real_genai)
-            import_success = True
-            logger.info("Successfully loaded google_genai via importlib")
-        except Exception as e:
-            logger.error(f"Failed to load google_genai via importlib: {e}")
-
-if not import_success:
-    logger.error("No Google AI package found. Please install google-generativeai or google-genai")
     raise ImportError(
-        "Neither google-generativeai nor google-genai is installed. "
-        "Please install using: pip install google-generativeai"
+        "google-generativeai não está instalado. "
+        "Por favor, instale com: pip install google-generativeai==0.7.2"
     )
 
-# Criar estrutura de módulos compatível
-if 'google' not in sys.modules:
-    google_module = ModuleType('google')
-    sys.modules['google'] = google_module
-else:
-    google_module = sys.modules['google']
-
-# Criar google.genai
-genai_module = ModuleType('google.genai')
-
-# Criar google.genai.types se necessário
-class GenAITypes:
-    """Compatibility types for AGnO Framework"""
-    pass
-
-genai_module.types = GenAITypes()
-
-# Copiar todos os atributos do módulo real
-if real_genai:
-    for attr in dir(real_genai):
-        if not attr.startswith('_'):
-            setattr(genai_module, attr, getattr(real_genai, attr))
+# Criar estrutura de módulos que o AGnO espera
+class MockTypes:
+    """Mock dos tipos que o AGnO Framework espera encontrar"""
     
-    # Se o módulo real tem types, copiar também
-    if hasattr(real_genai, 'types'):
-        genai_module.types = real_genai.types
+    # Mapear tipos do google.generativeai para o que o AGnO espera
+    def __init__(self):
+        # Se google.generativeai tem types, usar; senão criar classes vazias
+        if hasattr(real_genai, 'types'):
+            self.Content = getattr(real_genai.types, 'Content', type('Content', (), {}))
+            self.Part = getattr(real_genai.types, 'Part', type('Part', (), {}))
+            self.FunctionCall = getattr(real_genai.types, 'FunctionCall', type('FunctionCall', (), {}))
+            self.FunctionResponse = getattr(real_genai.types, 'FunctionResponse', type('FunctionResponse', (), {}))
+            self.FunctionDeclaration = getattr(real_genai.types, 'FunctionDeclaration', type('FunctionDeclaration', (), {}))
+            self.Tool = getattr(real_genai.types, 'Tool', type('Tool', (), {}))
+        else:
+            # Criar classes vazias se não existirem
+            self.Content = type('Content', (), {})
+            self.Part = type('Part', (), {})
+            self.FunctionCall = type('FunctionCall', (), {})
+            self.FunctionResponse = type('FunctionResponse', (), {})
+            self.FunctionDeclaration = type('FunctionDeclaration', (), {})
+            self.Tool = type('Tool', (), {})
 
-# Registrar os módulos no sistema
-sys.modules['google.genai'] = genai_module
-google_module.genai = genai_module
+# Criar módulo mock completo
+class MockGenAI:
+    """Mock do módulo google.genai para compatibilidade com AGnO"""
+    
+    def __init__(self):
+        self.types = MockTypes()
+        # Copiar outros atributos do módulo real
+        for attr in dir(real_genai):
+            if not attr.startswith('_') and attr != 'types':
+                setattr(self, attr, getattr(real_genai, attr))
+    
+    def __getattr__(self, name):
+        # Fallback para atributos não encontrados
+        return getattr(real_genai, name)
 
-# Também registrar como google.generativeai para compatibilidade
-sys.modules['google.generativeai'] = genai_module
-google_module.generativeai = genai_module
+# Instalar o mock ANTES que o AGnO tente importar
+mock_genai = MockGenAI()
 
-logger.info("Google GenAI compatibility layer loaded successfully")
+# Garantir que o módulo 'google' existe
+if 'google' not in sys.modules:
+    sys.modules['google'] = ModuleType('google')
+
+# Registrar todos os módulos necessários
+sys.modules['google.genai'] = mock_genai
+sys.modules['google.genai.types'] = mock_genai.types
+
+# Adicionar ao módulo google
+google_module = sys.modules['google']
+google_module.genai = mock_genai
+
+# Hook de importação para interceptar imports futuros
+class GenAIImportHook:
+    def find_spec(self, fullname, path, target=None):
+        if fullname == 'google.genai' or fullname.startswith('google.genai.'):
+            return importlib.util.spec_from_loader(fullname, self)
+        return None
+    
+    def create_module(self, spec):
+        if spec.name == 'google.genai':
+            return mock_genai
+        elif spec.name == 'google.genai.types':
+            return mock_genai.types
+        return None
+    
+    def exec_module(self, module):
+        pass
+
+# Instalar o hook no início da lista para ter prioridade
+sys.meta_path.insert(0, GenAIImportHook())
+
 print("Google GenAI compatibility layer loaded successfully")
