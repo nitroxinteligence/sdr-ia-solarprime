@@ -7,6 +7,7 @@ Serviço para gerenciar criação de follow-ups automaticamente
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import asyncio
+import pytz
 from loguru import logger
 
 from services.database import supabase_client
@@ -64,7 +65,8 @@ class FollowUpService:
             
             # Calcular tempo do primeiro follow-up (30 minutos configurável)
             first_delay_minutes = agent_config.follow_up_delay_minutes
-            scheduled_time = datetime.now() + timedelta(minutes=first_delay_minutes)
+            tz = pytz.timezone('America/Sao_Paulo')
+            scheduled_time = datetime.now(tz) + timedelta(minutes=first_delay_minutes)
             
             # Criar novo follow-up
             follow_up_data = {
@@ -81,7 +83,7 @@ class FollowUpService:
                     'phone': phone_number,
                     'stage': stage,
                     'last_message': message_sent[:200] if message_sent else None,
-                    'created_at': datetime.now().isoformat()
+                    'created_at': datetime.now(tz).isoformat()
                 }
             
             result = self.supabase.table('follow_ups').insert(follow_up_data).execute()
@@ -163,7 +165,8 @@ class FollowUpService:
     async def get_pending_follow_ups(self, limit: int = 10) -> list:
         """Lista follow-ups pendentes"""
         try:
-            now = datetime.now().isoformat()
+            tz = pytz.timezone('America/Sao_Paulo')
+            now = datetime.now(tz).isoformat()
             
             result = self.supabase.table('follow_ups')\
                 .select('*, leads!inner(*)')\
@@ -182,10 +185,11 @@ class FollowUpService:
     async def mark_follow_up_executed(self, follow_up_id: str, result: Dict[str, Any]):
         """Marca follow-up como executado"""
         try:
+            tz = pytz.timezone('America/Sao_Paulo')
             self.supabase.table('follow_ups')\
                 .update({
                     'status': 'executed',
-                    'executed_at': datetime.now().isoformat(),
+                    'executed_at': datetime.now(tz).isoformat(),
                     'result': result
                 })\
                 .eq('id', follow_up_id)\

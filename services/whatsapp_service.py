@@ -721,7 +721,7 @@ class WhatsAppService:
                 "from": phone,
                 "timestamp": int(datetime.now().timestamp()),
                 "pushName": messages[0].get("pushName", "") if messages else "",
-                "type": "buffered",
+                "type": "text",  # Usar "text" ao invés de "buffered" para evitar problema de constraint
                 "content": final_content,
                 "media_data": None,
                 "buffered_messages": messages,  # Manter referência às mensagens originais

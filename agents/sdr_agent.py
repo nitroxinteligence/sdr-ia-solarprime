@@ -24,14 +24,22 @@ AGNO_MEDIA_AVAILABLE = True
 
 # Tentar importar módulos de leitura de documentos do AGnO
 try:
-    from agno.document_reader import PDFReader, PDFImageReader
+    # Tentar import direto primeiro
+    from agno.document_reader.pdf import PDFReader
+    from agno.document_reader.pdf_image import PDFImageReader
     AGNO_READERS_AVAILABLE = True
-    logger.info("Módulos PDFReader e PDFImageReader do AGnO disponíveis")
+    logger.info("✅ Módulos PDFReader e PDFImageReader do AGnO disponíveis")
 except ImportError:
-    logger.warning("Módulos PDFReader/PDFImageReader não disponíveis - PDFs serão tratados como imagens")
-    AGNO_READERS_AVAILABLE = False
-    PDFReader = None
-    PDFImageReader = None
+    try:
+        # Tentar import alternativo
+        from agno.readers import PDFReader, PDFImageReader
+        AGNO_READERS_AVAILABLE = True
+        logger.info("✅ Módulos PDFReader e PDFImageReader do AGnO disponíveis (via readers)")
+    except ImportError:
+        logger.warning("⚠️ Módulos PDFReader/PDFImageReader não disponíveis - PDFs serão convertidos para imagem")
+        AGNO_READERS_AVAILABLE = False
+        PDFReader = None
+        PDFImageReader = None
 
 # Imports para retry e fallback
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -845,7 +853,9 @@ Se alguma informação não estiver disponível, use null."""
                     logger.warning("Não foi possível extrair dados da imagem")
                     return {
                         "media_received": "image",
-                        "analysis_status": "failed"
+                        "analysis_status": "failed",
+                        "user_message": "Não consegui analisar a imagem da conta. Pode tirar uma foto mais nítida e enviar novamente? 📸",
+                        "suggestion": "Dicas: Certifique-se de que a conta esteja bem iluminada e a foto não esteja tremida."
                     }
                     
             elif media_type == "audio":
@@ -856,15 +866,19 @@ Se alguma informação não estiver disponível, use null."""
                 }
                 
             elif media_type == "document":
-                if media_data.get('mime_type') == 'application/pdf':
+                # Verificar mimetype (sem underscore)
+                mimetype = media_data.get('mimetype') or media_data.get('mime_type', '')
+                
+                if mimetype == 'application/pdf' or (media_data.get('filename', '').lower().endswith('.pdf')):
                     logger.info("Processando documento PDF...")
                     # Processar PDF com OCR se necessário
                     result = await self._process_pdf_with_ocr(media_data)
                     return result
                 else:
-                    logger.info("Tipo de documento não suportado")
+                    logger.info(f"Tipo de documento não suportado: {mimetype}")
                     return {
                         "media_received": "document",
+                        "mimetype": mimetype,
                         "analysis_pending": True
                     }
             else:
@@ -1104,23 +1118,66 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
     def _create_agno_image(self, image_data: Any) -> Optional[Image]:
         """Cria objeto Image do AGnO a partir de diferentes formatos"""
         try:
+            # Importar validador
+            from utils.image_validator import ImageValidator
+            
+            # Se já é um objeto Image, retornar
+            if isinstance(image_data, Image):
+                return image_data
+            
+            # Validar dados da imagem primeiro
             if isinstance(image_data, dict):
+                is_valid, error_msg, metadata = ImageValidator.validate_image_data(image_data)
+                
+                if not is_valid:
+                    logger.error(f"Imagem inválida: {error_msg}")
+                    return None
+                
+                logger.debug(f"Imagem validada: {metadata}")
+                
+                # Criar objeto Image baseado no tipo
                 if 'url' in image_data:
                     return Image(url=image_data['url'])
                 elif 'base64' in image_data:
                     try:
                         img_bytes = base64.b64decode(image_data['base64'])
+                        # Corrigir orientação se necessário
+                        img_bytes = ImageValidator.fix_image_orientation(img_bytes)
                         return Image(content=img_bytes)
                     except Exception as e:
                         logger.error(f"Erro ao decodificar base64: {e}")
                         return None
                 elif 'path' in image_data:
-                    return Image(filepath=image_data['path'])
+                    # Ler e validar arquivo
+                    try:
+                        with open(image_data['path'], 'rb') as f:
+                            img_bytes = f.read()
+                        # Corrigir orientação se necessário
+                        img_bytes = ImageValidator.fix_image_orientation(img_bytes)
+                        return Image(content=img_bytes)
+                    except Exception as e:
+                        logger.error(f"Erro ao ler arquivo de imagem: {e}")
+                        return None
+                        
             elif isinstance(image_data, str):
+                # String pode ser URL ou path
                 if image_data.startswith('http'):
                     return Image(url=image_data)
                 else:
-                    return Image(filepath=image_data)
+                    # Validar se arquivo existe
+                    import os
+                    if os.path.exists(image_data):
+                        try:
+                            with open(image_data, 'rb') as f:
+                                img_bytes = f.read()
+                            img_bytes = ImageValidator.fix_image_orientation(img_bytes)
+                            return Image(content=img_bytes)
+                        except Exception as e:
+                            logger.error(f"Erro ao ler arquivo: {e}")
+                            return None
+                    else:
+                        logger.error(f"Arquivo não encontrado: {image_data}")
+                        return None
             
             logger.error(f"Formato de imagem não reconhecido: {type(image_data)}")
             return None
@@ -1184,75 +1241,55 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
                     # Criar PDFImageReader baseado no tipo de dados
                     pdf_reader = None
                     
-                    if 'url' in pdf_data:
-                        pdf_reader = PDFImageReader(pdf=pdf_data['url'])
-                    elif 'path' in pdf_data:
+                    if 'path' in pdf_data:
+                        # Se temos o caminho do arquivo, usar diretamente
                         pdf_reader = PDFImageReader(pdf=pdf_data['path'])
-                    elif 'content' in pdf_data:
-                        # Se for conteúdo binário, criar objeto IO
-                        import io
-                        pdf_io = io.BytesIO(pdf_data['content'])
-                        pdf_reader = PDFImageReader(pdf=pdf_io)
+                        logger.info(f"PDFImageReader criado com path: {pdf_data['path']}")
+                    elif 'url' in pdf_data:
+                        # Se temos URL, baixar primeiro e salvar temporariamente
+                        import aiohttp
+                        import tempfile
+                        import os
+                        
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(pdf_data['url']) as response:
+                                pdf_content = await response.read()
+                                
+                                # Salvar temporariamente
+                                with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
+                                    tmp_file.write(pdf_content)
+                                    tmp_path = tmp_file.name
+                                
+                                pdf_reader = PDFImageReader(pdf=tmp_path)
+                                logger.info(f"PDFImageReader criado com arquivo temporário: {tmp_path}")
+                                
+                                # Limpar arquivo temporário depois
+                                os.unlink(tmp_path)
+                    
                     elif 'base64' in pdf_data:
-                        # Decodificar base64 e criar objeto IO
-                        import io
+                        # Decodificar base64 e salvar temporariamente
+                        import tempfile
+                        import os
+                        
                         pdf_bytes = base64.b64decode(pdf_data['base64'])
-                        pdf_io = io.BytesIO(pdf_bytes)
-                        pdf_reader = PDFImageReader(pdf=pdf_io)
+                        
+                        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
+                            tmp_file.write(pdf_bytes)
+                            tmp_path = tmp_file.name
+                        
+                        pdf_reader = PDFImageReader(pdf=tmp_path)
+                        logger.info(f"PDFImageReader criado com base64 convertido: {tmp_path}")
+                        
+                        # Limpar arquivo temporário depois
+                        os.unlink(tmp_path)
                     
                     if pdf_reader:
-                        # Extrair texto e realizar OCR
-                        logger.info("Extraindo texto e realizando OCR no PDF...")
+                        # O PDFImageReader do AGnO converte cada página do PDF em imagem
+                        # e pode ser usado diretamente com o modelo multimodal
+                        logger.info("PDFImageReader criado com sucesso, processando com modelo multimodal...")
                         
-                        # O PDFImageReader deve retornar o conteúdo extraído
-                        # Tentamos diferentes métodos possíveis do AGnO
-                        extracted_content = None
-                        
-                        # Tentar método extract() primeiro
-                        if hasattr(pdf_reader, 'extract'):
-                            extracted_content = pdf_reader.extract()
-                        # Tentar método read() 
-                        elif hasattr(pdf_reader, 'read'):
-                            extracted_content = pdf_reader.read()
-                        # Tentar método get_text()
-                        elif hasattr(pdf_reader, 'get_text'):
-                            extracted_content = pdf_reader.get_text()
-                        # Tentar conversão para string
-                        else:
-                            extracted_content = str(pdf_reader)
-                        
-                        if extracted_content:
-                            # Analisar o conteúdo extraído
-                            logger.info("Conteúdo extraído do PDF, analisando...")
-                            result = await self._analyze_pdf_content(extracted_content)
-                            
-                            if result:
-                                logger.info("PDF processado com sucesso via PDFImageReader")
-                                result['_processed_by'] = 'agno_pdf_reader'
-                                return result
-                        else:
-                            logger.warning("PDFImageReader não conseguiu extrair conteúdo")
-                    
-                except Exception as e:
-                    logger.error(f"Erro ao usar PDFImageReader: {e}")
-                    # Continuar para fallback
-            
-            # Fallback: tentar processar PDF como imagem
-            logger.info("Tentando processar PDF como imagem (fallback)")
-            
-            # Se temos URL ou path, podemos tentar converter primeira página para imagem
-            if 'url' in pdf_data or 'path' in pdf_data:
-                # Criar dados de imagem para análise
-                image_data = {
-                    'url': pdf_data.get('url'),
-                    'path': pdf_data.get('path')
-                }
-                
-                # Remover None values
-                image_data = {k: v for k, v in image_data.items() if v is not None}
-                
-                # Usar o mesmo prompt de análise de conta
-                analysis_prompt = """Analise esta conta de energia elétrica e extraia IMEDIATAMENTE as seguintes informações:
+                        # Criar prompt específico para análise de conta de luz
+                        analysis_prompt = """Analise esta conta de energia elétrica e extraia IMEDIATAMENTE as seguintes informações:
 
 1. Valor total da fatura (em R$)
 2. Consumo em kWh
@@ -1277,25 +1314,99 @@ Formato esperado:
 }
 
 Se alguma informação não estiver disponível, use null."""
-                
-                # Tentar análise como imagem
-                result = await self._analyze_image_with_gemini(image_data, analysis_prompt)
-                
-                if result:
-                    logger.info("PDF processado como imagem com sucesso")
-                    result['_processed_by'] = 'pdf_as_image'
-                    result['_original_format'] = 'pdf'
-                    return result
+                        
+                        # Criar agente temporário para análise
+                        vision_agent = Agent(
+                            name="Analisador PDF",
+                            description="Analisador de contas de luz em PDF",
+                            instructions="Analise documentos e retorne APENAS JSON estruturado, sem texto adicional.",
+                            model=self.model,  # Gemini 2.5 Pro
+                            reasoning=False  # Desabilitar reasoning para resposta direta
+                        )
+                        
+                        # Executar análise passando o PDFImageReader como documento
+                        # O AGnO Framework deve processar automaticamente
+                        result = await asyncio.to_thread(
+                            vision_agent.run,
+                            analysis_prompt,
+                            pdf=pdf_reader  # Passar o PDFImageReader diretamente
+                        )
+                        
+                        # Parsear resultado
+                        parsed_result = self._parse_vision_result(result)
+                        
+                        if parsed_result:
+                            logger.info("PDF processado com sucesso via PDFImageReader")
+                            parsed_result['_processed_by'] = 'agno_pdf_image_reader'
+                            return parsed_result
+                        else:
+                            logger.warning("PDFImageReader não conseguiu extrair dados estruturados")
+                    
+                except Exception as e:
+                    logger.error(f"Erro ao usar PDFImageReader: {e}")
+                    # Continuar para fallback
+            
+            # Fallback: processar PDF convertendo para imagem manualmente
+            logger.info("Tentando processar PDF com conversão manual para imagem (fallback)")
+            
+            # Se temos path, tentar converter com ferramentas do sistema
+            if 'path' in pdf_data:
+                try:
+                    # Tentar usar pdf2image se disponível
+                    from pdf2image import convert_from_path
+                    import tempfile
+                    
+                    # Converter primeira página para imagem
+                    images = convert_from_path(pdf_data['path'], first_page=1, last_page=1)
+                    
+                    if images:
+                        # Salvar imagem temporariamente
+                        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
+                            images[0].save(tmp_file.name, 'JPEG')
+                            tmp_image_path = tmp_file.name
+                        
+                        # Processar como imagem
+                        image_data = {'path': tmp_image_path}
+                        
+                        # Usar o mesmo prompt de análise
+                        analysis_prompt = """Analise esta conta de energia elétrica e extraia IMEDIATAMENTE as seguintes informações:
+
+1. Valor total da fatura (em R$)
+2. Consumo em kWh
+3. Mês/Ano de referência
+4. Nome do titular da conta
+5. Endereço completo
+6. CPF ou CNPJ
+7. Nome da distribuidora de energia
+8. Histórico de consumo (se disponível)
+
+IMPORTANTE: Retorne APENAS um JSON válido com essas informações, sem texto adicional."""
+                        
+                        result = await self._analyze_image_with_gemini(image_data, analysis_prompt)
+                        
+                        # Limpar arquivo temporário
+                        os.unlink(tmp_image_path)
+                        
+                        if result:
+                            logger.info("PDF processado como imagem com sucesso (pdf2image)")
+                            result['_processed_by'] = 'pdf2image_conversion'
+                            result['_original_format'] = 'pdf'
+                            return result
+                            
+                except ImportError:
+                    logger.warning("pdf2image não disponível para conversão")
+                except Exception as e:
+                    logger.error(f"Erro ao converter PDF para imagem: {e}")
             
             # Se nada funcionou, retornar sugestão
             logger.warning("Não foi possível processar o PDF. Sugerindo alternativas.")
             
             return {
                 "media_received": "pdf",
-                "analysis_status": "fallback_failed",
-                "suggestion": "Por favor, envie uma foto/screenshot da conta de luz para melhor análise.",
-                "fallback": "convert_to_image",
-                "_attempted_methods": ["agno_pdf_reader", "pdf_as_image"]
+                "analysis_status": "processing_failed",
+                "suggestion": "Recebi seu PDF! Para uma análise mais rápida e precisa, você pode tirar uma foto da conta de luz com seu celular? As fotos geralmente funcionam melhor! 📸",
+                "fallback": "request_image",
+                "_attempted_methods": ["agno_pdf_image_reader", "pdf2image", "direct_analysis"]
             }
                 
         except Exception as e:
@@ -1304,7 +1415,7 @@ Se alguma informação não estiver disponível, use null."""
                 "media_received": "pdf",
                 "analysis_status": "error",
                 "error": str(e),
-                "suggestion": "Ocorreu um erro ao processar o PDF. Por favor, tente enviar uma foto da conta."
+                "suggestion": "Tive um probleminha ao abrir o PDF. 😅 Que tal enviar uma foto da conta? Assim consigo analisar na hora!"
             }
     
     async def _analyze_pdf_content(self, content: str) -> Dict[str, Any]:
