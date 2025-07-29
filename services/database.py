@@ -128,3 +128,6 @@ class DatabaseService:
 
 # Instância global
 db = DatabaseService()
+
+# Alias para compatibilidade
+supabase_client = db.client

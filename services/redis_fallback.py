@@ -72,6 +72,7 @@ class RedisFallbackService:
         self.prefix = "sdr_solarprime"
         self.ttl_default = 3600
         self._cleanup_task = None
+        self._connection_lock = asyncio.Lock()
     
     async def _cleanup_loop(self):
         """Loop de limpeza de cache expirado"""
@@ -82,7 +83,7 @@ class RedisFallbackService:
     
     async def _ensure_cleanup_task(self):
         """Garante que a task de limpeza está rodando"""
-        if self._cleanup_task is None:
+        if self._cleanup_task is None or self._cleanup_task.done():
             try:
                 self._cleanup_task = asyncio.create_task(self._cleanup_loop())
             except RuntimeError:
@@ -94,21 +95,23 @@ class RedisFallbackService:
         # Garantir que cleanup está rodando
         try:
             await self._ensure_cleanup_task()
-        except:
-            pass
-        
-        if not self.use_fallback and self.redis_service is not None:
-            return  # Já está usando Redis
-            
-        try:
-            from services.redis_service import redis_service
-            await redis_service.connect()
-            self.redis_service = redis_service
-            self.use_fallback = False
-            logger.info("✅ Conectado ao Redis")
         except Exception as e:
-            self.use_fallback = True
-            # logger.debug(f"Redis indisponível, usando cache em memória: {e}")
+            logger.warning(f"Erro ao garantir task de limpeza: {e}")
+        
+        # Usar lock para evitar múltiplas tentativas simultâneas de conexão
+        async with self._connection_lock:
+            if not self.use_fallback and self.redis_service is not None:
+                return  # Já está usando Redis
+                
+            try:
+                from services.redis_service import redis_service
+                await redis_service.connect()
+                self.redis_service = redis_service
+                self.use_fallback = False
+                logger.info("✅ Conectado ao Redis")
+            except Exception as e:
+                self.use_fallback = True
+                # logger.debug(f"Redis indisponível, usando cache em memória: {e}")
     
     def _make_key(self, key: str) -> str:
         """Cria chave com prefixo"""

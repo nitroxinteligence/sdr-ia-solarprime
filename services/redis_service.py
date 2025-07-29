@@ -88,11 +88,11 @@ class RedisService:
             # Tentar deserializar como JSON primeiro
             try:
                 return json.loads(value)
-            except:
+            except (json.JSONDecodeError, TypeError):
                 # Se falhar, tentar como pickle
                 try:
                     return pickle.loads(value)
-                except:
+                except (pickle.UnpicklingError, TypeError):
                     # Se falhar, retornar como string
                     return value.decode() if isinstance(value, bytes) else value
                     

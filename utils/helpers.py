@@ -11,13 +11,14 @@ from datetime import datetime, time, timedelta
 import pytz
 from loguru import logger
 
-def calculate_typing_delay(message: str, wpm: int = 200) -> float:
+def calculate_typing_delay(message: str, wpm: int = 400) -> float:
     """
     Calcula o delay de digitação baseado no tamanho da mensagem
+    OTIMIZADO PARA PERFORMANCE: Máximo 1 segundo
     
     Args:
         message: Mensagem a ser enviada
-        wpm: Palavras por minuto de digitação
+        wpm: Palavras por minuto de digitação (aumentado para 400)
         
     Returns:
         Tempo em segundos para simular digitação
@@ -28,13 +29,13 @@ def calculate_typing_delay(message: str, wpm: int = 200) -> float:
     # Calcula tempo base
     base_time = (words / wpm) * 60
     
-    # Adiciona variação aleatória (±20%)
+    # Adiciona variação aleatória mínima (±10%)
     import random
-    variation = base_time * 0.2
+    variation = base_time * 0.1
     final_time = base_time + random.uniform(-variation, variation)
     
-    # Limita entre 2 e 10 segundos
-    return max(2.0, min(10.0, final_time))
+    # OTIMIZAÇÃO: Limita entre 0.5 e 1 segundo (era 2-10s)
+    return max(0.5, min(1.0, final_time))
 
 def format_phone_number(phone: str) -> str:
     """

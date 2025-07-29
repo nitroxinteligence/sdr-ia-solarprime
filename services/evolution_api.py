@@ -239,9 +239,16 @@ class EvolutionAPIClient:
         await self._ensure_initialized()
         
         try:
+            # Endpoint correto conforme documentação Evolution API v2
             response = await self.client.post(
-                f"/chat/getBase64/{self.instance_name}",
-                json={"messageId": message_id}
+                f"/chat/getBase64FromMediaMessage/{self.instance_name}",
+                json={
+                    "message": {
+                        "key": {
+                            "id": message_id
+                        }
+                    }
+                }
             )
             response.raise_for_status()
             
@@ -321,10 +328,14 @@ class EvolutionAPIClient:
         
         formatted_phone = self._format_phone_number(phone)
         
+        # Formato correto conforme documentação Evolution API v2
         payload = {
-            "number": formatted_phone,
-            "reaction": emoji,
-            "messageId": message_id
+            "key": {
+                "remoteJid": formatted_phone,
+                "fromMe": False,  # Mensagem do usuário
+                "id": message_id
+            },
+            "reaction": emoji
         }
         
         try:

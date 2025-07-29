@@ -114,14 +114,14 @@ async def lifespan(app: FastAPI):
     # Parar monitor de conexão
     try:
         await connection_monitor.stop()
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"Erro ao parar monitor de conexão: {e}")
     
     # Fechar cliente Evolution API
     try:
         await evolution_client.close()
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"Erro ao fechar cliente Evolution API: {e}")
     
     logger.info("Aplicação encerrada")
 

@@ -113,7 +113,8 @@ class SDRAgent:
         message: str,
         phone_number: str,
         media_type: Optional[str] = None,
-        media_data: Optional[Any] = None
+        media_data: Optional[Any] = None,
+        message_id: Optional[str] = None
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Processa mensagem recebida e gera resposta usando AGnO
@@ -146,6 +147,18 @@ class SDRAgent:
             conversation = await conversation_repository.create_or_resume(
                 lead_id=lead.id,
                 session_id=session_id
+            )
+            
+            # Buscar histórico completo de mensagens do Supabase
+            messages_history = await message_repository.get_conversation_messages(
+                conversation_id=conversation.id,
+                limit=50  # Últimas 50 mensagens para contexto completo
+            )
+            
+            # Obter contexto formatado da conversa
+            conversation_context = await message_repository.get_conversation_context(
+                conversation_id=conversation.id,
+                max_messages=20  # Últimas 20 mensagens formatadas
             )
             
             # Obtém ou cria agente específico para este telefone
@@ -212,7 +225,13 @@ class SDRAgent:
                             processed_images = [Image(filepath=media_data)]
             
             # Prepara contexto adicional para o agente
-            context_prompt = self._build_context_prompt(message, analysis, session_state, media_info)
+            context_prompt = self._build_context_prompt(
+                message, 
+                analysis, 
+                session_state, 
+                media_info,
+                conversation_context=conversation_context  # Passar contexto do Supabase
+            )
             
             # Executa o agente AGnO para gerar resposta
             # Se houver imagem processada, passar junto
@@ -257,9 +276,15 @@ class SDRAgent:
             if lead_info.get("property_type"):
                 lead_updates["property_type"] = lead_info["property_type"]
             if lead_info.get("bill_value"):
-                lead_updates["bill_value"] = float(lead_info["bill_value"])
+                try:
+                    lead_updates["bill_value"] = float(lead_info["bill_value"])
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Erro ao converter bill_value para float: {e}")
             if lead_info.get("consumption_kwh"):
-                lead_updates["consumption_kwh"] = int(lead_info["consumption_kwh"])
+                try:
+                    lead_updates["consumption_kwh"] = int(lead_info["consumption_kwh"])
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Erro ao converter consumption_kwh para int: {e}")
             if lead_info.get("address"):
                 lead_updates["address"] = lead_info["address"]
             
@@ -280,6 +305,14 @@ class SDRAgent:
             # Atualiza estado da sessão
             self._update_session_state(agent, session_state)
             
+            # Determinar se deve reagir e qual emoji usar
+            should_react, reaction_emoji = self._should_react_to_message(
+                message, 
+                analysis, 
+                session_state,
+                media_type
+            )
+            
             # Prepara metadados
             metadata = {
                 "stage": session_state["current_stage"],
@@ -289,7 +322,10 @@ class SDRAgent:
                 "should_schedule": session_state["current_stage"] == "SCHEDULING",
                 "session_id": agent.session_id if hasattr(agent, 'session_id') else None,
                 "reasoning_enabled": True,
-                "model": self.config.gemini.model
+                "model": self.config.gemini.model,
+                "should_react": should_react,
+                "reaction_emoji": reaction_emoji,
+                "message_id": message_id
             }
             
             return response, metadata
@@ -511,7 +547,8 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
         message: str, 
         analysis: Dict[str, Any], 
         session_state: Dict[str, Any],
-        media_info: Optional[Dict[str, Any]] = None
+        media_info: Optional[Dict[str, Any]] = None,
+        conversation_context: Optional[str] = None
     ) -> str:
         """Constrói o prompt com contexto para o agente"""
         # Obtém instruções específicas do estágio
@@ -557,11 +594,12 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
             # Se o valor for alto, adicionar contexto de urgência
             try:
                 valor_str = media_info.get('bill_value', '').replace('R$', '').replace('.', '').replace(',', '.').strip()
-                valor = float(valor_str)
-                if valor > 500:
-                    context_parts.append(f"\n⚡ ALERTA: Conta alta! Enfatize a economia potencial de R$ {valor * 0.95:.2f}")
-            except:
-                pass
+                if valor_str:
+                    valor = float(valor_str)
+                    if valor > 500:
+                        context_parts.append(f"\n⚡ ALERTA: Conta alta! Enfatize a economia potencial de R$ {valor * 0.95:.2f}")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Erro ao converter valor da conta: {valor_str} - {e}")
         
         # Adiciona informações conhecidas
         if lead_info:
@@ -572,10 +610,14 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
                     friendly_key = key.replace('_', ' ').title()
                     context_parts.append(f"- {friendly_key}: {value}")
         
-        # Adiciona histórico recente
-        history_summary = self._get_conversation_summary(session_state)
-        if history_summary != "Primeira interação com o lead.":
-            context_parts.append(f"\nHISTÓRICO RECENTE:\n{history_summary}")
+        # Adiciona histórico completo do Supabase se disponível
+        if conversation_context:
+            context_parts.append(f"\nHISTÓRICO COMPLETO DA CONVERSA:\n{conversation_context}")
+        else:
+            # Fallback para histórico da sessão se não tiver contexto do Supabase
+            history_summary = self._get_conversation_summary(session_state)
+            if history_summary != "Primeira interação com o lead.":
+                context_parts.append(f"\nHISTÓRICO RECENTE:\n{history_summary}")
         
         # Adiciona mensagem atual
         context_parts.append(f"\nNOVA MENSAGEM DO LEAD: {message}")
@@ -690,23 +732,55 @@ Se alguma informação não estiver disponível, use null."""
         # Extrai informações chave
         key_info = analysis.get("key_info", [])
         
-        # Verifica se a mensagem é simplesmente um nome (resposta à pergunta "como posso te chamar?")
-        message = session_state.get("conversation_history", [])[-1].get("content", "") if session_state.get("conversation_history") else ""
-        if message and len(message.split()) <= 2 and session_state.get("current_stage") == "IDENTIFICATION":
-            # Provavelmente é um nome
-            possible_name = message.strip().title()
-            if possible_name and len(possible_name) > 2 and possible_name[0].isupper():
+        # Lista de palavras comuns que NÃO são nomes
+        palavras_comuns = [
+            "oi", "olá", "ola", "sim", "não", "nao", "ok", "okay", "blz", "beleza",
+            "voltei", "volto", "aqui", "ali", "tudo", "bem", "bom", "boa", "dia", 
+            "tarde", "noite", "obrigado", "obrigada", "valeu", "vlw", "pra", "para",
+            "com", "sem", "mais", "menos", "muito", "pouco", "agora", "depois",
+            "antes", "sempre", "nunca", "talvez", "quero", "queria", "pode", "posso"
+        ]
+        
+        # Verifica se estamos esperando o nome (após pergunta específica)
+        conversation_history = session_state.get("conversation_history", [])
+        esperando_nome = False
+        
+        # Verifica se a última mensagem do assistente perguntou o nome
+        if len(conversation_history) >= 2:
+            ultima_msg_assistente = conversation_history[-2] if conversation_history[-1]["role"] == "user" else None
+            if ultima_msg_assistente and ultima_msg_assistente["role"] == "assistant":
+                msg_content = ultima_msg_assistente["content"].lower()
+                if any(frase in msg_content for frase in ["como posso te chamar", "qual é o seu nome", "me diz seu nome", "como você se chama"]):
+                    esperando_nome = True
+        
+        # Verifica se a mensagem é simplesmente um nome (resposta à pergunta sobre nome)
+        message = conversation_history[-1].get("content", "") if conversation_history else ""
+        if message and esperando_nome and session_state.get("current_stage") == "IDENTIFICATION":
+            # Remove pontuação e espaços extras
+            possible_name = message.strip().strip(".,!?").title()
+            
+            # Verifica se é uma palavra válida para nome
+            if (possible_name and 
+                len(possible_name) > 2 and 
+                possible_name[0].isupper() and
+                possible_name.lower() not in palavras_comuns and
+                not any(char.isdigit() for char in possible_name)):
+                
                 lead_info["name"] = possible_name
                 logger.info(f"Nome identificado pela resposta direta: {possible_name}")
         
         for info in key_info:
             info_lower = info.lower()
             
-            # Extrai nome
+            # Extrai nome apenas com validação rigorosa
             if "nome:" in info_lower:
                 # Extrai o nome após "nome:"
-                name = info.split(":")[-1].strip()
-                if name and len(name) > 2 and name.lower() not in ["o lead", "do lead", "usuário"]:
+                name = info.split(":")[-1].strip().strip(".,!?")
+                if (name and 
+                    len(name) > 2 and 
+                    name.lower() not in ["o lead", "do lead", "usuário"] and
+                    name.lower() not in palavras_comuns and
+                    not any(char.isdigit() for char in name)):
                     lead_info["name"] = name.title()
                     logger.info(f"Nome identificado: {name}")
             elif any(word in info_lower for word in ["chamo", "sou o", "sou a", "meu nome"]):
@@ -715,7 +789,10 @@ Se alguma informação não estiver disponível, use null."""
                 for i, word in enumerate(words):
                     if word.lower() in ["chamo", "sou", "nome"] and i + 1 < len(words):
                         name = words[i + 1].strip(".,!?")
-                        if name and len(name) > 2:
+                        if (name and 
+                            len(name) > 2 and
+                            name.lower() not in palavras_comuns and
+                            not any(char.isdigit() for char in name)):
                             lead_info["name"] = name.title()
                             logger.info(f"Nome identificado: {name}")
                             break
@@ -931,6 +1008,32 @@ Mas estou aqui para ajudar você com energia solar! Pode repetir sua pergunta?""
 
 Por favor, tente novamente em alguns instantes. Nossa equipe já foi notificada!"""
     
+    def _should_react_to_message(
+        self, 
+        message: str,
+        analysis: Dict[str, Any],
+        session_state: Dict[str, Any],
+        media_type: Optional[str] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Determina se deve reagir à mensagem e qual emoji usar
+        
+        Returns:
+            Tuple[bool, Optional[str]]: (deve_reagir, emoji)
+        """
+        message_lower = message.lower()
+        
+        # Reagir apenas a conta de luz/documento com joinha
+        if media_type in ["image", "document"]:
+            return True, "👍"
+            
+        # Reagir a agradecimentos com coração
+        if any(word in message_lower for word in ["obrigado", "obrigada", "agradeço", "valeu", "thanks"]):
+            return True, "❤️"
+                
+        # Não reagir em outros casos
+        return False, None
+    
     def _calculate_qualification_score(self, lead_info: Dict[str, Any], session_state: Dict[str, Any]) -> Optional[int]:
         """Calcula score de qualificação do lead baseado nas informações coletadas"""
         score = 0
@@ -957,8 +1060,8 @@ Por favor, tente novamente em alguns instantes. Nossa equipe já foi notificada!
                     score += 10
                 elif bill_value > 300:
                     score += 5
-            except:
-                pass
+            except (ValueError, TypeError, KeyError) as e:
+                logger.debug(f"Erro ao processar valor da conta para lead score: {e}")
         
         if lead_info.get("consumption_kwh"):
             score += 10

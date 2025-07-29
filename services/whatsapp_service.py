@@ -17,9 +17,11 @@ import base64
 from services.evolution_api import evolution_client
 # from services.redis_service import redis_service
 from services.redis_fallback import get_redis_fallback_service
+from services.message_buffer_service import message_buffer_service
 from agents.sdr_agent import create_sdr_agent
 from utils.reasoning_metrics import log_reasoning, get_reasoning_report
 from services.analytics_service import analytics_service
+from agents.tools.message_chunker_tool import chunk_message_standalone
 
 logger = logging.getLogger(__name__)
 
@@ -85,14 +87,46 @@ class WhatsAppService:
             logger.debug("Ignorando mensagem de grupo")
             return {"status": "ignored", "reason": "group_message"}
         
-        # Processar mensagem
-        response = await self._process_message(message_info)
+        # Verificar se deve adicionar ao buffer ou processar imediatamente
+        phone = message_info["from"]
         
-        return {
-            "status": "success",
-            "message_id": message_info["id"],
-            "response_sent": bool(response)
+        # Preparar dados da mensagem para o buffer
+        buffer_message_data = {
+            "id": message_info["id"],
+            "content": message_info["content"],
+            "type": message_info["type"],
+            "media_data": message_info["media_data"],
+            "timestamp": datetime.fromtimestamp(message_info["timestamp"]).isoformat() if message_info["timestamp"] else datetime.now().isoformat(),
+            "pushName": message_info["pushName"]
         }
+        
+        # Callback para processar mensagens consolidadas
+        async def process_buffered_callback(messages: List[Dict[str, Any]]):
+            await self._process_buffered_messages(phone, messages)
+        
+        # Tentar adicionar ao buffer
+        added_to_buffer = await message_buffer_service.add_message(
+            phone=phone,
+            message_data=buffer_message_data,
+            process_callback=process_buffered_callback
+        )
+        
+        if added_to_buffer:
+            logger.info(f"Mensagem {message_info['id']} adicionada ao buffer para {phone}")
+            return {
+                "status": "buffered",
+                "message_id": message_info["id"],
+                "buffer_active": True
+            }
+        else:
+            # Processar imediatamente se buffer desabilitado
+            response = await self._process_message(message_info)
+            
+            return {
+                "status": "success",
+                "message_id": message_info["id"],
+                "response_sent": bool(response)
+            }
     
     def _extract_message_info(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Extrai informações da mensagem"""
@@ -222,7 +256,8 @@ class WhatsAppService:
                 message=message_info["content"],
                 phone_number=message_info["from"],
                 media_type=message_info["type"] if media_data else None,
-                media_data=media_data
+                media_data=media_data,
+                message_id=message_info["id"]  # Passar message_id
             )
             
             # Rastrear evento de analytics
@@ -250,16 +285,36 @@ class WhatsAppService:
                     }
                 )
             
-            # Enviar resposta
-            if response:
-                await evolution_client.send_text_message(
+            # Enviar reação se apropriado
+            if metadata.get("should_react") and metadata.get("reaction_emoji"):
+                try:
+                    await evolution_client.send_reaction(
+                        phone=message_info["from"],
+                        message_id=message_info["id"],
+                        emoji=metadata["reaction_emoji"]
+                    )
+                    logger.info(f"Reação {metadata['reaction_emoji']} enviada para {message_info['from']}")
+                except Exception as e:
+                    logger.warning(f"Erro ao enviar reação: {e}")
+            
+            # Verificar se deve usar chunking
+            if metadata.get('use_chunking', True) and len(response) > 100:
+                # Enviar resposta em chunks
+                await self._send_chunked_messages(
                     phone=message_info["from"],
                     message=response,
-                    quoted_message_id=message_info["id"]
+                    metadata=metadata
+                )
+            else:
+                # Enviar resposta única
+                await evolution_client.send_text_message(
+                    phone=message_info["from"],
+                    message=response
+                    # Removido quoted_message_id para não marcar mensagens individuais
                 )
                 
-                logger.info(f"Resposta enviada para {message_info['from']}")
-                return response
+            logger.info(f"Resposta enviada para {message_info['from']}")
+            return response
             
         except Exception as e:
             logger.error(f"Erro ao processar mensagem: {e}", exc_info=True)
@@ -275,10 +330,98 @@ class WhatsAppService:
                     phone=message_info["from"],
                     message=error_message
                 )
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Erro ao enviar mensagem de erro para {message_info['from']}: {e}")
                 
         return None
+    
+    async def _send_chunked_messages(
+        self,
+        phone: str,
+        message: str,
+        metadata: Dict[str, Any]
+    ):
+        """
+        Envia mensagem dividida em chunks para criar conversação mais natural
+        """
+        try:
+            # Obter configuração de chunking
+            chunking_enabled = os.getenv("MESSAGE_CHUNKING_ENABLED", "true").lower() == "true"
+            
+            if not chunking_enabled:
+                # Se desabilitado, enviar mensagem completa
+                await evolution_client.send_text_message(phone=phone, message=message)
+                return
+            
+            # Analisar estágio e contexto para chunking
+            stage = metadata.get('stage', 'INITIAL_CONTACT')
+            
+            # Configurar parâmetros baseados no estágio e configurações do .env
+            join_probability = float(os.getenv("CHUNK_JOIN_PROBABILITY", "0.6"))
+            max_chunk_words = int(os.getenv("CHUNK_MAX_WORDS", "30"))
+            max_chars_per_chunk = int(os.getenv("CHUNK_MAX_CHARS", "1200"))
+            
+            # Ajustar baseado no estágio
+            if stage == 'INITIAL_CONTACT':
+                join_probability = max(0.3, join_probability - 0.2)  # Mais chunks na saudação
+                max_chunk_words = min(20, max_chunk_words)
+            elif stage in ['QUALIFICATION', 'DISCOVERY']:
+                join_probability = min(0.8, join_probability + 0.1)  # Menos chunks em explicações
+                max_chunk_words = min(35, max_chunk_words + 5)
+            
+            # Dividir mensagem em chunks
+            chunk_result = await chunk_message_standalone(
+                message=message,
+                join_probability=join_probability,
+                max_chunk_words=max_chunk_words,
+                max_chars_per_chunk=max_chars_per_chunk
+            )
+            
+            chunks = chunk_result.get("chunks", [message])
+            delays = chunk_result.get("delays", [2000] * len(chunks))
+            
+            logger.info(f"Enviando mensagem em {len(chunks)} chunks para {phone}")
+            
+            # Enviar cada chunk com delay e typing simulation
+            for i, (chunk, delay) in enumerate(zip(chunks, delays)):
+                # Simular digitação (exceto para o primeiro chunk)
+                if i > 0:
+                    typing_duration = min(delay, 3000)  # Máximo 3s de typing
+                    await evolution_client.send_typing(
+                        phone=phone,
+                        duration=typing_duration
+                    )
+                    # Aguardar um pouco antes de enviar
+                    await asyncio.sleep(typing_duration / 1000)
+                
+                # Enviar chunk
+                await evolution_client.send_text_message(
+                    phone=phone,
+                    message=chunk,
+                    delay=100 if i > 0 else 0  # Delay mínimo entre mensagens
+                )
+                
+                # Pequena pausa entre chunks (se não for o último)
+                if i < len(chunks) - 1:
+                    pause = min(delay / 2, 1000) / 1000  # Metade do delay ou 1s
+                    await asyncio.sleep(pause)
+            
+            # Rastrear evento
+            await analytics_service.track_event(
+                event_type="chunked_message_sent",
+                event_data={
+                    "chunk_count": len(chunks),
+                    "total_length": len(message),
+                    "stage": stage,
+                    "total_time": chunk_result.get("total_reading_time", 0)
+                },
+                session_id=phone
+            )
+            
+        except Exception as e:
+            logger.error(f"Erro ao enviar mensagens em chunks: {e}")
+            # Fallback: enviar mensagem completa
+            await evolution_client.send_text_message(phone=phone, message=message)
     
     async def _process_media(
         self, 
@@ -485,6 +628,136 @@ class WhatsAppService:
         
         # TODO: Implementar lógica para processar respostas de enquete
         logger.info(f"Resposta de enquete recebida: {poll_info}")
+    
+    async def _process_buffered_messages(self, phone: str, messages: List[Dict[str, Any]]):
+        """Processa múltiplas mensagens que foram bufferizadas"""
+        
+        start_time = datetime.now()
+        
+        try:
+            logger.info(f"Processando {len(messages)} mensagens bufferizadas de {phone}")
+            
+            # Consolidar informações das mensagens
+            consolidated_content = []
+            media_items = []
+            first_message_id = None
+            last_message_id = None
+            
+            for i, msg in enumerate(messages):
+                if i == 0:
+                    first_message_id = msg.get("id")
+                last_message_id = msg.get("id")
+                
+                # Adicionar conteúdo textual
+                if msg.get("type") == "text" and msg.get("content"):
+                    consolidated_content.append(msg["content"])
+                
+                # Coletar mídia
+                if msg.get("type") in ["image", "audio", "document"] and msg.get("media_data"):
+                    media_items.append({
+                        "type": msg["type"],
+                        "content": msg.get("content", ""),
+                        "media_data": msg["media_data"],
+                        "message_id": msg["id"]
+                    })
+            
+            # Criar mensagem consolidada
+            final_content = " ".join(consolidated_content)
+            
+            # Se não houver conteúdo de texto mas houver mídia
+            if not final_content and media_items:
+                final_content = f"O usuário enviou {len(media_items)} arquivo(s)"
+            
+            # Criar message_info consolidado
+            consolidated_message_info = {
+                "id": last_message_id,  # Usar ID da última mensagem
+                "from": phone,
+                "timestamp": int(datetime.now().timestamp()),
+                "pushName": messages[0].get("pushName", "") if messages else "",
+                "type": "buffered",
+                "content": final_content,
+                "media_data": None,
+                "buffered_messages": messages,  # Manter referência às mensagens originais
+                "buffered_count": len(messages),
+                "has_media": len(media_items) > 0,
+                "media_items": media_items
+            }
+            
+            # Marcar primeira mensagem como lida
+            if first_message_id:
+                await evolution_client.mark_as_read(
+                    message_id=first_message_id,
+                    phone=phone
+                )
+            
+            # Simular digitação por tempo proporcional ao conteúdo
+            typing_duration = min(3000 + (len(final_content) * 20), 8000)  # 3-8 segundos
+            await evolution_client.send_typing(
+                phone=phone,
+                duration=typing_duration
+            )
+            
+            # Processar com o agente
+            response, metadata = await self.agent.process_buffered_messages(
+                messages=messages,
+                phone_number=phone,
+                consolidated_content=final_content,
+                media_items=media_items
+            )
+            
+            # Adicionar metadados específicos do buffer
+            metadata["is_buffered"] = True
+            metadata["buffered_count"] = len(messages)
+            metadata["buffer_time_span"] = (datetime.now() - start_time).total_seconds()
+            
+            # Rastrear evento
+            await analytics_service.track_event(
+                event_type="buffered_messages_processed",
+                event_data={
+                    "message_count": len(messages),
+                    "has_media": len(media_items) > 0,
+                    "media_count": len(media_items),
+                    "consolidated_length": len(final_content),
+                    "processing_time": metadata["buffer_time_span"],
+                    "stage": metadata.get("stage")
+                },
+                session_id=phone
+            )
+            
+            # Enviar resposta
+            if response:
+                # Usar chunking para mensagens bufferizadas também
+                if metadata.get('use_chunking', True) and len(response) > 100:
+                    await self._send_chunked_messages(
+                        phone=phone,
+                        message=response,
+                        metadata=metadata
+                    )
+                else:
+                    await evolution_client.send_text_message(
+                        phone=phone,
+                        message=response
+                        # Não citar mensagem específica quando for buffer
+                    )
+                
+                logger.info(f"Resposta enviada para {len(messages)} mensagens bufferizadas de {phone}")
+            
+        except Exception as e:
+            logger.error(f"Erro ao processar mensagens bufferizadas: {e}", exc_info=True)
+            
+            # Enviar mensagem de erro
+            error_message = (
+                "Desculpe, recebi suas mensagens mas tive um problema ao processá-las. "
+                "Pode resumir em uma única mensagem, por favor?"
+            )
+            
+            try:
+                await evolution_client.send_text_message(
+                    phone=phone,
+                    message=error_message
+                )
+            except Exception as send_error:
+                logger.error(f"Erro ao enviar mensagem de erro: {send_error}")
 
 
 # Instância global
