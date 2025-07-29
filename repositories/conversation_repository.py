@@ -152,6 +152,39 @@ class ConversationRepository(BaseRepository[Conversation]):
         except Exception as e:
             logger.error(f"Error in create_or_resume conversation: {e}")
             raise
+    
+    async def reset_conversation(self, conversation_id: UUID) -> Optional[Conversation]:
+        """Reseta uma conversa para o estado inicial"""
+        try:
+            return await self.update(
+                conversation_id,
+                {
+                    "current_stage": "INITIAL_CONTACT",
+                    "sentiment": "neutro",
+                    "total_messages": 0,
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error resetting conversation: {e}")
+            return None
+    
+    async def get_conversation_by_phone(self, phone: str) -> Optional[Conversation]:
+        """Busca conversa ativa por número de telefone"""
+        try:
+            # Primeiro buscar o lead pelo telefone
+            from repositories.lead_repository import lead_repository
+            lead = await lead_repository.get_lead_by_phone(phone)
+            
+            if not lead:
+                return None
+            
+            # Buscar conversa ativa do lead
+            return await self.get_active_by_lead(lead.id)
+            
+        except Exception as e:
+            logger.error(f"Error getting conversation by phone: {e}")
+            return None
 
 
 # Instância global

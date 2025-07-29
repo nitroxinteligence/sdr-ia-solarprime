@@ -355,6 +355,21 @@ class MessageRepository(BaseRepository[Message]):
         
         duration = (last_msg.created_at - first_msg.created_at).total_seconds() / 60
         return round(duration, 2)
+    
+    async def delete_conversation_messages(self, conversation_id: UUID) -> bool:
+        """Deleta todas as mensagens de uma conversa"""
+        try:
+            response = await self.client.table("messages")\
+                .delete()\
+                .eq("conversation_id", str(conversation_id))\
+                .execute()
+            
+            logger.info(f"Deletadas mensagens da conversa {conversation_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erro ao deletar mensagens: {e}")
+            return False
 
 
 # Instância global

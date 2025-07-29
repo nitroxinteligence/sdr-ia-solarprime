@@ -227,6 +227,10 @@ class WhatsAppService:
         phone = message_info["from"]
         
         try:
+            # Verificar se é comando especial #CLEAR
+            if message_info["content"].strip().upper() == "#CLEAR":
+                return await self._handle_clear_command(phone, message_info)
+            
             # Verificar cache de conversa
             cached_state = await self.redis_service.get_conversation_state(phone)
             if cached_state:
@@ -801,6 +805,82 @@ class WhatsAppService:
                 )
             except Exception as send_error:
                 logger.error(f"Erro ao enviar mensagem de erro: {send_error}")
+    
+    async def _handle_clear_command(self, phone: str, message_info: Dict[str, Any]) -> str:
+        """Processa comando #CLEAR para limpar histórico da conversa"""
+        
+        try:
+            logger.info(f"Comando #CLEAR recebido de {phone}")
+            
+            # Importar repositórios necessários
+            from repositories.message_repository import message_repository
+            from repositories.conversation_repository import conversation_repository
+            from repositories.lead_repository import lead_repository
+            
+            # 1. Limpar mensagens do banco de dados
+            conversation = await conversation_repository.get_conversation_by_phone(phone)
+            if conversation:
+                await message_repository.delete_conversation_messages(conversation.id)
+                logger.info(f"Mensagens deletadas para conversa {conversation.id}")
+                
+                # 2. Resetar conversa
+                await conversation_repository.reset_conversation(conversation.id)
+                logger.info(f"Conversa {conversation.id} resetada")
+            
+            # 3. Limpar cache Redis
+            await self.redis_service.clear_conversation_state(phone)
+            logger.info(f"Cache Redis limpo para {phone}")
+            
+            # 4. Limpar memória do agente
+            # O agente será recriado na próxima mensagem
+            if phone in self.sessions:
+                del self.sessions[phone]
+                logger.info(f"Sessão do agente removida para {phone}")
+            
+            # 5. Limpar lead se existir
+            lead = await lead_repository.get_lead_by_phone(phone)
+            if lead:
+                await lead_repository.delete_lead(lead.id)
+                logger.info(f"Lead {lead.id} deletado")
+            
+            # 6. Limpar follow-ups pendentes
+            await follow_up_service.cancel_all_follow_ups_for_phone(phone)
+            logger.info(f"Follow-ups cancelados para {phone}")
+            
+            # Enviar confirmação
+            confirmation_message = (
+                "✅ *Comando #CLEAR executado com sucesso!*\n\n"
+                "🧹 Todas as informações foram limpas:\n"
+                "• Histórico de mensagens deletado\n"
+                "• Memória do agente resetada\n"
+                "• Dados de qualificação removidos\n"
+                "• Follow-ups cancelados\n\n"
+                "💬 Você pode iniciar uma nova conversa agora.\n"
+                "Olá! Como posso ajudá-lo hoje?"
+            )
+            
+            await evolution_client.send_text_message(
+                phone=phone,
+                message=confirmation_message
+            )
+            
+            logger.info(f"Comando #CLEAR executado com sucesso para {phone}")
+            return confirmation_message
+            
+        except Exception as e:
+            logger.error(f"Erro ao executar comando #CLEAR: {e}", exc_info=True)
+            
+            error_message = (
+                "❌ Erro ao executar comando #CLEAR.\n"
+                "Por favor, tente novamente mais tarde."
+            )
+            
+            await evolution_client.send_text_message(
+                phone=phone,
+                message=error_message
+            )
+            
+            return error_message
 
 
 # Instância global

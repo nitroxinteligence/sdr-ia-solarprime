@@ -119,6 +119,22 @@ class LeadRepository(BaseRepository[Lead]):
         except Exception as e:
             logger.error(f"Error searching leads: {e}")
             return []
+    
+    async def delete_lead(self, lead_id: UUID) -> bool:
+        """Deleta um lead e todas as suas relações"""
+        try:
+            # Deletar o lead (as relações em cascata devem estar configuradas no banco)
+            response = await self.client.table("leads")\
+                .delete()\
+                .eq("id", str(lead_id))\
+                .execute()
+            
+            logger.info(f"Lead {lead_id} deletado com sucesso")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erro ao deletar lead: {e}")
+            return False
 
 
 # Instância global

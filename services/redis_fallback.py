@@ -193,6 +193,24 @@ class RedisFallbackService:
         """Obtém mídia do cache"""
         key = f"media:{media_id}"
         return await self.get(key)
+    
+    async def clear_conversation_state(self, phone: str) -> bool:
+        """Limpa todo o estado de conversa do cache"""
+        keys_to_delete = [
+            f"{self.prefix}:conversation:{phone}",
+            f"{self.prefix}:reasoning:{phone}",
+            f"{self.prefix}:lead:{phone}",
+            f"{self.prefix}:stage:{phone}",
+            f"{self.prefix}:context:{phone}"
+        ]
+        
+        success = True
+        for key in keys_to_delete:
+            if not await self.delete(key):
+                success = False
+        
+        logger.info(f"Cache limpo para {phone}: {'sucesso' if success else 'parcial'}")
+        return success
 
 
 # Instância global será criada sob demanda

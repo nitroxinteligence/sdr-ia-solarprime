@@ -195,6 +195,33 @@ class FollowUpService:
             
         except Exception as e:
             logger.error(f"Erro ao marcar follow-up como executado: {e}")
+    
+    async def cancel_all_follow_ups_for_phone(self, phone_number: str):
+        """Cancela todos os follow-ups pendentes de um número"""
+        try:
+            # Buscar lead pelo telefone
+            response = self.supabase.table('leads')\
+                .select('id')\
+                .eq('phone_number', phone_number)\
+                .execute()
+            
+            if not response.data:
+                logger.info(f"Nenhum lead encontrado para {phone_number}")
+                return
+            
+            lead_id = response.data[0]['id']
+            
+            # Cancelar todos os follow-ups pendentes
+            self.supabase.table('follow_ups')\
+                .update({'status': 'cancelled'})\
+                .eq('lead_id', lead_id)\
+                .eq('status', 'pending')\
+                .execute()
+            
+            logger.info(f"Follow-ups cancelados para {phone_number}")
+            
+        except Exception as e:
+            logger.error(f"Erro ao cancelar follow-ups: {e}")
 
 
 # Instância global
