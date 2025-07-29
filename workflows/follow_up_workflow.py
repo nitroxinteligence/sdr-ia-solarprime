@@ -174,13 +174,21 @@ class FollowUpWorkflow(Workflow):
             if result.data:
                 lead = result.data
                 # Buscar profile separadamente se necessário
-                profile_result = self.supabase.table('profiles')\
-                    .select('phone')\
-                    .eq('id', lead.get('profile_id'))\
-                    .single()\
-                    .execute()
+                phone_number = lead.get('phone_number')
+                
+                if not phone_number and lead.get('profile_id'):
+                    profile_result = self.supabase.table('profiles')\
+                        .select('phone')\
+                        .eq('id', lead.get('profile_id'))\
+                        .single()\
+                        .execute()
                     
-                phone_number = lead.get('phone_number') or (profile_result.data.get('phone') if profile_result.data else None)
+                    if profile_result.data:
+                        phone_number = profile_result.data.get('phone')
+                
+                if not phone_number:
+                    logger.warning(f"Lead {lead_id} sem número de telefone")
+                    return None
                 
                 return {
                     'id': lead['id'],

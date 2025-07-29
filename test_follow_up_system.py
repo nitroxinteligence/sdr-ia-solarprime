@@ -63,7 +63,7 @@ async def test_follow_up_execution():
     """Testa execução de follow-up"""
     logger.info("\n=== TESTE 2: Execução de Follow-up ===")
     
-    # Criar um follow-up para execução imediata
+    # Buscar um lead existente
     leads = await lead_repository.get_all(limit=1)
     if not leads:
         logger.error("Nenhum lead encontrado")
@@ -71,11 +71,19 @@ async def test_follow_up_execution():
         
     lead = leads[0]
     
+    # Usar o ID correto do lead
+    lead_id = str(lead.id) if lead.id else None
+    if not lead_id:
+        logger.error("Lead sem ID válido")
+        return False
+        
+    logger.info(f"Usando lead para teste: {lead.name} (ID: {lead_id})")
+    
     # Criar follow-up com tempo passado (para execução imediata)
     scheduled_time = datetime.now() - timedelta(minutes=5)  # 5 minutos atrás
     
     follow_up_data = {
-        'lead_id': str(lead.id),
+        'lead_id': lead_id,  # Usar o lead_id correto
         'type': 'reminder',  # Usar tipo existente
         'scheduled_at': scheduled_time.isoformat(),
         'status': 'pending',
@@ -93,7 +101,7 @@ async def test_follow_up_execution():
         
         # Como run retorna um Iterator, precisamos consumir os resultados
         exec_results = list(workflow.run(
-            lead_id=str(lead.id),
+            lead_id=follow_up_data['lead_id'],  # Usar o ID correto
             follow_up_type='reminder'  # Usar tipo existente
         ))
         
