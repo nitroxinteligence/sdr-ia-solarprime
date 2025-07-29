@@ -186,6 +186,11 @@ class SDRAgentV2:
         start_time = datetime.now()
         phone = format_phone_number(phone_number)
         
+        # Log detalhado de entrada
+        logger.info(f"📥 V2 - Processando mensagem: phone={phone}, media_type={media_type}")
+        if media_data:
+            logger.debug(f"📦 V2 - Media data keys: {media_data.keys() if isinstance(media_data, dict) else type(media_data)}")
+        
         try:
             # Obter agente
             agent = self._get_or_create_agent(phone)
@@ -243,9 +248,31 @@ class SDRAgentV2:
             
             # Adicionar mídia se houver
             if media_type == 'image' and media_data:
-                inputs['images'] = [Image(data=media_data, description="Conta de energia elétrica")]
+                logger.info("🖼️ Processando imagem no V2...")
+                # Criar objeto Image corretamente
+                image_obj = self._create_image_object(media_data)
+                if image_obj:
+                    inputs['images'] = [image_obj]
+                    logger.info("✅ V2 - Imagem adicionada ao input")
             elif media_type == 'audio' and media_data:
+                logger.info("🎤 Processando áudio no V2...")
                 inputs['audio'] = [Audio(data=media_data)]
+            elif media_type == 'buffered' and media_data:
+                # Extrair tipo real de buffered
+                logger.info("📦 Processando mídia buffered no V2...")
+                if isinstance(media_data, dict):
+                    actual_type = media_data.get('type', 'unknown')
+                    logger.info(f"Tipo real da mídia: {actual_type}")
+                    
+                    # Reprocessar com tipo correto
+                    if actual_type == 'image':
+                        image_obj = self._create_image_object(media_data.get('media_data', media_data))
+                        if image_obj:
+                            inputs['images'] = [image_obj]
+                    elif actual_type == 'audio':
+                        inputs['audio'] = [Audio(data=media_data)]
+                    else:
+                        logger.warning(f"Tipo de mídia buffered não suportado: {actual_type}")
                 
             # Executar agente com timeout
             response = await asyncio.wait_for(
@@ -359,6 +386,55 @@ class SDRAgentV2:
         else:
             return 'SCHEDULING'
             
+    def _create_image_object(self, image_data: Any) -> Optional[Image]:
+        """Cria objeto Image do AGnO a partir de diferentes formatos"""
+        try:
+            import base64
+            
+            # Se já é um objeto Image, retornar
+            if isinstance(image_data, Image):
+                return image_data
+            
+            # Processar diferentes formatos
+            if isinstance(image_data, dict):
+                # Tentar diferentes campos
+                if 'url' in image_data:
+                    return Image(url=image_data['url'])
+                elif 'base64' in image_data:
+                    # Decodificar base64
+                    img_bytes = base64.b64decode(image_data['base64'])
+                    return Image(content=img_bytes)
+                elif 'path' in image_data:
+                    # Ler arquivo
+                    with open(image_data['path'], 'rb') as f:
+                        return Image(content=f.read())
+                elif 'data' in image_data:
+                    # Campo 'data' pode ser bytes ou base64
+                    if isinstance(image_data['data'], str):
+                        # Assumir base64
+                        img_bytes = base64.b64decode(image_data['data'])
+                        return Image(content=img_bytes)
+                    else:
+                        return Image(content=image_data['data'])
+            elif isinstance(image_data, str):
+                # String pode ser URL ou base64
+                if image_data.startswith('http'):
+                    return Image(url=image_data)
+                else:
+                    # Tentar decodificar como base64
+                    img_bytes = base64.b64decode(image_data)
+                    return Image(content=img_bytes)
+            elif isinstance(image_data, bytes):
+                # Bytes diretos
+                return Image(content=image_data)
+            
+            logger.error(f"Formato de imagem não suportado no V2: {type(image_data)}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Erro ao criar objeto Image no V2: {e}")
+            return None
+    
     def _calculate_lead_score(self, lead_context: Dict[str, Any], session_state: Dict[str, Any]) -> int:
         """Calcula score de qualificação do lead"""
         score = 0

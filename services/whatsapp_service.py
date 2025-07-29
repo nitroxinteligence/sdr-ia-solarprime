@@ -746,11 +746,21 @@ class WhatsAppService:
             
             # Processar com o agente usando o conteúdo consolidado
             logger.info(f"🤖 Enviando conteúdo consolidado para o agente processar...")
+            
+            # Determinar tipo de mídia correto
+            actual_media_type = None
+            actual_media_data = None
+            if media_items:
+                # Pegar o tipo real da primeira mídia
+                actual_media_type = media_items[0]['type']
+                actual_media_data = media_items[0]['media_data']
+                logger.info(f"📸 Mídia detectada no buffer: tipo={actual_media_type}")
+            
             response, metadata = await self.agent.process_message(
                 message=final_content,
                 phone_number=phone,
-                media_type="buffered" if media_items else None,
-                media_data=media_items[0] if media_items else None,
+                media_type=actual_media_type,
+                media_data=actual_media_data,
                 message_id=last_message_id
             )
             

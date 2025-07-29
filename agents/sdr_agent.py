@@ -811,7 +811,8 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
         """Processa mídia usando capacidades do Gemini 2.5 Pro"""
         try:
             if media_type == "image":
-                logger.info("Processando imagem de conta de luz...")
+                logger.info("🖼️ Iniciando processamento de imagem...")
+                logger.debug(f"Dados da mídia recebidos: type={type(media_data)}, keys={media_data.keys() if isinstance(media_data, dict) else 'N/A'}")
                 
                 # Criar prompt específico para análise de conta de luz
                 analysis_prompt = """Analise esta conta de energia elétrica e extraia IMEDIATAMENTE as seguintes informações:
@@ -841,16 +842,17 @@ Formato esperado:
 Se alguma informação não estiver disponível, use null."""
                 
                 # Processar imagem com Gemini Vision
+                logger.info("📤 Enviando imagem para análise com Gemini Vision...")
                 result = await self._analyze_image_with_gemini(
                     media_data, 
                     analysis_prompt
                 )
                 
                 if result:
-                    logger.info(f"Dados extraídos da conta: {json.dumps(result, indent=2)}")
+                    logger.success(f"✅ Análise concluída! Dados extraídos: {json.dumps(result, indent=2)}")
                     return result
                 else:
-                    logger.warning("Não foi possível extrair dados da imagem")
+                    logger.warning("❌ Não foi possível extrair dados da imagem")
                     return {
                         "media_received": "image",
                         "analysis_status": "failed",
@@ -859,11 +861,34 @@ Se alguma informação não estiver disponível, use null."""
                     }
                     
             elif media_type == "audio":
-                logger.info("Processamento de áudio ainda não implementado")
-                return {
-                    "media_received": "audio",
-                    "analysis_pending": True
-                }
+                logger.info("🎤 Iniciando processamento de áudio...")
+                logger.debug(f"Dados do áudio recebidos: type={type(media_data)}, keys={media_data.keys() if isinstance(media_data, dict) else 'N/A'}")
+                
+                # Criar prompt para transcrição e análise
+                audio_prompt = """Transcreva este áudio e analise o conteúdo para identificar:
+
+1. Nome do cliente (se mencionado)
+2. Valor da conta de luz (se mencionado) 
+3. Interesse em economia/desconto
+4. Dúvidas ou perguntas
+5. Sentimento geral (positivo/negativo/neutro)
+
+Retorne um JSON com essas informações."""
+                
+                # Processar áudio
+                result = await self._analyze_audio_with_gemini(media_data, audio_prompt)
+                
+                if result:
+                    logger.success(f"✅ Áudio processado! Transcrição: {result.get('transcription', 'N/A')[:100]}...")
+                    return result
+                else:
+                    logger.warning("❌ Não foi possível processar o áudio")
+                    return {
+                        "media_received": "audio",
+                        "analysis_status": "failed",
+                        "user_message": "Não consegui processar seu áudio. Pode tentar enviar novamente ou digitar sua mensagem? 🎤",
+                        "suggestion": "Certifique-se de que o áudio está claro e sem muito ruído de fundo."
+                    }
                 
             elif media_type == "document":
                 # Verificar mimetype (sem underscore)
@@ -881,6 +906,28 @@ Se alguma informação não estiver disponível, use null."""
                         "mimetype": mimetype,
                         "analysis_pending": True
                     }
+            elif media_type == "buffered":
+                # Tipo buffered pode conter diferentes tipos de mídia
+                logger.info("Processando mídia do tipo buffered...")
+                
+                # Tentar extrair o tipo real da mídia
+                if isinstance(media_data, dict):
+                    actual_type = media_data.get('type', 'unknown')
+                    logger.info(f"Tipo real da mídia buffered: {actual_type}")
+                    
+                    # Reprocessar com o tipo correto
+                    if actual_type in ["image", "audio", "document"]:
+                        return await self._process_media(actual_type, media_data)
+                    else:
+                        logger.warning(f"Tipo de mídia buffered não reconhecido: {actual_type}")
+                        return {
+                            "media_received": "buffered",
+                            "actual_type": actual_type,
+                            "analysis_pending": True
+                        }
+                else:
+                    logger.warning("Dados de mídia buffered inválidos")
+                    return None
             else:
                 logger.warning(f"Tipo de mídia não suportado: {media_type}")
                 return None
@@ -1018,15 +1065,19 @@ Se alguma informação não estiver disponível, use null."""
     ) -> Optional[Dict[str, Any]]:
         """Analisa imagem usando Gemini 2.5 Pro Vision"""
         try:
+            logger.info("🔍 Iniciando análise de imagem com Gemini...")
+            
             # Criar imagem AGnO usando método auxiliar
             agno_image = self._create_agno_image(image_data)
             
             if not agno_image:
-                logger.error("Não foi possível criar objeto Image AGnO")
+                logger.error("❌ Não foi possível criar objeto Image AGnO")
                 return None
             
+            logger.success("✅ Objeto Image AGnO criado com sucesso")
+            
             # Executar análise usando o agente principal com prompt específico
-            logger.info("Enviando imagem para análise com Gemini Vision...")
+            logger.info("📡 Enviando imagem para API do Gemini Vision...")
             
             # Criar prompt combinado para análise
             combined_prompt = f"""Você é um assistente especializado em análise de contas de energia.
@@ -1045,20 +1096,24 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
             )
             
             # Executar análise
+            logger.info("🚀 Executando análise da imagem...")
             result = await asyncio.to_thread(
                 vision_agent.run,
                 combined_prompt,
                 images=[agno_image]  # Passar objeto Image do AGnO
             )
             
+            logger.info(f"📝 Resposta bruta do Gemini: {result[:200]}..." if result else "❌ Resposta vazia")
+            
             # Parsear resultado JSON
             parsed_result = self._parse_vision_result(result)
             
             if parsed_result:
-                logger.info("Imagem analisada com sucesso pelo Gemini")
+                logger.success("✅ Imagem analisada com sucesso pelo Gemini!")
+                logger.info(f"📊 Dados estruturados extraídos: {list(parsed_result.keys())}")
                 return parsed_result
             else:
-                logger.warning("Gemini não conseguiu extrair dados estruturados da imagem")
+                logger.warning("⚠️ Gemini não conseguiu extrair dados estruturados da imagem")
                 return None
             
         except Exception as e:
@@ -1067,6 +1122,61 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
             if self.fallback_model and self.config.enable_fallback:
                 logger.info("Tentando análise de imagem com OpenAI GPT-4.1-nano...")
                 return await self._analyze_image_with_openai(image_data, analysis_prompt)
+            return None
+    
+    async def _analyze_audio_with_gemini(
+        self,
+        audio_data: Any,
+        analysis_prompt: str
+    ) -> Optional[Dict[str, Any]]:
+        """Analisa áudio usando Gemini 2.5 Pro"""
+        try:
+            logger.info("🎵 Iniciando análise de áudio com Gemini...")
+            
+            # Criar objeto Audio do AGnO
+            agno_audio = self._create_agno_audio(audio_data)
+            
+            if not agno_audio:
+                logger.error("❌ Não foi possível criar objeto Audio AGnO")
+                return None
+            
+            logger.success("✅ Objeto Audio AGnO criado com sucesso")
+            
+            # Criar agente para análise de áudio
+            audio_agent = Agent(
+                name="Analisador de Áudio Gemini",
+                description="Transcritor e analisador de áudio",
+                instructions="Transcreva áudios e retorne análise estruturada em JSON.",
+                model=self.model,  # Gemini 2.5 Pro
+                reasoning=False
+            )
+            
+            # Executar análise
+            logger.info("🚀 Executando análise do áudio...")
+            result = await asyncio.to_thread(
+                audio_agent.run,
+                analysis_prompt,
+                audio=[agno_audio]  # Passar objeto Audio
+            )
+            
+            logger.info(f"📝 Resposta do Gemini: {result[:200]}..." if result else "❌ Resposta vazia")
+            
+            # Parsear resultado
+            parsed_result = self._parse_audio_result(result)
+            
+            if parsed_result:
+                logger.success("✅ Áudio analisado com sucesso!")
+                return parsed_result
+            else:
+                logger.warning("⚠️ Não foi possível extrair dados do áudio")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Erro ao analisar áudio: {e}")
+            # Tentar fallback com OpenAI se disponível
+            if self.fallback_model and self.config.enable_fallback:
+                logger.info("Tentando análise de áudio com OpenAI...")
+                return await self._analyze_audio_with_openai(audio_data, analysis_prompt)
             return None
     
     async def _analyze_image_with_openai(
@@ -1118,15 +1228,19 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
     def _create_agno_image(self, image_data: Any) -> Optional[Image]:
         """Cria objeto Image do AGnO a partir de diferentes formatos"""
         try:
+            logger.info("🏗️ Criando objeto Image do AGnO...")
+            
             # Importar validador
             from utils.image_validator import ImageValidator
             
             # Se já é um objeto Image, retornar
             if isinstance(image_data, Image):
+                logger.info("✅ Dados já são um objeto Image AGnO")
                 return image_data
             
             # Validar dados da imagem primeiro
             if isinstance(image_data, dict):
+                logger.info(f"📦 Processando dict com keys: {list(image_data.keys())}")
                 is_valid, error_msg, metadata = ImageValidator.validate_image_data(image_data)
                 
                 if not is_valid:
@@ -1184,6 +1298,137 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
             
         except Exception as e:
             logger.error(f"Erro ao criar Image AGnO: {e}")
+            return None
+    
+    def _create_agno_audio(self, audio_data: Any) -> Optional[Audio]:
+        """Cria objeto Audio do AGnO a partir de diferentes formatos"""
+        try:
+            logger.info("🎵 Criando objeto Audio do AGnO...")
+            
+            # Se já é um objeto Audio, retornar
+            if isinstance(audio_data, Audio):
+                logger.info("✅ Dados já são um objeto Audio AGnO")
+                return audio_data
+            
+            # Processar diferentes formatos
+            if isinstance(audio_data, dict):
+                logger.info(f"📦 Processando dict com keys: {list(audio_data.keys())}")
+                
+                # Criar objeto Audio baseado no tipo
+                if 'url' in audio_data:
+                    return Audio(url=audio_data['url'])
+                elif 'base64' in audio_data:
+                    try:
+                        audio_bytes = base64.b64decode(audio_data['base64'])
+                        return Audio(content=audio_bytes)
+                    except Exception as e:
+                        logger.error(f"Erro ao decodificar base64 do áudio: {e}")
+                        return None
+                elif 'path' in audio_data:
+                    # Ler arquivo de áudio
+                    try:
+                        with open(audio_data['path'], 'rb') as f:
+                            audio_bytes = f.read()
+                        return Audio(content=audio_bytes)
+                    except Exception as e:
+                        logger.error(f"Erro ao ler arquivo de áudio: {e}")
+                        return None
+                        
+            elif isinstance(audio_data, str):
+                # String pode ser URL ou path
+                if audio_data.startswith('http'):
+                    return Audio(url=audio_data)
+                else:
+                    # Assumir que é um path
+                    import os
+                    if os.path.exists(audio_data):
+                        with open(audio_data, 'rb') as f:
+                            return Audio(content=f.read())
+                    else:
+                        logger.error(f"Arquivo de áudio não encontrado: {audio_data}")
+                        return None
+                        
+            elif isinstance(audio_data, bytes):
+                # Bytes diretos
+                return Audio(content=audio_data)
+            
+            logger.error(f"Formato de áudio não suportado: {type(audio_data)}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Erro ao criar objeto Audio AGnO: {e}")
+            return None
+    
+    def _parse_audio_result(self, result: Any) -> Optional[Dict[str, Any]]:
+        """Parseia resultado da análise de áudio"""
+        try:
+            if not result:
+                return None
+            
+            # Se já é um dict, retornar
+            if isinstance(result, dict):
+                return result
+            
+            # Converter para string se necessário
+            result_str = str(result)
+            
+            # Tentar extrair JSON
+            import re
+            json_patterns = [
+                r'\{[^{}]*\}',  # JSON simples
+                r'\{.*?\}(?=\s*$)',  # JSON no final
+                r'```json\s*(.*?)\s*```',  # JSON em markdown
+                r'```\s*(.*?)\s*```',  # Código em markdown
+            ]
+            
+            for pattern in json_patterns:
+                matches = re.findall(pattern, result_str, re.DOTALL)
+                if matches:
+                    for match in matches:
+                        try:
+                            # Tentar parsear como JSON
+                            parsed = json.loads(match)
+                            # Adicionar transcrição se não existir
+                            if 'transcription' not in parsed and result_str:
+                                # Extrair texto antes do JSON como transcrição
+                                text_before_json = result_str[:result_str.find(match)].strip()
+                                if text_before_json:
+                                    parsed['transcription'] = text_before_json
+                            return parsed
+                        except:
+                            continue
+            
+            # Se não encontrou JSON, retornar como transcrição
+            return {
+                "transcription": result_str,
+                "analysis_status": "partial",
+                "_raw_response": result_str
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro ao parsear resultado de áudio: {e}")
+            return None
+    
+    async def _analyze_audio_with_openai(
+        self,
+        audio_data: Any,
+        analysis_prompt: str
+    ) -> Optional[Dict[str, Any]]:
+        """Analisa áudio usando OpenAI como fallback"""
+        try:
+            # OpenAI atualmente não suporta áudio diretamente no GPT-4
+            # Retornar mensagem apropriada
+            logger.warning("OpenAI GPT-4.1-nano não suporta análise de áudio diretamente")
+            return {
+                "media_received": "audio",
+                "analysis_status": "unsupported",
+                "transcription": None,
+                "user_message": "Desculpe, no momento não consigo processar áudios. Por favor, digite sua mensagem.",
+                "_processed_by": "openai_fallback"
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro no fallback de áudio: {e}")
             return None
     
     def _parse_vision_result(self, result: Any) -> Optional[Dict[str, Any]]:
