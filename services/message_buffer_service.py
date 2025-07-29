@@ -11,7 +11,7 @@ import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from loguru import logger
-from services.redis_service import redis_service
+from services.redis_fallback import get_redis_fallback_service
 
 
 class MessageBufferService:
@@ -28,6 +28,12 @@ class MessageBufferService:
         
         # Callbacks para processar mensagens consolidadas
         self._process_callbacks: Dict[str, Any] = {}
+        
+        # Buffer local de mensagens como fallback
+        self._local_buffers: Dict[str, List[Dict[str, Any]]] = {}
+        
+        # Obter instância do redis fallback
+        self.redis_service = None
         
         logger.info(f"MessageBufferService iniciado - Enabled: {self.enabled}, Timeout: {self.timeout_seconds}s")
     
@@ -52,30 +58,22 @@ class MessageBufferService:
             return False
             
         try:
-            # Criar chave única para o buffer deste número
-            buffer_key = f"msg_buffer:{phone}"
-            
             # Adicionar timestamp à mensagem
             message_data["buffered_at"] = datetime.now().isoformat()
             
-            # Adicionar mensagem ao buffer (Redis LPUSH)
-            await redis_service.connect()
+            # Inicializar buffer local se não existir
+            if phone not in self._local_buffers:
+                self._local_buffers[phone] = []
             
-            if redis_service.client:
-                # Converter para JSON para armazenar no Redis
-                message_json = json.dumps(message_data, ensure_ascii=False)
-                await redis_service.client.lpush(buffer_key, message_json)
-                
-                # Verificar se excedeu limite de mensagens
-                buffer_size = await redis_service.client.llen(buffer_key)
-                if buffer_size >= self.max_messages:
-                    logger.warning(f"Buffer excedeu limite ({self.max_messages}) para {phone}")
-                    await self._process_buffer(phone)
-                    return True
-            else:
-                # Fallback se Redis não estiver disponível
-                logger.warning("Redis não disponível, processando mensagem imediatamente")
-                return False
+            # Adicionar mensagem ao buffer local
+            self._local_buffers[phone].append(message_data)
+            logger.info(f"Mensagem adicionada ao buffer local para {phone}. Total: {len(self._local_buffers[phone])}")
+            
+            # Verificar se excedeu limite de mensagens
+            if len(self._local_buffers[phone]) >= self.max_messages:
+                logger.warning(f"Buffer excedeu limite ({self.max_messages}) para {phone}")
+                await self._process_buffer(phone)
+                return True
             
             # Salvar callback para este número
             self._process_callbacks[phone] = process_callback
@@ -90,11 +88,11 @@ class MessageBufferService:
                 self._wait_and_process(phone)
             )
             
-            logger.info(f"Mensagem adicionada ao buffer para {phone} - Timer: {self.timeout_seconds}s")
+            logger.info(f"Timer criado para {phone} - Aguardando {self.timeout_seconds}s")
             return True
             
         except Exception as e:
-            logger.error(f"Erro ao adicionar mensagem ao buffer: {e}")
+            logger.error(f"Erro ao adicionar mensagem ao buffer: {e}", exc_info=True)
             return False
     
     async def _wait_and_process(self, phone: str):
@@ -120,33 +118,15 @@ class MessageBufferService:
     async def _process_buffer(self, phone: str):
         """Processa todas as mensagens do buffer"""
         try:
-            buffer_key = f"msg_buffer:{phone}"
+            # Obter mensagens do buffer local
+            messages = self._local_buffers.get(phone, [])
             
-            # Obter todas as mensagens do buffer
-            await redis_service.connect()
-            
-            if not redis_service.client:
-                logger.error("Redis não disponível para processar buffer")
-                return
-            
-            # Obter mensagens (LRANGE para pegar todas)
-            messages_json = await redis_service.client.lrange(buffer_key, 0, -1)
-            
-            if not messages_json:
+            if not messages:
                 logger.warning(f"Buffer vazio para {phone}")
                 return
             
-            # Converter de JSON e reverter ordem (LPUSH adiciona no início)
-            messages = []
-            for msg_json in reversed(messages_json):
-                try:
-                    msg_str = msg_json.decode() if isinstance(msg_json, bytes) else msg_json
-                    messages.append(json.loads(msg_str))
-                except Exception as e:
-                    logger.error(f"Erro ao decodificar mensagem do buffer: {e}")
-            
-            # Limpar buffer
-            await redis_service.client.delete(buffer_key)
+            # Limpar buffer local
+            self._local_buffers[phone] = []
             
             # Obter callback
             callback = self._process_callbacks.get(phone)
@@ -169,14 +149,8 @@ class MessageBufferService:
     async def get_buffer_status(self, phone: str) -> Dict[str, Any]:
         """Obtém status do buffer para um número"""
         try:
-            buffer_key = f"msg_buffer:{phone}"
-            
-            await redis_service.connect()
-            if not redis_service.client:
-                return {"error": "Redis não disponível"}
-            
-            # Obter tamanho do buffer
-            buffer_size = await redis_service.client.llen(buffer_key)
+            # Obter tamanho do buffer local
+            buffer_size = len(self._local_buffers.get(phone, []))
             
             # Verificar se há timer ativo
             has_active_timer = phone in self._active_timers
@@ -211,17 +185,14 @@ class MessageBufferService:
     async def clear_buffer(self, phone: str) -> bool:
         """Limpa buffer sem processar"""
         try:
-            buffer_key = f"msg_buffer:{phone}"
-            
             # Cancelar timer se existir
             if phone in self._active_timers:
                 self._active_timers[phone].cancel()
                 del self._active_timers[phone]
             
-            # Limpar buffer no Redis
-            await redis_service.connect()
-            if redis_service.client:
-                await redis_service.client.delete(buffer_key)
+            # Limpar buffer local
+            if phone in self._local_buffers:
+                del self._local_buffers[phone]
             
             # Limpar callback
             if phone in self._process_callbacks:

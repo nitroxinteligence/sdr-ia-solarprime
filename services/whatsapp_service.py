@@ -847,6 +847,10 @@ class WhatsAppService:
             await follow_up_service.cancel_all_follow_ups_for_phone(phone)
             logger.info(f"Follow-ups cancelados para {phone}")
             
+            # 7. Limpar buffer de mensagens se houver
+            await message_buffer_service.clear_buffer(phone)
+            logger.info(f"Buffer de mensagens limpo para {phone}")
+            
             # Enviar confirmação
             confirmation_message = (
                 "✅ *Comando #CLEAR executado com sucesso!*\n\n"
