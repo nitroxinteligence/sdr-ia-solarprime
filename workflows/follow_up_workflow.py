@@ -4,11 +4,12 @@ Follow-up Workflow
 Sistema de follow-up automático usando AGnO Workflows
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Iterator
 from datetime import datetime, timedelta
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
-from agno.workflow import Workflow
+from agno.workflow import Workflow, RunResponse
 from agno.agent import Agent, AgentMemory
 from agno.models.google import Gemini
 
@@ -16,6 +17,27 @@ from services.database import supabase_client
 from services.evolution_api import evolution_client
 from repositories.lead_repository import lead_repository
 from config.config import config
+from config.agent_config import config as agent_config
+
+# Executor para rodar funções assíncronas em threads separadas
+executor = ThreadPoolExecutor(max_workers=1)
+
+
+def run_async(coro):
+    """Executa uma coroutine de forma síncrona"""
+    loop = None
+    try:
+        # Tentar pegar o loop existente
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # Se não houver loop, criar um novo
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    else:
+        # Se já existe um loop rodando, usar thread separada
+        future = executor.submit(asyncio.run, coro)
+        return future.result()
 
 
 class FollowUpWorkflow(Workflow):
@@ -31,8 +53,7 @@ class FollowUpWorkflow(Workflow):
         self.model = Gemini(
             id="gemini-2.5-flash",  # Modelo mais rápido para follow-ups simples
             api_key=config.gemini.api_key,
-            temperature=0.7,
-            max_tokens=150  # Mensagens curtas
+            temperature=0.7
         )
         
         # Agente especializado em follow-up
@@ -46,20 +67,19 @@ class FollowUpWorkflow(Workflow):
                 1. Seja MUITO breve (máximo 2 frases)
                 2. Seja amigável e não invasiva
                 3. Foque em reengajar o lead
-                4. Sempre ofereça valor (dica, informação, benefício)
-                5. Use no máximo 1 emoji por mensagem"""
+                4. Sempre ofereça valor (dica, informação, benefício)"""
             ),
             markdown=False
         )
         
         self.supabase = supabase_client
         
-    async def run(
+    def run(
         self,
         lead_id: str,
         follow_up_type: str,
         custom_message: Optional[str] = None
-    ) -> Dict[str, Any]:
+    ) -> Iterator[RunResponse]:
         """
         Executa workflow de follow-up
         
@@ -75,76 +95,97 @@ class FollowUpWorkflow(Workflow):
         
         try:
             # Buscar dados do lead
-            lead_data = await self._get_lead_data(lead_id)
+            lead_data = run_async(self._get_lead_data(lead_id))
             if not lead_data:
-                return {
-                    'status': 'error',
-                    'message': 'Lead não encontrado'
-                }
+                yield RunResponse(
+                    content={
+                        'status': 'error',
+                        'message': 'Lead não encontrado'
+                    }
+                )
+                return
                 
             # Verificar se deve fazer follow-up
             if not self._should_send_follow_up(lead_data, follow_up_type):
-                return {
-                    'status': 'skipped',
-                    'message': 'Follow-up não necessário',
-                    'reason': lead_data.get('skip_reason')
-                }
+                yield RunResponse(
+                    content={
+                        'status': 'skipped',
+                        'message': 'Follow-up não necessário',
+                        'reason': lead_data.get('skip_reason')
+                    }
+                )
+                return
                 
             # Gerar mensagem personalizada
             if custom_message:
                 message = custom_message
             else:
-                message = await self._generate_follow_up_message(lead_data, follow_up_type)
+                message = run_async(self._generate_follow_up_message(lead_data, follow_up_type))
                 
             # Enviar mensagem via WhatsApp
-            send_result = await self._send_whatsapp_message(lead_data['phone'], message)
+            send_result = run_async(self._send_whatsapp_message(lead_data['phone'], message))
             
             if send_result['success']:
                 # Registrar follow-up enviado
-                await self._record_follow_up(lead_id, follow_up_type, message)
+                run_async(self._record_follow_up(lead_id, follow_up_type, message))
                 
                 # Agendar próximo follow-up se necessário
-                next_follow_up = await self._schedule_next_follow_up(lead_id, follow_up_type)
+                next_follow_up = run_async(self._schedule_next_follow_up(lead_id, follow_up_type))
                 
                 execution_time = (datetime.now() - start_time).total_seconds()
                 
-                return {
-                    'status': 'success',
-                    'message': message,
-                    'sent_at': datetime.now().isoformat(),
-                    'next_follow_up': next_follow_up,
-                    'execution_time': execution_time
-                }
+                yield RunResponse(
+                    content={
+                        'status': 'success',
+                        'message': message,
+                        'sent_at': datetime.now().isoformat(),
+                        'next_follow_up': next_follow_up,
+                        'execution_time': execution_time
+                    }
+                )
             else:
-                return {
-                    'status': 'error',
-                    'message': 'Erro ao enviar mensagem',
-                    'error': send_result.get('error')
-                }
+                yield RunResponse(
+                    content={
+                        'status': 'error',
+                        'message': 'Erro ao enviar mensagem',
+                        'error': send_result.get('error')
+                    }
+                )
                 
         except Exception as e:
             logger.error(f"Erro no workflow de follow-up: {e}", exc_info=True)
-            return {
-                'status': 'error',
-                'message': str(e)
-            }
+            yield RunResponse(
+                content={
+                    'status': 'error',
+                    'message': str(e)
+                }
+            )
             
     async def _get_lead_data(self, lead_id: str) -> Optional[Dict[str, Any]]:
         """Busca dados completos do lead"""
         try:
             # Buscar do Supabase
             result = self.supabase.table('leads')\
-                .select('*, profiles!inner(*)')\
+                .select('*')\
                 .eq('id', lead_id)\
                 .single()\
                 .execute()
                 
             if result.data:
                 lead = result.data
+                # Buscar profile separadamente se necessário
+                profile_result = self.supabase.table('profiles')\
+                    .select('phone')\
+                    .eq('id', lead.get('profile_id'))\
+                    .single()\
+                    .execute()
+                    
+                phone_number = lead.get('phone_number') or (profile_result.data.get('phone') if profile_result.data else None)
+                
                 return {
                     'id': lead['id'],
                     'name': lead['name'] or 'Cliente',
-                    'phone': lead['profiles']['phone_number'],
+                    'phone': phone_number,
                     'stage': lead['current_stage'],
                     'qualification_score': lead['qualification_score'],
                     'last_interaction': lead['updated_at'],
@@ -168,14 +209,21 @@ class FollowUpWorkflow(Workflow):
         # Verificar tempo desde última interação
         last_interaction = datetime.fromisoformat(lead_data['last_interaction'].replace('Z', '+00:00'))
         hours_since_last = (datetime.now(last_interaction.tzinfo) - last_interaction).total_seconds() / 3600
+        minutes_since_last = hours_since_last * 60
         
-        # Regras por tipo de follow-up
-        if follow_up_type == 'first_contact' and hours_since_last < 2:
-            lead_data['skip_reason'] = 'Muito cedo para primeiro follow-up'
+        # Usar configurações do config
+        first_delay_minutes = agent_config.follow_up_delay_minutes  # 30 minutos
+        second_delay_hours = agent_config.follow_up_second_delay_hours  # 24 horas
+        
+        # Regras por tipo de follow-up usando configurações
+        # Para reminder (primeiro follow-up) - usar minutos
+        if follow_up_type == 'reminder' and minutes_since_last < first_delay_minutes:
+            lead_data['skip_reason'] = f'Muito cedo para primeiro follow-up (aguardar {first_delay_minutes} minutos)'
             return False
             
-        if follow_up_type == 'reminder' and hours_since_last < 24:
-            lead_data['skip_reason'] = 'Muito cedo para lembrete'
+        # Para check_in (segundo follow-up) - usar horas
+        if follow_up_type == 'check_in' and hours_since_last < second_delay_hours:
+            lead_data['skip_reason'] = f'Muito cedo para segundo follow-up (aguardar {second_delay_hours} horas)'
             return False
             
         if follow_up_type == 'reengagement' and hours_since_last < 72:
@@ -196,11 +244,10 @@ class FollowUpWorkflow(Workflow):
         
         # Prompts específicos por tipo
         prompts = {
-            'first_contact': f"Crie um follow-up amigável para {lead_data['name']} que demonstrou interesse inicial. Mencione economia de energia.",
-            'reminder': f"Lembre {lead_data['name']} sobre a oportunidade de economizar na conta de luz. Seja gentil e não invasiva.",
+            'reminder': f"Crie um follow-up amigável para {lead_data['name']} que demonstrou interesse inicial. Mencione economia de energia.",
+            'check_in': f"Lembre {lead_data['name']} sobre a oportunidade de economizar na conta de luz. Seja gentil e não invasiva.",
             'reengagement': f"Reengaje {lead_data['name']} que parou de responder. Ofereça uma informação nova ou benefício.",
-            'qualification': f"Pergunte para {lead_data['name']} sobre a conta de luz para fazer uma simulação personalizada.",
-            'scheduling': f"Convide {lead_data['name']} para agendar uma visita técnica gratuita e sem compromisso."
+            'nurture': f"Envie uma mensagem educativa para {lead_data['name']} sobre benefícios da energia solar."
         }
         
         prompt = prompts.get(follow_up_type, prompts['reminder'])
@@ -251,12 +298,14 @@ class FollowUpWorkflow(Workflow):
             
     async def _schedule_next_follow_up(self, lead_id: str, current_type: str) -> Optional[Dict[str, Any]]:
         """Agenda próximo follow-up baseado no tipo atual"""
-        # Sequência de follow-ups
+        # Usar configurações do config
+        second_delay_hours = agent_config.follow_up_second_delay_hours  # 24 horas configuráveis
+        
+        # Sequência de follow-ups com tempos configuráveis
         sequence = {
-            'first_contact': ('reminder', 24),  # Lembrete em 24h
-            'reminder': ('reengagement', 48),   # Reengajamento em 48h
-            'reengagement': ('final', 72),      # Final em 72h
-            'qualification': ('scheduling', 24), # Agendamento em 24h
+            'reminder': ('check_in', second_delay_hours),      # Segundo follow-up em 24h (configurável)
+            'check_in': ('reengagement', 48),                  # Reengajamento em 48h
+            'reengagement': ('nurture', 72),                   # Nutrição em 72h
         }
         
         if current_type in sequence:

@@ -113,3 +113,30 @@ async def readiness_check() -> Dict[str, str]:
             "status": "not_ready",
             "reason": str(e)
         }
+
+
+@router.get("/ai-status")
+async def ai_models_status():
+    """Verifica status dos modelos de IA"""
+    return {
+        "gemini": {
+            "configured": bool(os.getenv("GEMINI_API_KEY") and os.getenv("GEMINI_API_KEY") != "YOUR_GEMINI_API_KEY_HERE"),
+            "model": os.getenv("GEMINI_MODEL", "gemini-2.5-pro"),
+            "is_primary": True
+        },
+        "openai": {
+            "configured": bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_API_KEY") != "YOUR_OPENAI_API_KEY_HERE"),
+            "model": os.getenv("OPENAI_MODEL", "gpt-4.1-nano"),
+            "fallback_enabled": os.getenv("ENABLE_FALLBACK", "true").lower() == "true",
+            "is_fallback": True
+        },
+        "retry_config": {
+            "max_retries": int(os.getenv("MAX_AI_RETRIES", "3")),
+            "retry_delay_seconds": int(os.getenv("RETRY_DELAY_SECONDS", "2")),
+            "exponential_backoff": True
+        },
+        "cache_config": {
+            "enabled": True,
+            "ttl_minutes": int(os.getenv("RESPONSE_CACHE_TTL_MINUTES", "60"))
+        }
+    }

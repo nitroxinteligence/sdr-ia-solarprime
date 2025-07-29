@@ -22,6 +22,13 @@ class GeminiConfig(BaseModel):
     top_p: float = Field(default=0.95)
     top_k: int = Field(default=40)
 
+class OpenAIConfig(BaseModel):
+    """Configurações do OpenAI (Fallback)"""
+    api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
+    model: str = Field(default="gpt-4.1-nano")
+    temperature: float = Field(default=0.7)
+    max_tokens: int = Field(default=2048)
+
 class AgentPersonality(BaseModel):
     """Personalidade e características do agente"""
     name: str = Field(default="Luna")
@@ -161,15 +168,27 @@ class SDRConfig(BaseSettings):
     """Configuração principal do SDR"""
     # Configurações dos componentes
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
+    openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     personality: AgentPersonality = Field(default_factory=AgentPersonality)
     sales_stages: SalesStages = Field(default_factory=SalesStages)
     solutions: SolarSolutions = Field(default_factory=SolarSolutions)
     conversation: ConversationRules = Field(default_factory=ConversationRules)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     
+    # Configurações de fallback e retry
+    enable_fallback: bool = Field(default_factory=lambda: os.getenv("ENABLE_FALLBACK", "true").lower() == "true")
+    max_retries: int = Field(default_factory=lambda: int(os.getenv("MAX_AI_RETRIES", "3")))
+    retry_delay: int = Field(default_factory=lambda: int(os.getenv("RETRY_DELAY_SECONDS", "2")))
+    response_cache_ttl: int = Field(default_factory=lambda: int(os.getenv("RESPONSE_CACHE_TTL_MINUTES", "60")))
+    
     # Configurações gerais
     debug: bool = Field(default_factory=lambda: os.getenv("DEBUG", "True").lower() == "true")
     log_level: str = Field(default="INFO")
+    
+    # Configurações de follow-up
+    enable_follow_up: bool = Field(default_factory=lambda: os.getenv("ENABLE_FOLLOW_UP", "true").lower() == "true")
+    follow_up_delay_minutes: int = Field(default_factory=lambda: int(os.getenv("FOLLOW_UP_DELAY_MINUTES", "30")))
+    follow_up_second_delay_hours: int = Field(default_factory=lambda: int(os.getenv("FOLLOW_UP_SECOND_DELAY_HOURS", "24")))
     
     # Mensagens padrão
     default_messages: Dict[str, str] = Field(default_factory=lambda: {

@@ -22,6 +22,8 @@ from agents.sdr_agent import create_sdr_agent
 from utils.reasoning_metrics import log_reasoning, get_reasoning_report
 from services.analytics_service import analytics_service
 from agents.tools.message_chunker_tool import chunk_message_standalone
+from utils.message_formatter import format_message_for_whatsapp
+from services.follow_up_service import follow_up_service
 
 logger = logging.getLogger(__name__)
 
@@ -306,14 +308,32 @@ class WhatsAppService:
                     metadata=metadata
                 )
             else:
+                # Formatar mensagem antes de enviar
+                formatted_response = format_message_for_whatsapp(response)
+                
                 # Enviar resposta única
                 await evolution_client.send_text_message(
                     phone=message_info["from"],
-                    message=response
+                    message=formatted_response
                     # Removido quoted_message_id para não marcar mensagens individuais
                 )
                 
             logger.info(f"Resposta enviada para {message_info['from']}")
+            
+            # Criar follow-up automático se habilitado
+            if metadata.get('stage') not in ['SCHEDULED', 'NOT_INTERESTED']:
+                follow_up_result = await follow_up_service.create_follow_up_after_message(
+                    phone_number=message_info["from"],
+                    lead_id=metadata.get('lead_id'),
+                    message_sent=response,
+                    stage=metadata.get('stage')
+                )
+                
+                if follow_up_result['status'] == 'success':
+                    logger.info(f"Follow-up agendado para {message_info['from']} em {follow_up_result['minutes_until']} minutos")
+                elif follow_up_result['status'] == 'error':
+                    logger.warning(f"Erro ao criar follow-up: {follow_up_result.get('message')}")
+            
             return response
             
         except Exception as e:
@@ -394,10 +414,13 @@ class WhatsAppService:
                     # Aguardar um pouco antes de enviar
                     await asyncio.sleep(typing_duration / 1000)
                 
+                # Formatar chunk antes de enviar (garantir formatação correta)
+                formatted_chunk = format_message_for_whatsapp(chunk)
+                
                 # Enviar chunk
                 await evolution_client.send_text_message(
                     phone=phone,
-                    message=chunk,
+                    message=formatted_chunk,
                     delay=100 if i > 0 else 0  # Delay mínimo entre mensagens
                 )
                 
@@ -525,9 +548,12 @@ class WhatsAppService:
         """Envia mensagem para número específico"""
         
         try:
+            # Formatar mensagem antes de enviar
+            formatted_message = format_message_for_whatsapp(message)
+            
             result = await evolution_client.send_text_message(
                 phone=phone,
-                message=message,
+                message=formatted_message,
                 quoted_message_id=quoted_message_id
             )
             
@@ -734,13 +760,30 @@ class WhatsAppService:
                         metadata=metadata
                     )
                 else:
+                    # Formatar mensagem antes de enviar
+                    formatted_response = format_message_for_whatsapp(response)
+                    
                     await evolution_client.send_text_message(
                         phone=phone,
-                        message=response
+                        message=formatted_response
                         # Não citar mensagem específica quando for buffer
                     )
                 
                 logger.info(f"Resposta enviada para {len(messages)} mensagens bufferizadas de {phone}")
+                
+                # Criar follow-up automático se habilitado
+                if metadata.get('stage') not in ['SCHEDULED', 'NOT_INTERESTED']:
+                    follow_up_result = await follow_up_service.create_follow_up_after_message(
+                        phone_number=phone,
+                        lead_id=metadata.get('lead_id'),
+                        message_sent=response,
+                        stage=metadata.get('stage')
+                    )
+                    
+                    if follow_up_result['status'] == 'success':
+                        logger.info(f"Follow-up agendado para {phone} em {follow_up_result['minutes_until']} minutos")
+                    elif follow_up_result['status'] == 'error':
+                        logger.warning(f"Erro ao criar follow-up: {follow_up_result.get('message')}")
             
         except Exception as e:
             logger.error(f"Erro ao processar mensagens bufferizadas: {e}", exc_info=True)

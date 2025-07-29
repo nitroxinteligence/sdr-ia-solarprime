@@ -7,7 +7,7 @@ Implementação do agente de vendas usando AGnO Framework
 import json
 import asyncio
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from loguru import logger
 import base64
 from uuid import UUID
@@ -15,11 +15,16 @@ from uuid import UUID
 # AGnO Framework - API Correta
 from agno.agent import Agent, AgentMemory
 from agno.models.google import Gemini
+from agno.models.openai import OpenAIChat
 from agno.storage.agent.sqlite import SqliteAgentStorage
 
 # Importar módulos multimodais do AGnO - Documentação oficial
 from agno.media import Image, Audio, Video
 AGNO_MEDIA_AVAILABLE = True
+
+# Imports para retry e fallback
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import httpx
 
 # Nota: PDFReader não é suportado diretamente, mas podemos usar Image para PDFs convertidos
 AGNO_READERS_AVAILABLE = False
@@ -45,11 +50,23 @@ class SDRAgent:
         self.config = get_config()
         self.agents: Dict[str, Agent] = {}  # Um agente por telefone
         
-        # Configuração do modelo Gemini
+        # Configuração do modelo Gemini (principal)
         self.model = Gemini(
             id=self.config.gemini.model,
             api_key=self.config.gemini.api_key
         )
+        
+        # Configuração do modelo OpenAI (fallback)
+        self.fallback_model = None
+        if self.config.enable_fallback and self.config.openai.api_key:
+            try:
+                self.fallback_model = OpenAIChat(
+                    id=self.config.openai.model,
+                    api_key=self.config.openai.api_key
+                )
+                logger.info(f"Modelo de fallback OpenAI configurado: {self.config.openai.model}")
+            except Exception as e:
+                logger.warning(f"Erro ao configurar modelo de fallback OpenAI: {e}")
         
         # Configuração do storage para persistência
         self.storage = SqliteAgentStorage(
@@ -62,6 +79,9 @@ class SDRAgent:
             role="Você é Luna, uma consultora especializada em energia solar.",
             instructions="Mantenha o contexto das conversas e lembre-se de informações importantes dos leads."
         )
+        
+        # Cache de respostas (simples em memória por enquanto)
+        self._response_cache: Dict[str, Tuple[str, datetime]] = {}
         
         logger.info(f"SDR Agent '{self.config.personality.name}' inicializado com AGnO Framework")
     
@@ -197,32 +217,29 @@ class SDRAgent:
             processed_images = None
             
             if media_type and media_data:
-                media_info = await self._process_media(media_type, media_data)
-                if media_info and media_type == "image":
-                    # Atualizar lead_info com dados extraídos da conta
-                    if 'bill_value' in media_info:
-                        session_state["lead_info"]["bill_value"] = media_info['bill_value']
-                    if 'customer_name' in media_info:
-                        session_state["lead_info"]["customer_name"] = media_info['customer_name']
-                    if 'address' in media_info:
-                        session_state["lead_info"]["address"] = media_info['address']
-                    if 'consumption_kwh' in media_info:
-                        session_state["lead_info"]["consumption_kwh"] = media_info['consumption_kwh']
-                    
-                    # Preparar imagem AGnO para passar junto com o prompt
-                    if isinstance(media_data, dict):
-                        if 'url' in media_data:
-                            processed_images = [Image(url=media_data['url'])]
-                        elif 'base64' in media_data:
-                            img_bytes = base64.b64decode(media_data['base64'])
-                            processed_images = [Image(content=img_bytes)]
-                        elif 'path' in media_data:
-                            processed_images = [Image(filepath=media_data['path'])]
-                    elif isinstance(media_data, str):
-                        if media_data.startswith('http'):
-                            processed_images = [Image(url=media_data)]
-                        else:
-                            processed_images = [Image(filepath=media_data)]
+                # Para imagens, criar objeto Image AGnO primeiro
+                if media_type == "image":
+                    # Criar imagem AGnO que será usada tanto para análise quanto para o prompt
+                    agno_image = self._create_agno_image(media_data)
+                    if agno_image:
+                        processed_images = [agno_image]
+                        
+                        # Analisar a imagem para extrair dados
+                        media_info = await self._process_media(media_type, media_data)
+                        
+                        if media_info:
+                            # Atualizar lead_info com dados extraídos da conta
+                            if 'bill_value' in media_info:
+                                session_state["lead_info"]["bill_value"] = media_info['bill_value']
+                            if 'customer_name' in media_info:
+                                session_state["lead_info"]["customer_name"] = media_info['customer_name']
+                            if 'address' in media_info:
+                                session_state["lead_info"]["address"] = media_info['address']
+                            if 'consumption_kwh' in media_info:
+                                session_state["lead_info"]["consumption_kwh"] = media_info['consumption_kwh']
+                else:
+                    # Para outros tipos de mídia
+                    media_info = await self._process_media(media_type, media_data)
             
             # Prepara contexto adicional para o agente
             context_prompt = self._build_context_prompt(
@@ -342,85 +359,199 @@ class SDRAgent:
         documents: Optional[List] = None,
         audio: Optional[List] = None
     ) -> str:
-        """Executa o agente AGnO com suporte multimodal"""
+        """Executa o agente AGnO com suporte multimodal e fallback"""
+        # Verificar cache primeiro
+        cache_key = self._get_cache_key(prompt, agent.session_state)
+        cached_response = self._get_cached_response(cache_key)
+        if cached_response:
+            logger.info("Resposta encontrada no cache")
+            return cached_response
+        
+        # Preparar kwargs para mídias
+        kwargs = self._prepare_media_kwargs(images, audio)
+        
+        # Tentar com Gemini primeiro
         try:
-            # Preparar kwargs baseado nas mídias disponíveis
-            kwargs = {}
-            
-            # Adicionar mídias se disponíveis usando formato AGnO
-            if images:
-                # Converter para objetos Image do AGnO se necessário
-                agno_images = []
-                for img in images:
-                    if isinstance(img, Image):
-                        agno_images.append(img)
-                    elif isinstance(img, dict):
-                        if 'url' in img:
-                            agno_images.append(Image(url=img['url']))
-                        elif 'path' in img:
-                            agno_images.append(Image(filepath=img['path']))
-                        elif 'base64' in img:
-                            # Image do AGnO aceita content como bytes
-                            import base64 as b64
-                            img_bytes = b64.b64decode(img['base64'])
-                            agno_images.append(Image(content=img_bytes))
-                    elif isinstance(img, str):
-                        # Assumir que é URL ou path
-                        if img.startswith('http'):
-                            agno_images.append(Image(url=img))
-                        else:
-                            agno_images.append(Image(filepath=img))
-                
-                if agno_images:
-                    kwargs['images'] = agno_images
-                    logger.debug(f"Adicionando {len(agno_images)} imagem(ns) AGnO à requisição")
-                
-            if audio:
-                # Converter para objetos Audio do AGnO
-                agno_audio = []
-                for aud in audio:
-                    if isinstance(aud, Audio):
-                        agno_audio.append(aud)
-                    elif isinstance(aud, dict):
-                        if 'content' in aud:
-                            agno_audio.append(Audio(content=aud['content'], format=aud.get('format', 'wav')))
-                        elif 'path' in aud:
-                            with open(aud['path'], 'rb') as f:
-                                agno_audio.append(Audio(content=f.read(), format=aud.get('format', 'wav')))
-                
-                if agno_audio:
-                    kwargs['audio'] = agno_audio
-                    logger.debug(f"Adicionando {len(agno_audio)} áudio(s) AGnO à requisição")
-            
-            # Usa o método run do AGnO com mídias
-            response = await asyncio.to_thread(
-                agent.run,
-                prompt,
-                **kwargs
+            response = await self._run_agent_with_retry(
+                agent, prompt, self.model, **kwargs
             )
+            # Salvar no cache
+            self._cache_response(cache_key, response)
+            return response
+        except Exception as gemini_error:
+            logger.error(f"Gemini falhou após todas tentativas: {gemini_error}")
             
-            # Log do reasoning em modo debug
-            if config.debug and hasattr(response, 'reasoning'):
-                logger.debug("=== REASONING STEPS ===")
-                if isinstance(response.reasoning, list):
-                    for i, step in enumerate(response.reasoning, 1):
-                        logger.debug(f"Step {i}: {step}")
-                else:
-                    logger.debug(f"Reasoning: {response.reasoning}")
-                logger.debug("=== END REASONING ===")
+            # Tentar fallback com OpenAI
+            if self.fallback_model and self.config.enable_fallback:
+                logger.warning("Ativando fallback para OpenAI gpt-4o-mini...")
+                try:
+                    # Criar agente temporário com OpenAI
+                    fallback_agent = self._create_fallback_agent(agent.session_id)
+                    response = await self._run_agent_with_retry(
+                        fallback_agent, prompt, self.fallback_model, **kwargs
+                    )
+                    # Salvar no cache
+                    self._cache_response(cache_key, response)
+                    return response
+                except Exception as openai_error:
+                    logger.error(f"OpenAI também falhou: {openai_error}")
             
-            # Extrai o conteúdo da resposta
-            if hasattr(response, 'content'):
-                return response.content
-            elif hasattr(response, 'messages') and response.messages:
-                # Se retornar uma lista de mensagens, pega a última
-                return response.messages[-1].content
+            # Se tudo falhar, usar resposta de fallback contextual
+            return self._get_contextual_fallback_response(agent.session_state)
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((httpx.HTTPStatusError, Exception)),
+        before_sleep=lambda retry_state: logger.warning(
+            f"Tentativa {retry_state.attempt_number}/3, aguardando {retry_state.next_action.sleep} segundos..."
+        )
+    )
+    async def _run_agent_with_retry(
+        self, 
+        agent: Agent,
+        prompt: str,
+        model: Any,
+        **kwargs
+    ) -> str:
+        """Executa agente com retry logic"""
+        # Usa o método run do AGnO
+        response = await asyncio.to_thread(
+            agent.run,
+            prompt,
+            **kwargs
+        )
+        
+        # Log do reasoning em modo debug
+        if self.config.debug and hasattr(response, 'reasoning'):
+            logger.debug("=== REASONING STEPS ===")
+            if isinstance(response.reasoning, list):
+                for i, step in enumerate(response.reasoning, 1):
+                    logger.debug(f"Step {i}: {step}")
             else:
-                return str(response)
-                
-        except Exception as e:
-            logger.error(f"Erro ao executar agente AGnO: {e}")
-            return self._get_fallback_response()
+                logger.debug(f"Reasoning: {response.reasoning}")
+            logger.debug("=== END REASONING ===")
+        
+        # Extrai o conteúdo da resposta
+        if hasattr(response, 'content'):
+            return response.content
+        elif hasattr(response, 'messages') and response.messages:
+            # Se retornar uma lista de mensagens, pega a última
+            return response.messages[-1].content
+        else:
+            return str(response)
+    
+    def _prepare_media_kwargs(self, images: Optional[List], audio: Optional[List]) -> Dict[str, Any]:
+        """Prepara kwargs com mídias convertidas para formato AGnO"""
+        kwargs = {}
+        
+        if images:
+            agno_images = []
+            for img in images:
+                if isinstance(img, Image):
+                    agno_images.append(img)
+                elif isinstance(img, dict):
+                    if 'url' in img:
+                        agno_images.append(Image(url=img['url']))
+                    elif 'path' in img:
+                        agno_images.append(Image(filepath=img['path']))
+                    elif 'base64' in img:
+                        import base64 as b64
+                        img_bytes = b64.b64decode(img['base64'])
+                        agno_images.append(Image(content=img_bytes))
+                elif isinstance(img, str):
+                    if img.startswith('http'):
+                        agno_images.append(Image(url=img))
+                    else:
+                        agno_images.append(Image(filepath=img))
+            
+            if agno_images:
+                kwargs['images'] = agno_images
+                logger.debug(f"Preparou {len(agno_images)} imagem(ns)")
+        
+        if audio:
+            agno_audio = []
+            for aud in audio:
+                if isinstance(aud, Audio):
+                    agno_audio.append(aud)
+                elif isinstance(aud, dict):
+                    if 'content' in aud:
+                        agno_audio.append(Audio(content=aud['content'], format=aud.get('format', 'wav')))
+                    elif 'path' in aud:
+                        with open(aud['path'], 'rb') as f:
+                            agno_audio.append(Audio(content=f.read(), format=aud.get('format', 'wav')))
+            
+            if agno_audio:
+                kwargs['audio'] = agno_audio
+                logger.debug(f"Preparou {len(agno_audio)} áudio(s)")
+        
+        return kwargs
+    
+    def _get_cache_key(self, prompt: str, session_state: Dict[str, Any]) -> str:
+        """Gera chave única para cache baseada no prompt e contexto"""
+        import hashlib
+        stage = session_state.get('current_stage', 'INITIAL_CONTACT')
+        content = f"{prompt}:{stage}"
+        return hashlib.md5(content.encode()).hexdigest()
+    
+    def _get_cached_response(self, cache_key: str) -> Optional[str]:
+        """Busca resposta no cache se ainda válida"""
+        if cache_key in self._response_cache:
+            response, timestamp = self._response_cache[cache_key]
+            # Verificar se ainda está dentro do TTL
+            if datetime.now() - timestamp < timedelta(minutes=self.config.response_cache_ttl):
+                return response
+            else:
+                # Limpar entrada expirada
+                del self._response_cache[cache_key]
+        return None
+    
+    def _cache_response(self, cache_key: str, response: str):
+        """Armazena resposta no cache"""
+        self._response_cache[cache_key] = (response, datetime.now())
+        # Limpar cache antigo se ficar muito grande
+        if len(self._response_cache) > 100:
+            # Remover 20% das entradas mais antigas
+            sorted_keys = sorted(
+                self._response_cache.keys(),
+                key=lambda k: self._response_cache[k][1]
+            )
+            for key in sorted_keys[:20]:
+                del self._response_cache[key]
+    
+    def _create_fallback_agent(self, session_id: str) -> Agent:
+        """Cria agente temporário com modelo de fallback"""
+        return Agent(
+            name=self.config.personality.name,
+            description=f"Consultora de energia solar da {self.config.personality.company}",
+            instructions=PromptTemplates.format_system_prompt(),
+            model=self.fallback_model,
+            reasoning=True,
+            reasoning_min_steps=1,  # Reduzido para velocidade
+            reasoning_max_steps=2,  # Máximo 2 para garantir resposta rápida
+            memory=self.memory_config,
+            storage=self.storage,
+            session_id=session_id,
+            search_knowledge=False,  # Desabilitar para velocidade
+            debug_mode=self.config.debug
+        )
+    
+    def _get_contextual_fallback_response(self, session_state: Dict[str, Any]) -> str:
+        """Resposta de fallback baseada no contexto da conversa"""
+        stage = session_state.get('current_stage', 'INITIAL_CONTACT')
+        lead_info = session_state.get('lead_info', {})
+        
+        fallback_responses = {
+            'INITIAL_CONTACT': "Oi! 😊 Sou a Luna da SolarPrime. Estamos com alta demanda, mas quero muito te ajudar a economizar na conta de luz! Como posso te chamar?",
+            'IDENTIFICATION': f"Desculpe a demora{' ' + lead_info.get('name', '') if lead_info.get('name') else ''}! Para continuar nossa conversa sobre economia solar, qual seu nome completo?",
+            'DISCOVERY': "Ops, tive uma instabilidade! 😅 Me conta, você mora em casa ou apartamento? Isso ajuda a calcular sua economia!",
+            'QUALIFICATION': "Perdão pelo atraso! Para calcular sua economia exata, preciso saber: qual o valor médio da sua conta de luz?",
+            'SCHEDULING': "Desculpe a demora! Nossos consultores têm horários disponíveis:\n📅 Amanhã: 10h, 14h ou 16h\n📅 Quinta: 9h, 11h ou 15h\n\nQual horário fica melhor pra você?",
+            'OBJECTION_HANDLING': "Entendo sua preocupação! 🤝 A energia solar realmente é um investimento que se paga. Que tal conversarmos melhor sobre isso?",
+            'NURTURING': "Oi! Voltei para saber se você ainda tem interesse em economizar até 95% na conta de luz. Posso te ajudar?"
+        }
+        
+        return fallback_responses.get(stage, self._get_fallback_response())
     
     async def _analyze_context(
         self, 
@@ -585,21 +716,25 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
             
             # Instruções especiais para conta de luz
             context_parts.append("\n📌 INSTRUÇÕES ESPECIAIS PARA ANÁLISE DE CONTA:")
-            context_parts.append("- Confirme o valor extraído com o lead de forma natural")
-            context_parts.append("- Calcule e mencione a economia estimada de 95%")
-            context_parts.append("- Seja específico com os números")
-            context_parts.append("- Pergunte se os dados estão corretos")
-            context_parts.append("- Use os dados para personalizar sua abordagem")
+            context_parts.append("- RESPONDA IMEDIATAMENTE com os dados extraídos da conta")
+            context_parts.append("- NÃO diga que vai analisar ou retornar depois - A ANÁLISE JÁ FOI FEITA")
+            context_parts.append("- Confirme o valor extraído: 'Vi aqui na sua conta que o valor é R$ X, está correto?'")
+            context_parts.append("- Calcule e mencione a economia estimada de 95% AGORA")
+            context_parts.append("- Seja específico com os números NESTA MENSAGEM")
+            context_parts.append("- Use os dados para personalizar sua abordagem IMEDIATAMENTE")
+            context_parts.append("- NUNCA prometa retornar com números - você JÁ TEM os números")
             
             # Se o valor for alto, adicionar contexto de urgência
             try:
-                valor_str = media_info.get('bill_value', '').replace('R$', '').replace('.', '').replace(',', '.').strip()
-                if valor_str:
-                    valor = float(valor_str)
-                    if valor > 500:
-                        context_parts.append(f"\n⚡ ALERTA: Conta alta! Enfatize a economia potencial de R$ {valor * 0.95:.2f}")
+                bill_value = media_info.get('bill_value')
+                if bill_value and isinstance(bill_value, str):
+                    valor_str = bill_value.replace('R$', '').replace('.', '').replace(',', '.').strip()
+                    if valor_str:
+                        valor = float(valor_str)
+                        if valor > 500:
+                            context_parts.append(f"\n⚡ ALERTA: Conta alta! Enfatize a economia potencial de R$ {valor * 0.95:.2f}")
             except (ValueError, TypeError) as e:
-                logger.warning(f"Erro ao converter valor da conta: {valor_str} - {e}")
+                logger.warning(f"Erro ao converter valor da conta: {bill_value if 'bill_value' in locals() else 'None'} - {e}")
         
         # Adiciona informações conhecidas
         if lead_info:
@@ -634,6 +769,11 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
         
         # Se houver análise de conta, adicionar orientação extra
         if media_info and 'bill_value' in media_info:
+            context_parts.append("\n⚠️ IMPORTANTE - ANÁLISE DE CONTA JÁ CONCLUÍDA:")
+            context_parts.append("- A análise da conta JÁ FOI FEITA - os dados estão acima")
+            context_parts.append("- RESPONDA AGORA com os valores encontrados")
+            context_parts.append("- NÃO prometa analisar ou retornar depois")
+            context_parts.append("- Exemplo: 'Analisei sua conta e vi que você paga R$ [VALOR]. Com nossa solução...'")
             context_parts.append("- Demonstre que analisou a conta detalhadamente")
             context_parts.append("- Seja consultivo e mostre expertise")
         
@@ -656,7 +796,7 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
                 logger.info("Processando imagem de conta de luz...")
                 
                 # Criar prompt específico para análise de conta de luz
-                analysis_prompt = """Analise esta conta de energia elétrica e extraia as seguintes informações:
+                analysis_prompt = """Analise esta conta de energia elétrica e extraia IMEDIATAMENTE as seguintes informações:
 
 1. Valor total da fatura (em R$)
 2. Consumo em kWh
@@ -854,57 +994,129 @@ Se alguma informação não estiver disponível, use null."""
     ) -> Optional[Dict[str, Any]]:
         """Analisa imagem usando Gemini 2.5 Pro Vision"""
         try:
+            # Criar imagem AGnO usando método auxiliar
+            agno_image = self._create_agno_image(image_data)
+            
+            if not agno_image:
+                logger.error("Não foi possível criar objeto Image AGnO")
+                return None
+            
+            # Executar análise usando o agente principal com prompt específico
+            logger.info("Enviando imagem para análise com Gemini Vision...")
+            
+            # Criar prompt combinado para análise
+            combined_prompt = f"""Você é um assistente especializado em análise de contas de energia.
+            
+{analysis_prompt}
+
+IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois."""
+            
             # Criar agente temporário para análise de visão
             vision_agent = Agent(
-                name="Analisador Vision",
+                name="Analisador Vision Gemini",
                 description="Analisador de imagens de contas de luz",
                 instructions="Analise imagens e retorne APENAS JSON estruturado, sem texto adicional.",
                 model=self.model,  # Gemini 2.5 Pro
                 reasoning=False  # Desabilitar reasoning para resposta direta
             )
             
-            # Preparar imagem usando classe Image do AGnO
-            agno_image = None
-            
-            if isinstance(image_data, dict):
-                if 'url' in image_data:
-                    # Criar Image com URL
-                    agno_image = Image(url=image_data['url'])
-                    logger.debug(f"Criando Image AGnO com URL: {image_data['url']}")
-                elif 'base64' in image_data:
-                    # Decodificar base64 e criar Image com content
-                    img_bytes = base64.b64decode(image_data['base64'])
-                    agno_image = Image(content=img_bytes)
-                    logger.debug("Criando Image AGnO com dados base64")
-                elif 'path' in image_data:
-                    # Criar Image com filepath
-                    agno_image = Image(filepath=image_data['path'])
-                    logger.debug(f"Criando Image AGnO com arquivo: {image_data['path']}")
-            elif isinstance(image_data, str):
-                # Assumir que é uma URL ou caminho
-                if image_data.startswith('http'):
-                    agno_image = Image(url=image_data)
-                else:
-                    agno_image = Image(filepath=image_data)
-                logger.debug("Criando Image AGnO a partir de string")
-            
-            if not agno_image:
-                logger.error("Formato de imagem não reconhecido")
-                return None
-            
-            # Executar análise com imagem AGnO
-            logger.info("Enviando imagem para análise com Gemini Vision...")
+            # Executar análise
             result = await asyncio.to_thread(
                 vision_agent.run,
-                analysis_prompt,
+                combined_prompt,
                 images=[agno_image]  # Passar objeto Image do AGnO
             )
             
             # Parsear resultado JSON
-            return self._parse_vision_result(result)
+            parsed_result = self._parse_vision_result(result)
+            
+            if parsed_result:
+                logger.info("Imagem analisada com sucesso pelo Gemini")
+                return parsed_result
+            else:
+                logger.warning("Gemini não conseguiu extrair dados estruturados da imagem")
+                return None
             
         except Exception as e:
             logger.error(f"Erro ao analisar imagem com Gemini: {e}")
+            # Tentar fallback com OpenAI se disponível
+            if self.fallback_model and self.config.enable_fallback:
+                logger.info("Tentando análise de imagem com OpenAI GPT-4.1-nano...")
+                return await self._analyze_image_with_openai(image_data, analysis_prompt)
+            return None
+    
+    async def _analyze_image_with_openai(
+        self, 
+        image_data: Any, 
+        analysis_prompt: str
+    ) -> Optional[Dict[str, Any]]:
+        """Analisa imagem usando OpenAI GPT-4.1-nano Vision como fallback"""
+        try:
+            # Criar agente temporário com OpenAI para análise
+            openai_agent = Agent(
+                name="Analisador Vision OpenAI",
+                description="Analisador de imagens de contas de luz usando OpenAI",
+                instructions="Analise imagens e retorne APENAS JSON estruturado, sem texto adicional.",
+                model=self.fallback_model,  # OpenAI GPT-4.1-nano
+                reasoning=False  # Desabilitar reasoning para resposta direta
+            )
+            
+            # Criar imagem AGnO usando método auxiliar
+            agno_image = self._create_agno_image(image_data)
+            
+            if not agno_image:
+                logger.error("Não foi possível criar objeto Image AGnO para OpenAI")
+                return None
+            
+            # Executar análise
+            logger.info("Enviando imagem para análise com OpenAI Vision...")
+            result = await asyncio.to_thread(
+                openai_agent.run,
+                analysis_prompt,
+                images=[agno_image]
+            )
+            
+            # Parsear resultado
+            parsed_result = self._parse_vision_result(result)
+            
+            if parsed_result:
+                logger.info("Imagem analisada com sucesso pelo OpenAI")
+                # Adicionar flag indicando que foi processado por fallback
+                parsed_result['_processed_by'] = 'openai_fallback'
+                return parsed_result
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Erro ao analisar imagem com OpenAI: {e}")
+            return None
+    
+    def _create_agno_image(self, image_data: Any) -> Optional[Image]:
+        """Cria objeto Image do AGnO a partir de diferentes formatos"""
+        try:
+            if isinstance(image_data, dict):
+                if 'url' in image_data:
+                    return Image(url=image_data['url'])
+                elif 'base64' in image_data:
+                    try:
+                        img_bytes = base64.b64decode(image_data['base64'])
+                        return Image(content=img_bytes)
+                    except Exception as e:
+                        logger.error(f"Erro ao decodificar base64: {e}")
+                        return None
+                elif 'path' in image_data:
+                    return Image(filepath=image_data['path'])
+            elif isinstance(image_data, str):
+                if image_data.startswith('http'):
+                    return Image(url=image_data)
+                else:
+                    return Image(filepath=image_data)
+            
+            logger.error(f"Formato de imagem não reconhecido: {type(image_data)}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Erro ao criar Image AGnO: {e}")
             return None
     
     def _parse_vision_result(self, result: Any) -> Optional[Dict[str, Any]]:

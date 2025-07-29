@@ -19,7 +19,6 @@ from config.prompts import PromptTemplates, get_example_response, get_objection_
 from agents.storage.supabase_storage import SupabaseAgentStorage
 from agents.knowledge.solarprime_knowledge_simple import SolarPrimeKnowledgeSimple as SolarPrimeKnowledge
 from agents.tools.message_buffer_tool import process_buffered_messages, analyze_message_pattern
-from agents.tools.message_chunker_tool import chunk_message, analyze_message_for_chunking
 from services.database import supabase_client
 from services.kommo_service import kommo_service
 from repositories.lead_repository import lead_repository
@@ -51,10 +50,10 @@ class SDRAgentV2:
         # Cache de agentes por telefone
         self.agents: Dict[str, Agent] = {}
         
-        # Memory configuration
+        # Memory configuration usando prompts centralizados
         self.memory_config = AgentMemory(
-            # A memória será configurada com sistema de mensagens
-            update_system_message_on_change=True
+            role=PromptTemplates.SYSTEM_PROMPT,
+            instructions=""  # As instruções agora vêm do SYSTEM_PROMPT e dos stage prompts
         )
         
         logger.info("SDR Agent V2 inicializado com AGnO Framework")
@@ -76,10 +75,8 @@ class SDRAgentV2:
         initial_stage = "INITIAL_CONTACT"
         
         return Agent(
-            name="Helen",  # Padronizando com o nome do prompts.py
+            name="Leonardo",  # Padronizando com o nome do prompts.py
             model=self.model,
-            # Role principal vem do SYSTEM_PROMPT
-            role=PromptTemplates.SYSTEM_PROMPT,
             # Reasoning otimizado
             reasoning=True,
             reasoning_min_steps=1,  # Mínimo para velocidade
@@ -98,12 +95,8 @@ class SDRAgentV2:
                 self.schedule_meeting_tool,
                 self.calculate_savings_tool,
                 self.check_availability_tool,
-                self.handle_objection_tool,  # Tool para lidar com objeções
-                self.check_response_template_tool,  # Tool para templates de resposta
                 process_buffered_messages,  # Tool para processar mensagens bufferizadas
-                analyze_message_pattern,    # Tool para analisar padrões
-                chunk_message,             # Tool para dividir mensagens
-                analyze_message_for_chunking  # Tool para analisar estratégia de chunking
+                analyze_message_pattern     # Tool para analisar padrões
             ],
             # Instructions dinâmicas baseadas no estágio
             instructions=self._get_stage_instructions(initial_stage),
@@ -114,11 +107,7 @@ class SDRAgentV2:
         
     def _get_stage_instructions(self, stage: str = "INITIAL_CONTACT") -> str:
         """Retorna instruções dinâmicas baseadas no estágio atual"""
-        # Combina o prompt do sistema com o prompt específico do estágio
-        stage_prompt = PromptTemplates.get_stage_prompt(stage)
-        
-        # Retorna apenas o prompt do estágio, pois o SYSTEM_PROMPT já está no memory_config
-        return stage_prompt
+        return PromptTemplates.get_stage_prompt(stage)
         
     @tool
     async def analyze_bill_tool(self, image_data: bytes) -> Dict[str, Any]:
@@ -135,24 +124,11 @@ class SDRAgentV2:
         annual_savings = monthly_savings * 12
         payback_months = 12000 / monthly_savings if monthly_savings > 0 else 0
         
-        # Usa template de resposta para valor alto se aplicável
-        if bill_value >= 400:
-            response_template = get_example_response(
-                "high_energy_bill",
-                value=f"{bill_value:.2f}",
-                reduced_value=f"{bill_value * 0.05:.2f}",
-                monthly_savings=f"{monthly_savings:.2f}",
-                yearly_savings=f"{annual_savings:.2f}"
-            )
-        else:
-            response_template = None
-        
         return {
             "economia_mensal": f"R$ {monthly_savings:.2f}",
             "economia_anual": f"R$ {annual_savings:.2f}",
             "retorno_investimento": f"{int(payback_months)} meses",
-            "percentual_economia": "95%",
-            "response_template": response_template
+            "percentual_economia": "95%"
         }
         
     @tool
@@ -191,74 +167,6 @@ class SDRAgentV2:
                 "14:00", "15:00", "16:00", "17:00"
             ]
         }
-    
-    @tool
-    async def handle_objection_tool(self, objection_text: str) -> Dict[str, Any]:
-        """Lida com objeções usando templates centralizados"""
-        # Detectar tipo de objeção
-        objection_type = None
-        objection_keywords = {
-            "already_have_panels": ["já tenho", "já instalei", "já uso solar", "tenho painel"],
-            "want_own_installation": ["quero instalar", "quero minha própria", "usina própria"],
-            "contract_time_concern": ["quanto tempo", "contrato", "prazo", "período"],
-            "cancellation_policy": ["cancelar", "desistir", "sair do contrato", "multa"],
-            "cost_concern": ["caro", "muito dinheiro", "não tenho dinheiro", "valor alto"],
-            "maintenance_concern": ["manutenção", "quebrar", "estragar", "limpar"],
-            "competitor_comparison": ["concorrente", "outra empresa", "melhor preço", "origo", "setta"],
-            "high_discount_already": ["já tenho desconto", "desconto maior", "20%", "25%"],
-            "dont_trust_solar": ["não confio", "golpe", "enganação", "desconfio"],
-            "too_good_to_be_true": ["bom demais", "não acredito", "pegadinha"],
-            "prefer_to_wait": ["depois", "aguardar", "não é o momento", "futuramente"],
-            "need_to_consult_someone": ["falar com", "consultar", "conversar com", "decidir junto"],
-            "already_talked_to_competitor": ["já falei com", "já conversei", "já vi proposta"]
-        }
-        
-        objection_lower = objection_text.lower()
-        for obj_type, keywords in objection_keywords.items():
-            if any(keyword in objection_lower for keyword in keywords):
-                objection_type = obj_type
-                break
-        
-        if objection_type:
-            # Buscar resposta no handler de objeções
-            response = get_objection_handler(objection_type)
-            return {
-                "objection_detected": True,
-                "objection_type": objection_type,
-                "suggested_response": response
-            }
-        else:
-            return {
-                "objection_detected": False,
-                "objection_type": None,
-                "suggested_response": None
-            }
-    
-    @tool
-    async def check_response_template_tool(self, context: str) -> Dict[str, Any]:
-        """Verifica se há template de resposta aplicável"""
-        templates_keywords = {
-            "how_it_works": ["como funciona", "me explica", "não entendo"],
-            "no_space_for_panels": ["não tenho espaço", "apartamento", "sem telhado"],
-            "maintenance_concern": ["manutenção", "cuidar", "limpar"],
-            "competitor_comparison": ["diferença", "melhor que", "comparando"]
-        }
-        
-        context_lower = context.lower()
-        for template_name, keywords in templates_keywords.items():
-            if any(keyword in context_lower for keyword in keywords):
-                response = get_example_response(template_name)
-                return {
-                    "template_found": True,
-                    "template_name": template_name,
-                    "template_response": response
-                }
-        
-        return {
-            "template_found": False,
-            "template_name": None,
-            "template_response": None
-        }
         
     async def process_message(
         self,
@@ -266,7 +174,8 @@ class SDRAgentV2:
         phone_number: str,
         media_type: Optional[str] = None,
         media_data: Optional[Any] = None,
-        message_id: Optional[str] = None
+        message_id: Optional[str] = None,
+        media_info: Optional[Dict[str, Any]] = None
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Processa mensagem com AGnO Framework
@@ -292,31 +201,44 @@ class SDRAgentV2:
             
             # Atualizar estado do agente
             current_state = agent.session_state or {}
-            current_stage = self._determine_stage(lead_context)
+            
+            # Determinar estágio com consideração especial para análise de conta
+            if media_type == 'image' and media_info and media_info.get('bill_value'):
+                stage = 'ENERGY_BILL_ANALYSIS'
+            else:
+                stage = self._determine_stage(lead_context)
+            
             current_state.update({
                 'lead_info': lead_context,
-                'current_stage': current_stage,
+                'current_stage': stage,
                 'last_messages': conv_context,
-                'relevant_knowledge': knowledge_context
+                'relevant_knowledge': knowledge_context,
+                'media_info': media_info if media_info else {}
             })
             agent.session_state = current_state
             
-            # Atualizar instruções do agente com o prompt do estágio atual
-            agent.instructions = self._get_stage_instructions(current_stage)
+            # Atualizar instruções do agente baseado no estágio
+            agent.instructions = self._get_stage_instructions(stage)
             
-            # Preparar inputs multimodais com contexto enriquecido
-            context_info = []
-            if lead_context.get('name'):
-                context_info.append(f"Cliente: {lead_context['name']}")
-            if lead_context.get('bill_value'):
-                context_info.append(f"Valor da conta: R$ {lead_context['bill_value']}")
-            if lead_context.get('property_type'):
-                context_info.append(f"Tipo de imóvel: {lead_context['property_type']}")
-            context_info.append(f"Estágio: {current_state['current_stage']}")
+            # Preparar inputs multimodais
+            context_parts = [
+                f"Cliente: {lead_context.get('name', 'Ainda não identificado')}",
+                f"Estágio: {current_state['current_stage']}"
+            ]
+            
+            # Adicionar dados da conta se disponível
+            if media_info and media_info.get('bill_value'):
+                context_parts.append("\n📊 DADOS DA CONTA JÁ EXTRAÍDOS:")
+                context_parts.append(f"- Valor: {media_info['bill_value']}")
+                if media_info.get('consumption'):
+                    context_parts.append(f"- Consumo: {media_info['consumption']}")
+                if media_info.get('customer_name'):
+                    context_parts.append(f"- Titular: {media_info['customer_name']}")
+                context_parts.append("\n⚡ RESPONDA IMEDIATAMENTE com estes dados!")
             
             inputs = {
                 'message': message,
-                'context': '\n'.join(context_info)
+                'context': "\n".join(context_parts)
             }
             
             # Adicionar mídia se houver
@@ -347,10 +269,10 @@ class SDRAgentV2:
                 'stage': current_state['current_stage'],
                 'response_time': response_time,
                 'lead_score': self._calculate_lead_score(lead_context, current_state),
+                'lead_id': lead_context.get('lead_id'),  # Adicionar lead_id para follow-up
                 'should_react': media_type in ['image', 'document'],
                 'reaction_emoji': '👍' if media_type in ['image', 'document'] else None,
-                'reasoning_enabled': True,
-                'use_chunking': True  # Habilitar chunking por padrão
+                'reasoning_enabled': True
             }
             
             # Log performance
@@ -427,26 +349,15 @@ class SDRAgentV2:
         return relevant_knowledge
         
     def _determine_stage(self, lead_context: Dict[str, Any]) -> str:
-        """Determina estágio atual do lead baseado no novo fluxo"""
-        # Alinhado com o novo fluxo de Helen Vieira
+        """Determina estágio atual do lead"""
         if not lead_context.get('name'):
-            return 'INITIAL_CONTACT'  # Etapa 0: Abertura acolhedora
-        elif lead_context.get('name') and not lead_context.get('solution_interest'):
-            return 'IDENTIFICATION'  # Etapa 1: Identificação da necessidade
-        elif lead_context.get('solution_interest') and not lead_context.get('bill_value'):
-            return 'QUALIFICATION'  # Etapa 2: Qualificação financeira
-        elif lead_context.get('bill_value') and lead_context.get('current_discount') is None:
-            return 'DISCOVERY'  # Etapa 3: Situação atual
-        elif lead_context.get('current_discount') is not None and not lead_context.get('solution_presented'):
-            return 'PRESENTATION'  # Etapa 4: Apresentação da solução
-        elif lead_context.get('objection_raised'):
-            return 'OBJECTION_HANDLING'  # Tratamento de objeções
-        elif lead_context.get('solution_accepted') and not lead_context.get('scheduled_meeting'):
-            return 'SCHEDULING'  # Etapa 5: Fechamento e agendamento
-        elif lead_context.get('scheduled_meeting'):
-            return 'FOLLOW_UP'  # Follow-up e confirmação
+            return 'IDENTIFICATION'
+        elif not lead_context.get('property_type'):
+            return 'DISCOVERY'
+        elif not lead_context.get('bill_value'):
+            return 'QUALIFICATION'
         else:
-            return 'FOLLOW_UP'  # Follow-up padrão
+            return 'SCHEDULING'
             
     def _calculate_lead_score(self, lead_context: Dict[str, Any], session_state: Dict[str, Any]) -> int:
         """Calcula score de qualificação do lead"""
@@ -539,105 +450,13 @@ class SDRAgentV2:
             
         except Exception as e:
             logger.error(f"Erro ao salvar interação: {e}")
-    
-    def _prepare_crm_data(self, lead_context: Dict[str, Any], session_state: Dict[str, Any]) -> Dict[str, Any]:
-        """Prepara dados para o Kommo CRM"""
-        stage = session_state.get('current_stage', 'INITIAL_CONTACT')
-        
-        # Mapear estágio para tipo de solução
-        solution_type_map = {
-            'usina_propria': ['usina', 'instalar', 'própria'],
-            'aluguel_lote': ['não tenho espaço', 'apartamento', 'sem telhado'],
-            'assinatura_comercial': lambda ctx: ctx.get('bill_value', 0) >= 4000,
-            'assinatura_residencial': lambda ctx: 400 <= ctx.get('bill_value', 0) < 4000
-        }
-        
-        # Determinar tipo de solução
-        tipo_solucao = None
-        for tipo, check in solution_type_map.items():
-            if callable(check):
-                if check(lead_context):
-                    tipo_solucao = tipo
-            elif isinstance(check, list):
-                if any(word in str(session_state).lower() for word in check):
-                    tipo_solucao = tipo
-        
-        # Calcular nível de interesse
-        nivel_interesse = 'baixo'
-        score = lead_context.get('qualification_score', 0)
-        if score >= 80:
-            nivel_interesse = 'muito_alto'
-        elif score >= 60:
-            nivel_interesse = 'alto'
-        elif score >= 40:
-            nivel_interesse = 'medio'
-        
-        # Status de qualificação
-        status_map = {
-            'INITIAL_CONTACT': 'novo',
-            'IDENTIFICATION': 'em_qualificacao',
-            'QUALIFICATION': 'em_qualificacao',
-            'DISCOVERY': 'em_qualificacao',
-            'PRESENTATION': 'qualificado',
-            'SCHEDULING': 'agendado',
-            'FOLLOW_UP': 'follow_up_pendente'
-        }
-        
-        return {
-            "nome_lead": lead_context.get('name', ''),
-            "telefone": lead_context.get('phone', ''),
-            "origem": "WhatsApp",
-            "genero": "identificado_na_conversa",
-            "tipo_solucao_interesse": tipo_solucao,
-            "valor_conta_luz": lead_context.get('bill_value'),
-            "tem_desconto_atual": lead_context.get('has_discount', False),
-            "percentual_desconto_atual": lead_context.get('current_discount_percentage'),
-            "empresa_desconto_atual": lead_context.get('current_discount_company'),
-            "economia_projetada_percentual": 20 if lead_context.get('bill_value', 0) >= 4000 else 15,
-            "economia_projetada_valor": lead_context.get('bill_value', 0) * 0.2 if lead_context.get('bill_value', 0) >= 4000 else lead_context.get('bill_value', 0) * 0.15,
-            "data_hora_reuniao": session_state.get('scheduled_meeting_datetime'),
-            "status_qualificacao": status_map.get(stage, 'novo'),
-            "observacoes_helen": self._generate_crm_observation(lead_context, session_state),
-            "nivel_interesse": nivel_interesse,
-            "objecoes_apresentadas": session_state.get('objections', [])
-        }
-    
-    def _generate_crm_observation(self, lead_context: Dict[str, Any], session_state: Dict[str, Any]) -> str:
-        """Gera observação automática para o CRM"""
-        observations = []
-        
-        # Interesse na proposta
-        if lead_context.get('qualification_score', 0) >= 60:
-            observations.append("Cliente demonstrou muito interesse na proposta. Focou bastante na economia mensal.")
-        
-        # Objeções
-        if session_state.get('objections'):
-            objections = session_state['objections']
-            if 'contract_time' in objections:
-                observations.append("Apresentou objeção sobre tempo de contrato, mas entendeu os benefícios da usina ao final.")
-            if 'competitor' in objections:
-                empresa = lead_context.get('current_discount_company', 'concorrente')
-                observations.append(f"Comparou com concorrente {empresa}, mas ficou convencida dos nossos diferenciais.")
-        
-        # Qualificação
-        if session_state.get('current_stage') == 'SCHEDULING':
-            observations.append("Cliente qualificada e entusiasmada para a reunião. Alta probabilidade de conversão.")
-        
-        # Perfil e economia
-        if lead_context.get('bill_value'):
-            tipo = 'assinatura comercial' if lead_context['bill_value'] >= 4000 else 'assinatura residencial'
-            economia = lead_context['bill_value'] * 0.2 if lead_context['bill_value'] >= 4000 else lead_context['bill_value'] * 0.15
-            observations.append(f"Perfil ideal para {tipo} - Economia projetada: R${economia:.2f}/mês")
-        
-        return " ".join(observations) if observations else "Lead em processo de qualificação."
             
     async def handle_greeting(self, phone_number: str) -> Tuple[str, Dict[str, Any]]:
         """Mensagem de boas-vindas otimizada"""
-        # Usa o template de greeting centralizado
-        greeting = PromptTemplates.get_template("greeting_initial")
+        greeting = "Oi! 😊 Eu sou a Luna da SolarPrime. Vim te ajudar a economizar até 95% na conta de luz! Como posso te chamar?"
         
         return greeting, {
-            'stage': 'INITIAL_CONTACT',
+            'stage': 'IDENTIFICATION',
             'is_greeting': True,
             'typing_delay': 1.0  # Reduzido de calculate_typing_delay
         }
@@ -744,11 +563,11 @@ class SDRAgentV2:
                 'stage': current_state['current_stage'],
                 'response_time': response_time,
                 'lead_score': self._calculate_lead_score(lead_context, current_state),
+                'lead_id': lead_context.get('lead_id'),  # Adicionar lead_id para follow-up
                 'buffered_messages': len(messages),
                 'has_media': len(media_items) > 0,
                 'media_count': len(media_items),
                 'reasoning_enabled': True,
-                'use_chunking': True,  # Habilitar chunking por padrão
                 'buffer_analysis': {
                     'fragmented': len(messages) > 3,
                     'urgent': any('urgente' in msg.get('content', '').lower() for msg in messages),
@@ -763,7 +582,7 @@ class SDRAgentV2:
             
         except asyncio.TimeoutError:
             logger.error("Timeout ao processar mensagens bufferizadas")
-            return "Desculpe pela demora! Recebi suas mensagens. Como posso ajudar com energia solar? ☀️", {
+            return "Desculpe pela demora! Recebi suas mensagens. Como posso ajudar com energia solar?", {
                 'error': 'timeout',
                 'response_time': 30.0,
                 'buffered_messages': len(messages)
@@ -771,7 +590,7 @@ class SDRAgentV2:
             
         except Exception as e:
             logger.error(f"Erro ao processar mensagens bufferizadas: {e}", exc_info=True)
-            return "Ops, tive um probleminha ao processar suas mensagens. Pode me dizer como posso ajudar? 🤔", {
+            return "Ops, tive um probleminha ao processar suas mensagens. Pode me dizer como posso ajudar?", {
                 'error': str(e),
                 'response_time': (datetime.now() - start_time).total_seconds(),
                 'buffered_messages': len(messages)

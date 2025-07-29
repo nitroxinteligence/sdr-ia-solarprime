@@ -10,6 +10,7 @@ import random
 from typing import List, Dict, Any, Optional, Tuple
 from agno.tools import tool
 from loguru import logger
+from utils.message_formatter import format_message_for_whatsapp, improve_chunk_splitting, should_use_natural_breaks
 
 
 async def chunk_message_standalone(
@@ -30,24 +31,37 @@ async def chunk_message_standalone(
         }
     
     try:
-        # Converter markdown headers para bold
-        message = convert_markdown_headers(message)
+        # Primeiro, formatar a mensagem para WhatsApp
+        message = format_message_for_whatsapp(message)
         
-        # Dividir em sentenças preservando casos especiais
-        sentences = split_into_sentences(message)
+        # Verificar se deve usar quebras naturais
+        use_natural, natural_chunks = should_use_natural_breaks(message)
         
-        if not sentences:
-            return {
-                "chunks": [message],
-                "delays": [calculate_typing_delay(message)],
-                "total_reading_time": calculate_reading_time(message)
-            }
+        if use_natural and natural_chunks:
+            # Usar as quebras naturais encontradas
+            chunks = natural_chunks
+        else:
+            # Converter markdown headers para bold (já feito no formatter)
+            # message = convert_markdown_headers(message)
+            
+            # Dividir em sentenças preservando casos especiais
+            sentences = split_into_sentences(message)
+            
+            if not sentences:
+                return {
+                    "chunks": [message],
+                    "delays": [calculate_typing_delay(message)],
+                    "total_reading_time": calculate_reading_time(message)
+                }
+            
+            # Aplicar lógica de junção probabilística
+            chunks = apply_join_probability(sentences, join_probability)
+            
+            # Otimizar tamanhos dos chunks
+            chunks = optimize_chunk_sizes(chunks, max_chunk_words, min_chunk_words, max_chars_per_chunk)
         
-        # Aplicar lógica de junção probabilística
-        chunks = apply_join_probability(sentences, join_probability)
-        
-        # Otimizar tamanhos dos chunks
-        chunks = optimize_chunk_sizes(chunks, max_chunk_words, min_chunk_words, max_chars_per_chunk)
+        # Melhorar divisão de chunks (evitar quebras em vírgulas)
+        chunks = improve_chunk_splitting(chunks)
         
         # Limpar e validar chunks
         final_chunks = []
@@ -56,6 +70,8 @@ async def chunk_message_standalone(
         for chunk in chunks:
             cleaned = chunk.strip()
             if cleaned:
+                # Aplicar formatação final em cada chunk
+                cleaned = format_message_for_whatsapp(cleaned)
                 final_chunks.append(cleaned)
                 # Calcular delay baseado no tamanho do chunk
                 delay = calculate_typing_delay(cleaned)
@@ -132,11 +148,14 @@ async def chunk_message(
 
 
 def convert_markdown_headers(text: str) -> str:
-    """Converte headers markdown para texto em bold"""
-    # Converter ### Header para **Header**
-    text = re.sub(r'^###\s+(.+)$', r'**\1**', text, flags=re.MULTILINE)
-    text = re.sub(r'^##\s+(.+)$', r'**\1**', text, flags=re.MULTILINE)
-    text = re.sub(r'^#\s+(.+)$', r'**\1**', text, flags=re.MULTILINE)
+    """Converte headers markdown para texto em bold
+    NOTA: Esta função está mantida por compatibilidade mas a conversão
+    agora é feita em format_message_for_whatsapp()
+    """
+    # Converter ### Header para *Header* (WhatsApp format)
+    text = re.sub(r'^###\s+(.+)$', r'*\1*', text, flags=re.MULTILINE)
+    text = re.sub(r'^##\s+(.+)$', r'*\1*', text, flags=re.MULTILINE)
+    text = re.sub(r'^#\s+(.+)$', r'*\1*', text, flags=re.MULTILINE)
     return text
 
 
@@ -308,8 +327,9 @@ def optimize_chunk_sizes(chunks: List[str], max_words: int, min_words: int, max_
                 
                 # Verificar se chegou em um ponto natural de divisão
                 current_text = " ".join(current_sub)
+                # Remover vírgula da lista de pontos de quebra
                 if (len(current_sub) >= max_words // 2 and 
-                    any(current_text.endswith(p) for p in ['.', '!', '?', ':', ','])):
+                    any(current_text.endswith(p) for p in ['.', '!', '?'])):
                     sub_chunks.append(current_text)
                     current_sub = []
                 elif len(current_sub) >= max_words:
