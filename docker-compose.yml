@@ -2,7 +2,7 @@
 # Configuração otimizada para backend com Redis e Evolution API
 
 services:
-  sdr-ia:
+  sdr-api:
     build:
       context: .
       dockerfile: Dockerfile

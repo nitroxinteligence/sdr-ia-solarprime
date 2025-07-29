@@ -2,7 +2,7 @@
 # Este arquivo é usado pelo Easypanel para configurar o serviço
 
 # Nome do serviço (será usado internamente)
-name: sdr-ia
+name: sdr-api
 
 # Configuração de build
 build:
