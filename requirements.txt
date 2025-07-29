@@ -1,6 +1,7 @@
 # Core Dependencies
 agno==1.7.6
 google-genai
+openai>=1.0.0
 python-dotenv==1.0.0
 pydantic==2.8.2
 pydantic-settings==2.3.4
