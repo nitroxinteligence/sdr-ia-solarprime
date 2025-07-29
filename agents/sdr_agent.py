@@ -22,17 +22,26 @@ from agno.storage.agent.sqlite import SqliteAgentStorage
 from agno.media import Image, Audio, Video
 AGNO_MEDIA_AVAILABLE = True
 
+# Tentar importar módulos de leitura de documentos do AGnO
+try:
+    from agno.document_reader import PDFReader, PDFImageReader
+    AGNO_READERS_AVAILABLE = True
+    logger.info("Módulos PDFReader e PDFImageReader do AGnO disponíveis")
+except ImportError:
+    logger.warning("Módulos PDFReader/PDFImageReader não disponíveis - PDFs serão tratados como imagens")
+    AGNO_READERS_AVAILABLE = False
+    PDFReader = None
+    PDFImageReader = None
+
 # Imports para retry e fallback
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import httpx
-
-# Nota: PDFReader não é suportado diretamente, mas podemos usar Image para PDFs convertidos
-AGNO_READERS_AVAILABLE = False
 
 # Configurações locais
 from config.agent_config import config, get_config
 from config.prompts import PromptTemplates, get_example_response
 from utils.helpers import calculate_typing_delay, format_phone_number
+from utils.currency_parser import parse_brazilian_currency
 
 # Importar repositórios Supabase
 from repositories.lead_repository import lead_repository
@@ -293,10 +302,11 @@ class SDRAgent:
             if lead_info.get("property_type"):
                 lead_updates["property_type"] = lead_info["property_type"]
             if lead_info.get("bill_value"):
-                try:
-                    lead_updates["bill_value"] = float(lead_info["bill_value"])
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Erro ao converter bill_value para float: {e}")
+                parsed_value = parse_brazilian_currency(lead_info["bill_value"])
+                if parsed_value is not None:
+                    lead_updates["bill_value"] = parsed_value
+                else:
+                    logger.warning(f"Não foi possível converter bill_value: '{lead_info.get('bill_value')}'")
             if lead_info.get("consumption_kwh"):
                 try:
                     lead_updates["consumption_kwh"] = int(lead_info["consumption_kwh"])
@@ -1164,22 +1174,138 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
     async def _process_pdf_with_ocr(self, pdf_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Processa PDF com OCR se necessário"""
         try:
-            logger.info("Processamento de PDF")
+            logger.info("Processamento de PDF iniciado")
             
-            # AGnO não tem suporte direto para PDF, mas podemos tentar como imagem
-            # ou sugerir conversão para imagem primeiro
-            logger.warning("PDFs não são suportados diretamente pelo AGnO. Sugerindo conversão para imagem.")
+            # Verificar se temos os módulos PDF do AGnO disponíveis
+            if AGNO_READERS_AVAILABLE and PDFImageReader:
+                logger.info("Usando PDFImageReader do AGnO para processar PDF com OCR")
+                
+                try:
+                    # Criar PDFImageReader baseado no tipo de dados
+                    pdf_reader = None
+                    
+                    if 'url' in pdf_data:
+                        pdf_reader = PDFImageReader(pdf=pdf_data['url'])
+                    elif 'path' in pdf_data:
+                        pdf_reader = PDFImageReader(pdf=pdf_data['path'])
+                    elif 'content' in pdf_data:
+                        # Se for conteúdo binário, criar objeto IO
+                        import io
+                        pdf_io = io.BytesIO(pdf_data['content'])
+                        pdf_reader = PDFImageReader(pdf=pdf_io)
+                    elif 'base64' in pdf_data:
+                        # Decodificar base64 e criar objeto IO
+                        import io
+                        pdf_bytes = base64.b64decode(pdf_data['base64'])
+                        pdf_io = io.BytesIO(pdf_bytes)
+                        pdf_reader = PDFImageReader(pdf=pdf_io)
+                    
+                    if pdf_reader:
+                        # Extrair texto e realizar OCR
+                        logger.info("Extraindo texto e realizando OCR no PDF...")
+                        
+                        # O PDFImageReader deve retornar o conteúdo extraído
+                        # Tentamos diferentes métodos possíveis do AGnO
+                        extracted_content = None
+                        
+                        # Tentar método extract() primeiro
+                        if hasattr(pdf_reader, 'extract'):
+                            extracted_content = pdf_reader.extract()
+                        # Tentar método read() 
+                        elif hasattr(pdf_reader, 'read'):
+                            extracted_content = pdf_reader.read()
+                        # Tentar método get_text()
+                        elif hasattr(pdf_reader, 'get_text'):
+                            extracted_content = pdf_reader.get_text()
+                        # Tentar conversão para string
+                        else:
+                            extracted_content = str(pdf_reader)
+                        
+                        if extracted_content:
+                            # Analisar o conteúdo extraído
+                            logger.info("Conteúdo extraído do PDF, analisando...")
+                            result = await self._analyze_pdf_content(extracted_content)
+                            
+                            if result:
+                                logger.info("PDF processado com sucesso via PDFImageReader")
+                                result['_processed_by'] = 'agno_pdf_reader'
+                                return result
+                        else:
+                            logger.warning("PDFImageReader não conseguiu extrair conteúdo")
+                    
+                except Exception as e:
+                    logger.error(f"Erro ao usar PDFImageReader: {e}")
+                    # Continuar para fallback
+            
+            # Fallback: tentar processar PDF como imagem
+            logger.info("Tentando processar PDF como imagem (fallback)")
+            
+            # Se temos URL ou path, podemos tentar converter primeira página para imagem
+            if 'url' in pdf_data or 'path' in pdf_data:
+                # Criar dados de imagem para análise
+                image_data = {
+                    'url': pdf_data.get('url'),
+                    'path': pdf_data.get('path')
+                }
+                
+                # Remover None values
+                image_data = {k: v for k, v in image_data.items() if v is not None}
+                
+                # Usar o mesmo prompt de análise de conta
+                analysis_prompt = """Analise esta conta de energia elétrica e extraia IMEDIATAMENTE as seguintes informações:
+
+1. Valor total da fatura (em R$)
+2. Consumo em kWh
+3. Mês/Ano de referência
+4. Nome do titular da conta
+5. Endereço completo
+6. CPF ou CNPJ
+7. Nome da distribuidora de energia
+8. Histórico de consumo (se disponível)
+
+IMPORTANTE: Retorne APENAS um JSON válido com essas informações, sem texto adicional.
+Formato esperado:
+{
+    "bill_value": "valor em reais",
+    "consumption_kwh": "consumo em kWh",
+    "reference_period": "mês/ano",
+    "customer_name": "nome do titular",
+    "address": "endereço completo",
+    "document": "CPF ou CNPJ",
+    "distributor": "nome da distribuidora",
+    "consumption_history": []
+}
+
+Se alguma informação não estiver disponível, use null."""
+                
+                # Tentar análise como imagem
+                result = await self._analyze_image_with_gemini(image_data, analysis_prompt)
+                
+                if result:
+                    logger.info("PDF processado como imagem com sucesso")
+                    result['_processed_by'] = 'pdf_as_image'
+                    result['_original_format'] = 'pdf'
+                    return result
+            
+            # Se nada funcionou, retornar sugestão
+            logger.warning("Não foi possível processar o PDF. Sugerindo alternativas.")
             
             return {
                 "media_received": "pdf",
-                "analysis_status": "not_supported",
-                "suggestion": "Por favor, envie uma foto/screenshot da conta de luz ao invés de PDF.",
-                "fallback": "convert_to_image"
+                "analysis_status": "fallback_failed",
+                "suggestion": "Por favor, envie uma foto/screenshot da conta de luz para melhor análise.",
+                "fallback": "convert_to_image",
+                "_attempted_methods": ["agno_pdf_reader", "pdf_as_image"]
             }
                 
         except Exception as e:
             logger.error(f"Erro ao processar PDF: {e}")
-            return None
+            return {
+                "media_received": "pdf",
+                "analysis_status": "error",
+                "error": str(e),
+                "suggestion": "Ocorreu um erro ao processar o PDF. Por favor, tente enviar uma foto da conta."
+            }
     
     async def _analyze_pdf_content(self, content: str) -> Dict[str, Any]:
         """Analisa conteúdo extraído de PDF"""
@@ -1266,14 +1392,14 @@ Por favor, tente novamente em alguns instantes. Nossa equipe já foi notificada!
         if lead_info.get("bill_value"):
             score += 15
             # Bonus por conta alta
-            try:
-                bill_value = float(lead_info["bill_value"])
+            bill_value = parse_brazilian_currency(lead_info["bill_value"])
+            if bill_value is not None:
                 if bill_value > 500:
                     score += 10
                 elif bill_value > 300:
                     score += 5
-            except (ValueError, TypeError, KeyError) as e:
-                logger.debug(f"Erro ao processar valor da conta para lead score: {e}")
+            else:
+                logger.debug(f"Não foi possível processar valor da conta para lead score: '{lead_info.get('bill_value')}'")
         
         if lead_info.get("consumption_kwh"):
             score += 10

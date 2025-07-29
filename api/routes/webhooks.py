@@ -159,6 +159,15 @@ async def process_webhook_async(payload: Dict[str, Any], event_type: str):
     start_time = datetime.now()
     
     try:
+        # Log detalhado para mensagens
+        if event_type == "MESSAGES_UPSERT":
+            data = payload.get("data", {})
+            message = data.get("message", {})
+            from_number = data.get("key", {}).get("remoteJid", "unknown")
+            message_id = data.get("key", {}).get("id", "unknown")
+            content = message.get("conversation", "") or message.get("extendedTextMessage", {}).get("text", "")
+            logger.info(f"📨 Webhook MESSAGES_UPSERT - De: {from_number}, ID: {message_id}, Conteúdo: '{content[:50]}...'")
+        
         result = await whatsapp_service.process_webhook(payload)
         
         processing_time = (datetime.now() - start_time).total_seconds() * 1000  # em ms

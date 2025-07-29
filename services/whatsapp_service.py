@@ -92,6 +92,9 @@ class WhatsAppService:
         # Verificar se deve adicionar ao buffer ou processar imediatamente
         phone = message_info["from"]
         
+        # Log detalhado da mensagem recebida
+        logger.info(f"📥 Nova mensagem de {phone}: '{message_info['content'][:50]}...' (tipo: {message_info['type']}, id: {message_info['id']})")
+        
         # Preparar dados da mensagem para o buffer
         buffer_message_data = {
             "id": message_info["id"],
@@ -104,7 +107,12 @@ class WhatsAppService:
         
         # Callback para processar mensagens consolidadas
         async def process_buffered_callback(messages: List[Dict[str, Any]]):
+            logger.info(f"📋 Callback do buffer acionado para {phone} com {len(messages)} mensagens")
             await self._process_buffered_messages(phone, messages)
+        
+        # Obter status do buffer antes de adicionar
+        buffer_status = await message_buffer_service.get_buffer_status(phone)
+        logger.debug(f"📊 Status do buffer antes: {buffer_status}")
         
         # Tentar adicionar ao buffer
         added_to_buffer = await message_buffer_service.add_message(
@@ -114,14 +122,18 @@ class WhatsAppService:
         )
         
         if added_to_buffer:
-            logger.info(f"Mensagem {message_info['id']} adicionada ao buffer para {phone}")
+            # Obter status atualizado do buffer
+            buffer_status_after = await message_buffer_service.get_buffer_status(phone)
+            logger.info(f"✅ Mensagem {message_info['id']} adicionada ao buffer para {phone} - Status: {buffer_status_after}")
             return {
                 "status": "buffered",
                 "message_id": message_info["id"],
-                "buffer_active": True
+                "buffer_active": True,
+                "buffer_size": buffer_status_after.get("buffer_size", 0)
             }
         else:
-            # Processar imediatamente se buffer desabilitado
+            # Processar imediatamente se buffer desabilitado ou em processamento
+            logger.warning(f"⚠️ Buffer não disponível para {phone} - processando mensagem imediatamente")
             response = await self._process_message(message_info)
             
             return {
@@ -665,7 +677,11 @@ class WhatsAppService:
         start_time = datetime.now()
         
         try:
-            logger.info(f"Processando {len(messages)} mensagens bufferizadas de {phone}")
+            logger.info(f"🔄 Iniciando processamento de {len(messages)} mensagens bufferizadas de {phone}")
+            
+            # Log detalhado de cada mensagem no buffer
+            for i, msg in enumerate(messages):
+                logger.debug(f"  📝 Mensagem {i+1}/{len(messages)}: '{msg.get('content', '')[:50]}...' (id: {msg.get('id')})")
             
             # Consolidar informações das mensagens
             consolidated_content = []
@@ -693,6 +709,7 @@ class WhatsAppService:
             
             # Criar mensagem consolidada
             final_content = " ".join(consolidated_content)
+            logger.info(f"📄 Conteúdo consolidado ({len(final_content)} chars): '{final_content[:100]}...'")
             
             # Se não houver conteúdo de texto mas houver mídia
             if not final_content and media_items:
@@ -728,6 +745,7 @@ class WhatsAppService:
             )
             
             # Processar com o agente usando o conteúdo consolidado
+            logger.info(f"🤖 Enviando conteúdo consolidado para o agente processar...")
             response, metadata = await self.agent.process_message(
                 message=final_content,
                 phone_number=phone,
@@ -740,6 +758,8 @@ class WhatsAppService:
             metadata["is_buffered"] = True
             metadata["buffered_count"] = len(messages)
             metadata["buffer_time_span"] = (datetime.now() - start_time).total_seconds()
+            
+            logger.info(f"💬 Agente gerou resposta ({len(response)} chars): '{response[:100]}...'")
             
             # Rastrear evento
             await analytics_service.track_event(

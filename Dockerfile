@@ -75,6 +75,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Expor porta
 EXPOSE 8000
 
-# Comando de inicialização otimizado para Easypanel
-# Reduzido para 2 workers para economizar recursos no container
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--access-log"]
+# Comando de inicialização otimizado
+# Usando 1 worker por padrão para evitar problemas de concorrência no buffer de mensagens
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1} --access-log"]

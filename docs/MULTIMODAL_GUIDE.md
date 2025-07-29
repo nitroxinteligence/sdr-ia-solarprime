@@ -47,8 +47,11 @@ O método `_process_media` agora:
 - **Arquivo Local**: Caminhos para arquivos no servidor
 
 ### Documentos
-- **PDF**: Com suporte a OCR via PDFImageReader (quando disponível)
-- **Fallback**: PDFs são tratados como imagens se módulos não estiverem disponíveis
+- **PDF**: Suporte completo com múltiplas estratégias:
+  - **PDFImageReader**: OCR nativo do AGnO Framework (quando disponível)
+  - **PDF como Imagem**: Conversão automática para análise via Gemini Vision
+  - **Fallback Inteligente**: Múltiplas tentativas antes de solicitar alternativa
+- **Formatos aceitos**: URL, caminho local, base64, conteúdo binário
 
 ## Dados Extraídos
 
@@ -108,10 +111,11 @@ GEMINI_API_KEY=sua_chave_aqui
 
 O sistema possui fallbacks robustos:
 
-1. **Imagem Inválida**: Retorna status de falha
-2. **PDF sem OCR**: Trata como imagem
-3. **Erro de Análise**: Usa resposta genérica
-4. **Timeout**: Resposta de fallback
+1. **Imagem Inválida**: Retorna status de falha com sugestão
+2. **PDF sem módulos AGnO**: Automaticamente tenta processar como imagem
+3. **Erro de Análise**: Usa resposta genérica mantendo contexto
+4. **Timeout**: Resposta de fallback com retry automático
+5. **PDF complexo**: Múltiplas estratégias antes de solicitar alternativa
 
 ## Melhorias Futuras
 
@@ -132,9 +136,14 @@ Logs importantes:
 - "Processando imagem de conta de luz..."
 - "Dados extraídos da conta: {...}"
 - "Enviando imagem para análise com Gemini Vision..."
+- "Processamento de PDF iniciado"
+- "Usando PDFImageReader do AGnO para processar PDF com OCR"
+- "Tentando processar PDF como imagem (fallback)"
+- "PDF processado com sucesso via [método]"
 
-## Exemplo de Conversa
+## Exemplos de Conversas
 
+### Com Imagem
 ```
 Lead: "Aqui está minha conta de luz" [envia imagem]
 Agente: "Opa! Recebi sua conta aqui. Deixa eu dar uma olhada... 
@@ -144,6 +153,18 @@ Caramba! Vi que sua conta está vindo R$ 680,00! 😱
 Com energia solar, você poderia economizar até R$ 646,00 por mês!
 
 Esses dados estão corretos? É realmente esse valor que vem na sua conta?"
+```
+
+### Com PDF
+```
+Lead: "Segue minha conta em PDF" [envia PDF]
+Agente: "Recebi seu PDF! Vou analisar os dados da sua conta...
+
+Nossa! Analisei sua conta e vi que você está pagando R$ 520,00 por mês, com um consumo de 420 kWh.
+
+Com nosso sistema de energia solar, você pode economizar até 95% desse valor! 
+
+João, posso te mostrar como funciona essa economia?"
 ```
 
 ## Suporte
