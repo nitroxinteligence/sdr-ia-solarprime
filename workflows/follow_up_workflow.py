@@ -19,6 +19,14 @@ from repositories.lead_repository import lead_repository
 from config.config import config
 from config.agent_config import config as agent_config
 
+# Importar o workflow inteligente se disponível
+try:
+    from workflows.intelligent_follow_up_workflow import IntelligentFollowUpWorkflow
+    INTELLIGENT_WORKFLOW_AVAILABLE = True
+except ImportError:
+    INTELLIGENT_WORKFLOW_AVAILABLE = False
+    logger.warning("Workflow inteligente não disponível, usando workflow padrão")
+
 # Executor para rodar funções assíncronas em threads separadas
 executor = ThreadPoolExecutor(max_workers=1)
 
@@ -344,7 +352,14 @@ class FollowUpScheduler:
     """Agendador de follow-ups que roda periodicamente"""
     
     def __init__(self):
-        self.workflow = FollowUpWorkflow()
+        # Usar workflow inteligente se disponível e habilitado
+        if INTELLIGENT_WORKFLOW_AVAILABLE and agent_config.enable_intelligent_follow_up:
+            logger.info("Usando Follow-up Workflow Inteligente com contexto completo")
+            self.workflow = IntelligentFollowUpWorkflow()
+        else:
+            logger.info("Usando Follow-up Workflow padrão")
+            self.workflow = FollowUpWorkflow()
+        
         self.supabase = supabase_client
         self.running = False
         

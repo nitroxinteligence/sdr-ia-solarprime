@@ -189,6 +189,172 @@ class MessageRepository(BaseRepository[Message]):
             context_parts.append(f"{role_label}: {msg.content}")
         
         return "\n".join(context_parts)
+    
+    async def get_full_conversation_context(
+        self,
+        conversation_id: UUID,
+        limit: int = 100,
+        include_media: bool = True
+    ) -> Dict[str, Any]:
+        """Busca contexto completo incluindo análise"""
+        # Buscar mensagens
+        messages = await self.get_conversation_messages(conversation_id, limit=limit)
+        
+        # Se incluir mídia, buscar mensagens com mídia
+        media_messages = []
+        if include_media:
+            media_messages = await self.get_messages_with_media(conversation_id)
+        
+        # Analisar padrões
+        patterns = await self._analyze_conversation_patterns(messages)
+        
+        # Extrair insights do usuário
+        insights = await self._extract_user_insights(messages)
+        
+        # Gerar resumo
+        summary = await self._generate_conversation_summary(messages)
+        
+        return {
+            "messages": messages,
+            "media_messages": media_messages,
+            "patterns": patterns,
+            "insights": insights,
+            "summary": summary,
+            "total_messages": len(messages),
+            "conversation_duration": self._calculate_conversation_duration(messages)
+        }
+    
+    async def _analyze_conversation_patterns(self, messages: List[Message]) -> Dict[str, Any]:
+        """Analisa padrões na conversa"""
+        if not messages:
+            return {}
+        
+        patterns = {
+            "avg_response_time": None,
+            "message_frequency": {},
+            "topics_discussed": [],
+            "user_engagement": "low",
+            "conversation_stage": "initial"
+        }
+        
+        # Analisar tempo de resposta
+        response_times = []
+        for i in range(1, len(messages)):
+            if messages[i].role != messages[i-1].role:
+                time_diff = (messages[i].created_at - messages[i-1].created_at).total_seconds()
+                if time_diff < 3600:  # Ignorar gaps maiores que 1 hora
+                    response_times.append(time_diff)
+        
+        if response_times:
+            patterns["avg_response_time"] = sum(response_times) / len(response_times)
+        
+        # Analisar frequência de mensagens
+        user_messages = [m for m in messages if m.role == "user"]
+        patterns["user_message_count"] = len(user_messages)
+        
+        # Determinar engajamento
+        if len(user_messages) > 10:
+            patterns["user_engagement"] = "high"
+        elif len(user_messages) > 5:
+            patterns["user_engagement"] = "medium"
+        
+        # Detectar tópicos discutidos
+        topics_keywords = {
+            "preço": ["preço", "valor", "custo", "investimento", "caro", "barato"],
+            "economia": ["economia", "economizar", "redução", "desconto", "poupar"],
+            "técnico": ["instalação", "telhado", "painéis", "inversor", "kwh", "potência"],
+            "dúvidas": ["dúvida", "pergunta", "como", "quanto", "quando", "onde"],
+            "interesse": ["quero", "interesse", "gostaria", "preciso", "simular"]
+        }
+        
+        all_content = " ".join([m.content.lower() for m in messages if m.content])
+        
+        for topic, keywords in topics_keywords.items():
+            if any(keyword in all_content for keyword in keywords):
+                patterns["topics_discussed"].append(topic)
+        
+        return patterns
+    
+    async def _extract_user_insights(self, messages: List[Message]) -> Dict[str, Any]:
+        """Extrai insights sobre o usuário"""
+        insights = {
+            "objections": [],
+            "interests": [],
+            "questions_asked": [],
+            "pain_points": [],
+            "decision_factors": [],
+            "sentiment_trend": []
+        }
+        
+        # Palavras-chave para detecção
+        objection_keywords = ["caro", "não tenho", "não posso", "difícil", "problema", "preocupado"]
+        interest_keywords = ["interessante", "legal", "quero saber", "me conta", "como funciona"]
+        
+        user_messages = [m for m in messages if m.role == "user" and m.content]
+        
+        for msg in user_messages:
+            content_lower = msg.content.lower()
+            
+            # Detectar objeções
+            for keyword in objection_keywords:
+                if keyword in content_lower:
+                    insights["objections"].append({
+                        "keyword": keyword,
+                        "message": msg.content[:100],
+                        "timestamp": msg.created_at.isoformat()
+                    })
+                    break
+            
+            # Detectar interesses
+            for keyword in interest_keywords:
+                if keyword in content_lower:
+                    insights["interests"].append({
+                        "keyword": keyword,
+                        "message": msg.content[:100],
+                        "timestamp": msg.created_at.isoformat()
+                    })
+                    break
+            
+            # Detectar perguntas
+            if "?" in content_lower:
+                insights["questions_asked"].append(msg.content[:100])
+        
+        return insights
+    
+    async def _generate_conversation_summary(self, messages: List[Message]) -> str:
+        """Gera resumo da conversa"""
+        if not messages:
+            return "Conversa sem mensagens"
+        
+        # Pegar primeira e última mensagem
+        first_msg = messages[0]
+        last_msg = messages[-1]
+        
+        # Contar mensagens por role
+        user_count = len([m for m in messages if m.role == "user"])
+        assistant_count = len([m for m in messages if m.role == "assistant"])
+        
+        summary = f"Conversa iniciada em {first_msg.created_at.strftime('%d/%m/%Y %H:%M')} "
+        summary += f"com {len(messages)} mensagens ({user_count} do cliente, {assistant_count} da Luna). "
+        
+        # Adicionar último status
+        if last_msg.role == "user":
+            summary += "Aguardando resposta da Luna."
+        else:
+            summary += "Aguardando resposta do cliente."
+        
+        return summary
+    
+    def _calculate_conversation_duration(self, messages: List[Message]) -> float:
+        """Calcula duração da conversa em minutos"""
+        if len(messages) < 2:
+            return 0
+        
+        first_msg = messages[0]
+        last_msg = messages[-1]
+        
+        duration = (last_msg.created_at - first_msg.created_at).total_seconds() / 60
+        return round(duration, 2)
 
 
 # Instância global

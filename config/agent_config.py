@@ -190,6 +190,11 @@ class SDRConfig(BaseSettings):
     follow_up_delay_minutes: int = Field(default_factory=lambda: int(os.getenv("FOLLOW_UP_DELAY_MINUTES", "30")))
     follow_up_second_delay_hours: int = Field(default_factory=lambda: int(os.getenv("FOLLOW_UP_SECOND_DELAY_HOURS", "24")))
     
+    # Configurações de follow-up inteligente
+    enable_intelligent_follow_up: bool = Field(default_factory=lambda: os.getenv("ENABLE_INTELLIGENT_FOLLOW_UP", "true").lower() == "true")
+    follow_up_context_messages: int = Field(default_factory=lambda: int(os.getenv("FOLLOW_UP_CONTEXT_MESSAGES", "100")))
+    follow_up_min_interest_level: int = Field(default_factory=lambda: int(os.getenv("FOLLOW_UP_MIN_INTEREST_LEVEL", "3")))
+    
     # Mensagens padrão
     default_messages: Dict[str, str] = Field(default_factory=lambda: {
         "greeting": """Olá! 👋 Sou a {name} da {company}!
