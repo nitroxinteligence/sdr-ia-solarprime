@@ -727,12 +727,13 @@ class WhatsAppService:
                 duration=typing_duration
             )
             
-            # Processar com o agente
-            response, metadata = await self.agent.process_buffered_messages(
-                messages=messages,
+            # Processar com o agente usando o conteúdo consolidado
+            response, metadata = await self.agent.process_message(
+                message=final_content,
                 phone_number=phone,
-                consolidated_content=final_content,
-                media_items=media_items
+                media_type="buffered" if media_items else None,
+                media_data=media_items[0] if media_items else None,
+                message_id=last_message_id
             )
             
             # Adicionar metadados específicos do buffer
