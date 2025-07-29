@@ -19,6 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     libpq-dev \
     curl \
+    libmagic1 \
+    libmagic-dev \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Criar diretório de trabalho
@@ -43,6 +46,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    libmagic1 \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Criar usuário não-root

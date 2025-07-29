@@ -45,7 +45,7 @@ loguru==0.7.2
 # Image Processing (for multimodal)
 Pillow==10.3.0
 python-magic>=0.4.27
-python-magic-bin>=0.4.14  # Para Windows
+# python-magic-bin>=0.4.14  # Apenas para Windows, comentado para Linux
 
 # PDF Processing
 pdf2image>=1.16.3  # Para conversão de PDF para imagem
