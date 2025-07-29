@@ -5,6 +5,7 @@ Modelo para leads (potenciais clientes)
 """
 
 from typing import Optional
+from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field, EmailStr
 from models.base import BaseDBModel
@@ -34,6 +35,12 @@ class Lead(BaseDBModel):
     
     # Integrações
     kommo_lead_id: Optional[str] = Field(None, description="ID do lead no Kommo CRM")
+    
+    # Google Calendar
+    google_event_id: Optional[str] = Field(None, description="ID do evento no Google Calendar")
+    meeting_scheduled_at: Optional[datetime] = Field(None, description="Data/hora da reunião agendada")
+    meeting_type: Optional[str] = Field("initial_meeting", description="Tipo de reunião")
+    meeting_status: Optional[str] = Field("scheduled", description="Status da reunião")
     
     class Config:
         json_schema_extra = {
@@ -70,3 +77,7 @@ class LeadUpdate(BaseModel):
     qualification_score: Optional[int] = None
     interested: Optional[bool] = None
     kommo_lead_id: Optional[str] = None
+    google_event_id: Optional[str] = None
+    meeting_scheduled_at: Optional[datetime] = None
+    meeting_type: Optional[str] = None
+    meeting_status: Optional[str] = None

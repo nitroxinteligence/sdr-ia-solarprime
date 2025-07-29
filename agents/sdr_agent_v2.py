@@ -19,6 +19,7 @@ from config.prompts import PromptTemplates, get_example_response, get_objection_
 from agents.storage.supabase_storage import SupabaseAgentStorage
 from agents.knowledge.solarprime_knowledge_simple import SolarPrimeKnowledgeSimple as SolarPrimeKnowledge
 from agents.tools.message_buffer_tool import process_buffered_messages, analyze_message_pattern
+from agents.tools.google_calendar_tools import calendar_tools
 from services.database import supabase_client
 from services.kommo_service import kommo_service
 from repositories.lead_repository import lead_repository
@@ -92,11 +93,10 @@ class SDRAgentV2:
             # Tools customizados
             tools=[
                 self.analyze_bill_tool,
-                self.schedule_meeting_tool,
                 self.calculate_savings_tool,
-                self.check_availability_tool,
                 process_buffered_messages,  # Tool para processar mensagens bufferizadas
-                analyze_message_pattern     # Tool para analisar padrões
+                analyze_message_pattern,    # Tool para analisar padrões
+                *calendar_tools            # Tools do Google Calendar
             ],
             # Instructions dinâmicas baseadas no estágio
             instructions=self._get_stage_instructions(initial_stage),
@@ -131,42 +131,6 @@ class SDRAgentV2:
             "percentual_economia": "95%"
         }
         
-    @tool
-    async def schedule_meeting_tool(self, date: str, time: str, lead_phone: str) -> Dict[str, Any]:
-        """Agenda reunião no Kommo CRM"""
-        try:
-            # Criar evento no Kommo
-            result = await kommo_service.create_meeting(
-                lead_phone=lead_phone,
-                date=date,
-                time=time,
-                duration=60
-            )
-            
-            return {
-                "status": "agendado",
-                "data": date,
-                "horario": time,
-                "confirmacao": "Agendamento confirmado! Enviaremos um lembrete no dia."
-            }
-        except Exception as e:
-            logger.error(f"Erro ao agendar reunião: {e}")
-            return {
-                "status": "erro",
-                "mensagem": "Ops, tive um probleminha. Pode tentar outro horário?"
-            }
-            
-    @tool
-    async def check_availability_tool(self, date: str) -> Dict[str, Any]:
-        """Verifica disponibilidade de agenda"""
-        # Por ora, retorna horários fixos disponíveis
-        return {
-            "data": date,
-            "horarios_disponiveis": [
-                "09:00", "10:00", "11:00",
-                "14:00", "15:00", "16:00", "17:00"
-            ]
-        }
         
     async def process_message(
         self,
@@ -327,13 +291,19 @@ class SDRAgentV2:
     async def _load_lead_context(self, phone: str) -> Dict[str, Any]:
         """Carrega contexto do lead com cache"""
         # TODO: Implementar cache Redis aqui
-        profile = await lead_repository.get_or_create_profile(phone)
-        lead = await lead_repository.get_lead_by_phone(phone)
+        # Por enquanto, vamos apenas buscar ou criar o lead diretamente
+        lead = await lead_repository.get_by_phone(phone)
+        
+        if not lead:
+            # Criar lead básico se não existir
+            from models.lead import LeadCreate
+            lead_data = LeadCreate(phone_number=phone)
+            lead = await lead_repository.create_or_update(lead_data)
         
         context = {
             'phone': phone,
-            'profile_id': str(profile.id),
-            'created_at': profile.created_at.isoformat()
+            'profile_id': str(lead.id),
+            'created_at': lead.created_at.isoformat()
         }
         
         if lead:
@@ -352,7 +322,16 @@ class SDRAgentV2:
         
     async def _load_conversation_context(self, phone: str) -> List[Dict[str, Any]]:
         """Carrega últimas mensagens da conversa"""
-        conversation = await conversation_repository.get_or_create_conversation(phone)
+        # Primeiro precisamos do lead
+        lead = await lead_repository.get_by_phone(phone)
+        if not lead:
+            return []
+            
+        # Criar ou retomar conversa
+        conversation = await conversation_repository.create_or_resume(
+            lead_id=lead.id,
+            session_id=f"whatsapp_{phone}"
+        )
         
         # Carregar apenas últimas 10 mensagens para performance
         messages = await message_repository.get_conversation_messages(
@@ -483,7 +462,14 @@ class SDRAgentV2:
         """Salva interação e atualiza estado"""
         try:
             # Salvar mensagens
-            conversation = await conversation_repository.get_or_create_conversation(phone)
+            lead = await lead_repository.get_by_phone(phone)
+            if not lead:
+                return
+                
+            conversation = await conversation_repository.create_or_resume(
+                lead_id=lead.id,
+                session_id=f"whatsapp_{phone}"
+            )
             
             # Mensagem do usuário
             await message_repository.create_message(

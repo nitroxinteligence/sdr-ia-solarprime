@@ -5,6 +5,7 @@ Repositório para operações com leads
 """
 
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 from uuid import UUID
 from loguru import logger
 
@@ -87,6 +88,44 @@ class LeadRepository(BaseRepository[Lead]):
     async def mark_as_not_interested(self, lead_id: UUID) -> Optional[Lead]:
         """Marca lead como não interessado"""
         return await self.update(lead_id, {"interested": False})
+    
+    async def update_lead(
+        self,
+        lead_id: UUID,
+        **kwargs
+    ) -> Optional[Lead]:
+        """
+        Atualiza lead com campos dinâmicos
+        
+        Args:
+            lead_id: ID do lead
+            **kwargs: Campos a atualizar (name, email, meeting_scheduled_at, etc)
+            
+        Returns:
+            Lead atualizado ou None se falhar
+        """
+        try:
+            # Filtrar campos None
+            update_data = {k: v for k, v in kwargs.items() if v is not None}
+            
+            if not update_data:
+                logger.warning("Nenhum campo para atualizar")
+                return await self.get(lead_id)
+            
+            # Atualizar campos especiais se necessário
+            if 'meeting_scheduled_at' in update_data and isinstance(update_data['meeting_scheduled_at'], datetime):
+                update_data['meeting_scheduled_at'] = update_data['meeting_scheduled_at'].isoformat()
+            
+            # Executar update
+            return await self.update(lead_id, update_data)
+            
+        except Exception as e:
+            logger.error(f"Erro ao atualizar lead {lead_id}: {e}")
+            return None
+    
+    async def get_lead_by_phone(self, phone_number: str) -> Optional[Lead]:
+        """Alias para get_by_phone para compatibilidade"""
+        return await self.get_by_phone(phone_number)
     
     async def get_leads_for_followup(self) -> List[Lead]:
         """Lista leads que precisam de follow-up"""
