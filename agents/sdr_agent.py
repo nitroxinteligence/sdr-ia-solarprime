@@ -6,6 +6,7 @@ Implementação do agente de vendas usando AGnO Framework
 
 import json
 import asyncio
+import os
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
 from loguru import logger
@@ -46,6 +47,12 @@ from repositories.conversation_repository import conversation_repository
 from repositories.message_repository import message_repository
 from models.lead import LeadCreate, LeadUpdate
 from models.conversation import ConversationCreate
+
+# Importar serviços de integração
+from services.kommo_service import KommoService
+from services.google_calendar_service import GoogleCalendarService
+from models.kommo_models import KommoLead, LeadStatus, SolutionType
+from services.evolution_api import evolution_api
 
 
 class SDRAgent:
@@ -88,6 +95,30 @@ class SDRAgent:
         
         # Cache de respostas (simples em memória por enquanto)
         self._response_cache: Dict[str, Tuple[str, datetime]] = {}
+        
+        # Inicializar serviços de integração
+        self.kommo_service = None
+        self.calendar_service = None
+        
+        # Tentar inicializar Kommo Service
+        try:
+            if os.getenv("KOMMO_LONG_LIVED_TOKEN"):
+                self.kommo_service = KommoService()
+                logger.info("✅ KommoService inicializado com sucesso")
+            else:
+                logger.warning("⚠️ KOMMO_LONG_LIVED_TOKEN não configurado - Kommo desabilitado")
+        except Exception as e:
+            logger.error(f"❌ Erro ao inicializar KommoService: {e}")
+            
+        # Tentar inicializar Google Calendar Service
+        try:
+            if os.path.exists(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH", "")):
+                self.calendar_service = GoogleCalendarService(self.config)
+                logger.info("✅ GoogleCalendarService inicializado com sucesso")
+            else:
+                logger.warning("⚠️ Credenciais do Google Calendar não encontradas - Calendar desabilitado")
+        except Exception as e:
+            logger.error(f"❌ Erro ao inicializar GoogleCalendarService: {e}")
         
         logger.info(f"SDR Agent '{self.config.personality.name}' inicializado com AGnO Framework")
     
@@ -213,7 +244,7 @@ class SDRAgent:
             )
             
             # Analisa contexto e determina estágio
-            analysis = await self._analyze_context(message, agent, session_state)
+            analysis = await self._analyze_context(message, agent, session_state, phone_number)
             
             # Atualiza informações do lead
             self._update_lead_info(analysis, agent, session_state)
@@ -424,12 +455,19 @@ class SDRAgent:
         **kwargs
     ) -> str:
         """Executa agente com retry logic"""
-        # Usa o método run do AGnO
-        response = await asyncio.to_thread(
-            agent.run,
-            prompt,
-            **kwargs
-        )
+        # Usa o método run do AGnO com timeout de 60 segundos para Gemini
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    agent.run,
+                    prompt,
+                    **kwargs
+                ),
+                timeout=60.0  # 60 segundos de timeout para Gemini
+            )
+        except asyncio.TimeoutError:
+            logger.error("⏱️ Timeout ao executar Gemini após 60 segundos")
+            raise Exception("Timeout na resposta do Gemini. Por favor, tente novamente.")
         
         # Log do reasoning em modo debug
         if self.config.debug and hasattr(response, 'reasoning'):
@@ -558,7 +596,8 @@ class SDRAgent:
         self, 
         message: str, 
         agent: Agent,
-        session_state: Dict[str, Any]
+        session_state: Dict[str, Any],
+        phone_number: str
     ) -> Dict[str, Any]:
         """Analisa o contexto da conversa usando AGnO"""
         try:
@@ -631,9 +670,21 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
                 
                 # Atualiza estágio se mudou
                 new_stage = analysis.get("stage", session_state.get("current_stage"))
-                if new_stage != session_state.get("current_stage"):
-                    logger.info(f"Mudança de estágio: {session_state.get('current_stage')} -> {new_stage}")
+                old_stage = session_state.get("current_stage", "INITIAL_CONTACT")
+                
+                if new_stage != old_stage:
+                    logger.info(f"Mudança de estágio: {old_stage} -> {new_stage}")
                     session_state["current_stage"] = new_stage
+                    
+                    # Integração com Kommo quando estágio muda
+                    if self.kommo_service:
+                        asyncio.create_task(self._update_kommo_on_stage_change(
+                            phone_number=phone_number,
+                            old_stage=old_stage,
+                            new_stage=new_stage,
+                            session_state=session_state,
+                            analysis=analysis
+                        ))
                 
                 return analysis
                 
@@ -795,6 +846,33 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
         try:
             logger.info(f"🎯 Processamento de mídia iniciado - Tipo: {media_type}")
             logger.debug(f"Dados recebidos - Tipo: {type(media_data)}, É dict: {isinstance(media_data, dict)}")
+            
+            # Definir limite de tamanho (50MB)
+            MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB em bytes
+            
+            # Verificar tamanho do arquivo
+            file_size = 0
+            if isinstance(media_data, dict):
+                if 'content' in media_data and media_data['content']:
+                    file_size = len(media_data['content'])
+                elif 'base64' in media_data and media_data['base64']:
+                    # Estimar tamanho do base64 (aproximadamente 3/4 do tamanho encodado)
+                    file_size = int(len(media_data['base64']) * 0.75)
+                elif 'filesize' in media_data:
+                    file_size = int(media_data['filesize'])
+                elif 'size' in media_data:
+                    file_size = int(media_data['size'])
+            
+            if file_size > MAX_FILE_SIZE:
+                logger.warning(f"⚠️ Arquivo muito grande: {file_size / (1024*1024):.1f}MB (limite: 50MB)")
+                size_mb = file_size / (1024 * 1024)
+                return {
+                    "media_received": media_type,
+                    "analysis_status": "file_too_large",
+                    "file_size_mb": f"{size_mb:.1f}",
+                    "user_message": f"Opa! Esse arquivo é muito grande ({size_mb:.1f}MB)! 📦 Preciso de arquivos menores que 50MB. Que tal enviar uma versão menor ou dividir em partes?",
+                    "suggestion": "💡 Dica: Se for PDF, tente enviar só as páginas importantes. Se for imagem, reduza a qualidade ou tire uma foto mais leve!"
+                }
             
             # Log detalhado do conteúdo recebido para debug
             if isinstance(media_data, dict):
@@ -1064,12 +1142,36 @@ Retorne um JSON com essas informações."""
                     numbers = re.findall(r'\d+', info)
                     if numbers:
                         lead_info["bill_value"] = f"R$ {numbers[0]}"
+            
+            # Extrai email
+            elif "@" in info and "." in info:
+                import re
+                email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+                matches = re.findall(email_pattern, info)
+                if matches:
+                    lead_info["email"] = matches[0].lower()
+                    logger.info(f"Email identificado: {matches[0]}")
+        
+        # Verifica também email na mensagem completa
+        if "email" not in lead_info and message:
+            import re
+            email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+            matches = re.findall(email_pattern, message)
+            if matches:
+                lead_info["email"] = matches[0].lower()
+                logger.info(f"Email identificado na mensagem: {matches[0]}")
         
         # Adiciona timestamp
         lead_info["last_interaction"] = datetime.now().isoformat()
         
         # Atualiza no estado da sessão
         session_state["lead_info"] = lead_info
+        
+        # Se temos email e estamos em SCHEDULING, tentar criar reunião no Calendar
+        if (lead_info.get("email") and 
+            session_state.get("current_stage") == "SCHEDULING" and
+            self.calendar_service):
+            asyncio.create_task(self._try_schedule_meeting(lead_info, session_state, message))
     
     def _should_use_example(self, analysis: Dict[str, Any]) -> bool:
         """Determina se deve usar resposta de exemplo"""
@@ -1127,13 +1229,20 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
                 reasoning=False  # Desabilitar reasoning para resposta direta
             )
             
-            # Executar análise
+            # Executar análise com timeout de 60 segundos
             logger.info("🚀 Executando análise da imagem...")
-            result = await asyncio.to_thread(
-                vision_agent.run,
-                combined_prompt,
-                images=[agno_image]  # Passar objeto Image do AGnO
-            )
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        vision_agent.run,
+                        combined_prompt,
+                        images=[agno_image]  # Passar objeto Image do AGnO
+                    ),
+                    timeout=60.0  # 60 segundos de timeout para análise de imagem
+                )
+            except asyncio.TimeoutError:
+                logger.error("⏱️ Timeout ao analisar imagem com Gemini após 60 segundos")
+                raise Exception("Timeout na análise da imagem. Por favor, tente novamente.")
             
             logger.info(f"📝 Resposta bruta do Gemini: {result[:200]}..." if result else "❌ Resposta vazia")
             
@@ -1166,7 +1275,7 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
             logger.info("🎵 Iniciando análise de áudio com Gemini...")
             
             # Criar objeto Audio do AGnO
-            agno_audio = self._create_agno_audio(audio_data)
+            agno_audio = await self._create_agno_audio(audio_data)
             
             if not agno_audio:
                 logger.error("❌ Não foi possível criar objeto Audio AGnO")
@@ -1183,13 +1292,20 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
                 reasoning=False
             )
             
-            # Executar análise
+            # Executar análise com timeout de 60 segundos
             logger.info("🚀 Executando análise do áudio...")
-            result = await asyncio.to_thread(
-                audio_agent.run,
-                analysis_prompt,
-                audio=[agno_audio]  # Passar objeto Audio
-            )
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        audio_agent.run,
+                        analysis_prompt,
+                        audio=[agno_audio]  # Passar objeto Audio
+                    ),
+                    timeout=60.0  # 60 segundos de timeout para análise de áudio
+                )
+            except asyncio.TimeoutError:
+                logger.error("⏱️ Timeout ao analisar áudio com Gemini após 60 segundos")
+                raise Exception("Timeout na análise do áudio. Por favor, tente novamente.")
             
             logger.info(f"📝 Resposta do Gemini: {result[:200]}..." if result else "❌ Resposta vazia")
             
@@ -1368,7 +1484,7 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
             logger.error(f"Erro ao criar Image AGnO: {e}")
             return None
     
-    def _create_agno_audio(self, audio_data: Any) -> Optional[Audio]:
+    async def _create_agno_audio(self, audio_data: Any) -> Optional[Audio]:
         """Cria objeto Audio do AGnO a partir de diferentes formatos"""
         try:
             logger.info("🎵 Criando objeto Audio do AGnO...")
@@ -1382,8 +1498,47 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
             if isinstance(audio_data, dict):
                 logger.info(f"📦 Processando dict com keys: {list(audio_data.keys())}")
                 
+                # Verificar se é um objeto de metadados do WhatsApp
+                if 'mediaKey' in audio_data or 'directPath' in audio_data:
+                    logger.info("🔄 Detectado áudio do WhatsApp com metadados - baixando conteúdo via Evolution API...")
+                    
+                    # Usar Evolution API para baixar o áudio
+                    try:
+                        # Tentar baixar o áudio usando a mediaKey ou directPath
+                        base64_content = None
+                        
+                        if audio_data.get('url'):
+                            # Primeiro tentar a URL se disponível
+                            logger.info(f"📥 Tentando baixar áudio via URL: {audio_data['url'][:50]}...")
+                            base64_content = await evolution_api.get_media_base64(
+                                url=audio_data['url'],
+                                media_key=audio_data.get('mediaKey'),
+                                direct_path=audio_data.get('directPath'),
+                                mimetype=audio_data.get('mimetype', 'audio/ogg')
+                            )
+                        elif audio_data.get('mediaKey'):
+                            # Tentar com mediaKey se URL não estiver disponível
+                            logger.info("📥 Tentando baixar áudio via mediaKey...")
+                            base64_content = await evolution_api.get_media_base64(
+                                media_key=audio_data['mediaKey'],
+                                direct_path=audio_data.get('directPath'),
+                                mimetype=audio_data.get('mimetype', 'audio/ogg')
+                            )
+                        
+                        if base64_content:
+                            logger.success("✅ Áudio baixado com sucesso via Evolution API!")
+                            audio_bytes = base64.b64decode(base64_content)
+                            return Audio(content=audio_bytes)
+                        else:
+                            logger.error("❌ Não foi possível baixar o conteúdo do áudio")
+                            return None
+                            
+                    except Exception as e:
+                        logger.error(f"❌ Erro ao baixar áudio via Evolution API: {e}")
+                        return None
+                
                 # Criar objeto Audio baseado no tipo
-                if 'url' in audio_data:
+                elif 'url' in audio_data and audio_data['url']:
                     return Audio(url=audio_data['url'])
                 elif 'base64' in audio_data:
                     try:
@@ -1572,12 +1727,33 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
                         
                 elif 'url' in pdf_data:
                     logger.info(f"🌐 Baixando PDF da URL: {pdf_data['url']}")
-                    import aiohttp
                     
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(pdf_data['url']) as response:
-                            pdf_content = await response.read()
-                            logger.info(f"✅ PDF baixado com sucesso: {len(pdf_content)} bytes")
+                    # Se for URL do WhatsApp, tentar usar Evolution API
+                    if 'whatsapp.net' in pdf_data['url']:
+                        logger.info("📱 URL do WhatsApp detectada - usando Evolution API")
+                        
+                        if hasattr(evolution_api, 'get_media_base64'):
+                            # Tentar obter mídia via Evolution API
+                            media_data = await evolution_api.get_media_base64(
+                                pdf_data.get('mediaKey', ''),
+                                pdf_data.get('mimetype', 'application/pdf')
+                            )
+                            if media_data and 'base64' in media_data:
+                                pdf_content = base64.b64decode(media_data['base64'])
+                                logger.info(f"✅ PDF obtido via Evolution API: {len(pdf_content)} bytes")
+                            else:
+                                logger.warning("⚠️ Falha ao obter PDF via Evolution API")
+                    
+                    # Fallback: tentar download direto com aiohttp
+                    if not pdf_content:
+                        import aiohttp
+                        try:
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(pdf_data['url'], ssl=False) as response:
+                                    pdf_content = await response.read()
+                                    logger.info(f"✅ PDF baixado diretamente: {len(pdf_content)} bytes")
+                        except Exception as e:
+                            logger.error(f"❌ Erro ao baixar PDF: {e}")
                             
                 elif 'base64' in pdf_data:
                     logger.info("🔐 Decodificando PDF de base64")
@@ -1936,6 +2112,214 @@ Se alguma informação não estiver disponível, use null."""
                 "phone": phone_number,
                 "session_active": False
             }
+    
+    async def _update_kommo_on_stage_change(
+        self,
+        phone_number: str,
+        old_stage: str,
+        new_stage: str,
+        session_state: Dict[str, Any],
+        analysis: Dict[str, Any]
+    ):
+        """Atualiza Kommo CRM quando o estágio do lead muda"""
+        try:
+            lead_info = session_state.get("lead_info", {})
+            
+            # Mapear estágios do bot para status do Kommo
+            stage_to_status = {
+                "INITIAL_CONTACT": LeadStatus.NEW,
+                "IDENTIFICATION": LeadStatus.NEW,
+                "DISCOVERY": LeadStatus.IN_PROGRESS,
+                "QUALIFICATION": LeadStatus.QUALIFIED,
+                "OBJECTION_HANDLING": LeadStatus.IN_PROGRESS,
+                "SCHEDULING": LeadStatus.MEETING_SCHEDULED
+            }
+            
+            # Preparar dados do lead
+            kommo_lead = KommoLead(
+                name=lead_info.get("name", f"Lead WhatsApp {phone_number[-4:]}"),
+                phone=phone_number,
+                whatsapp=phone_number,
+                email=lead_info.get("email"),
+                source="WhatsApp AI",
+                stage=stage_to_status.get(new_stage, LeadStatus.NEW),
+                qualification_score=self._calculate_qualification_score(lead_info, session_state),
+                ai_notes=f"Estágio: {new_stage}\n{analysis.get('summary', '')}",
+                tags=["WhatsApp Lead", f"Estágio: {new_stage}"]
+            )
+            
+            # Adicionar informações específicas por estágio
+            if new_stage == "DISCOVERY" and lead_info.get("solution_type"):
+                kommo_lead.solution_type = self._map_solution_type(lead_info["solution_type"])
+                kommo_lead.tags.append(f"Solução: {lead_info['solution_type']}")
+            
+            if new_stage == "QUALIFICATION" and lead_info.get("bill_value"):
+                kommo_lead.energy_bill_value = lead_info["bill_value"]
+                kommo_lead.tags.append(f"Conta: {lead_info['bill_value']}")
+            
+            # Verificar se já existe lead
+            existing_lead = await self.kommo_service.find_lead_by_whatsapp(phone_number)
+            
+            if existing_lead:
+                # Atualizar lead existente
+                lead_id = existing_lead["id"]
+                await self.kommo_service.update_lead(lead_id, kommo_lead)
+                
+                # Mover para novo estágio se necessário
+                if new_stage != old_stage:
+                    await self.kommo_service.move_lead_stage(
+                        lead_id, 
+                        stage_to_status.get(new_stage, LeadStatus.NEW)
+                    )
+                    
+                logger.info(f"✅ Lead {lead_id} atualizado no Kommo - Estágio: {new_stage}")
+            else:
+                # Criar novo lead
+                if new_stage in ["IDENTIFICATION", "DISCOVERY", "QUALIFICATION"]:
+                    result = await self.kommo_service.create_lead(kommo_lead)
+                    if result:
+                        logger.info(f"✅ Novo lead criado no Kommo: {result.get('id')} - {kommo_lead.name}")
+                        # Salvar ID do Kommo no session_state
+                        session_state["kommo_lead_id"] = result.get("id")
+                        
+        except Exception as e:
+            logger.error(f"❌ Erro ao atualizar Kommo: {e}")
+            # Não falhar a conversa por erro no Kommo
+    
+    def _map_solution_type(self, solution_type: str) -> SolutionType:
+        """Mapeia tipo de solução do bot para enum do Kommo"""
+        mapping = {
+            "usina própria": SolutionType.USINA_PROPRIA,
+            "usina parceira": SolutionType.USINA_PARCEIRA,
+            "consórcio": SolutionType.CONSORCIO,
+            "instalação residencial": SolutionType.INSTALACAO_RESIDENCIAL,
+            "instalação comercial": SolutionType.INSTALACAO_COMERCIAL
+        }
+        return mapping.get(solution_type.lower(), SolutionType.USINA_PROPRIA)
+    
+    async def _try_schedule_meeting(self, lead_info: Dict[str, Any], session_state: Dict[str, Any], message: str):
+        """Tenta agendar reunião no Google Calendar quando houver horário escolhido"""
+        try:
+            # Verificar se a mensagem contém informação de horário
+            import re
+            from datetime import datetime, timedelta
+            
+            # Padrões para detectar horários
+            time_patterns = [
+                r'(\d{1,2})(?:h|:)?(\d{2})?\s*(?:horas?)?',  # 15h, 15:30, 15h30
+                r'às\s*(\d{1,2})(?:h|:)?(\d{2})?',           # às 15h, às 15:30
+                r'(\d{1,2})\s*(?:da\s*)?(manhã|tarde|noite)'  # 9 da manhã, 3 da tarde
+            ]
+            
+            # Padrões para detectar dias
+            day_patterns = {
+                'hoje': 0,
+                'amanhã': 1,
+                'depois de amanhã': 2,
+                'segunda': 'monday',
+                'terça': 'tuesday',
+                'quarta': 'wednesday',
+                'quinta': 'thursday',
+                'sexta': 'friday'
+            }
+            
+            # Tentar extrair horário
+            meeting_time = None
+            for pattern in time_patterns:
+                match = re.search(pattern, message.lower())
+                if match:
+                    hour = int(match.group(1))
+                    minute = int(match.group(2)) if match.group(2) else 0
+                    
+                    # Ajustar para período do dia se necessário
+                    if len(match.groups()) > 2 and match.group(3):
+                        period = match.group(3)
+                        if period == 'tarde' and hour < 12:
+                            hour += 12
+                        elif period == 'noite' and hour < 12:
+                            hour += 12
+                    
+                    meeting_time = (hour, minute)
+                    break
+            
+            if not meeting_time:
+                logger.info("Horário não detectado na mensagem, aguardando escolha clara")
+                return
+            
+            # Determinar dia
+            meeting_date = datetime.now()
+            for day_word, day_value in day_patterns.items():
+                if day_word in message.lower():
+                    if isinstance(day_value, int):
+                        meeting_date += timedelta(days=day_value)
+                    else:
+                        # Calcular próximo dia da semana
+                        days_ahead = 0
+                        target_day = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].index(day_value)
+                        current_day = meeting_date.weekday()
+                        days_ahead = (target_day - current_day) % 7
+                        if days_ahead == 0:
+                            days_ahead = 7  # Próxima semana
+                        meeting_date += timedelta(days=days_ahead)
+                    break
+            
+            # Criar datetime completo
+            hour, minute = meeting_time
+            meeting_datetime = meeting_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            
+            # Verificar se é horário comercial
+            if not (9 <= hour <= 18):
+                logger.warning(f"Horário fora do expediente: {hour}h")
+                return
+            
+            # Criar reunião no Google Calendar
+            event_data = {
+                'summary': f'Apresentação SolarPrime - {lead_info.get("name", "Lead WhatsApp")}',
+                'description': f"""
+                Reunião de apresentação da solução SolarPrime
+                
+                Lead: {lead_info.get("name", "N/A")}
+                Telefone: {lead_info.get("phone", "N/A")}
+                Email: {lead_info.get("email", "N/A")}
+                Valor da conta: {lead_info.get("bill_value", "N/A")}
+                Tipo de solução: {lead_info.get("solution_type", "A definir")}
+                
+                Agendado via WhatsApp AI
+                """,
+                'start': meeting_datetime,
+                'duration': 30,  # 30 minutos
+                'attendees': [lead_info.get("email")],
+                'location': 'Online - Link será enviado por WhatsApp'
+            }
+            
+            result = await self.calendar_service.create_event(event_data)
+            
+            if result and result.get('htmlLink'):
+                logger.info(f"✅ Reunião criada no Google Calendar: {result['htmlLink']}")
+                
+                # Salvar link no session_state
+                session_state["meeting_link"] = result['htmlLink']
+                session_state["meeting_datetime"] = meeting_datetime.isoformat()
+                
+                # Atualizar Kommo com link da reunião
+                if self.kommo_service and session_state.get("kommo_lead_id"):
+                    await self.kommo_service.add_note(
+                        session_state["kommo_lead_id"],
+                        f"Reunião agendada para {meeting_datetime.strftime('%d/%m/%Y às %H:%M')}\n"
+                        f"Link do Calendar: {result['htmlLink']}"
+                    )
+                    
+                    # Adicionar link como campo customizado se disponível
+                    if hasattr(self.kommo_service, 'update_custom_field'):
+                        await self.kommo_service.update_custom_field(
+                            session_state["kommo_lead_id"],
+                            "google_calendar_link",
+                            result['htmlLink']
+                        )
+                
+        except Exception as e:
+            logger.error(f"❌ Erro ao agendar reunião no Calendar: {e}")
+            # Não falhar a conversa por erro no Calendar
 
 
 # Função helper para criar agente

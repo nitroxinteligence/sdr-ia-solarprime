@@ -399,12 +399,15 @@ class FollowUpScheduler:
                 logger.info(f"Processando {len(result.data)} follow-ups pendentes")
                 
                 for follow_up in result.data:
-                    # Executar workflow
-                    workflow_result = await self.workflow.run(
+                    # Executar workflow (run é um generator, não async)
+                    workflow_responses = list(self.workflow.run(
                         lead_id=follow_up['lead_id'],
                         follow_up_type=follow_up['type'],
                         custom_message=follow_up.get('message')
-                    )
+                    ))
+                    
+                    # Pegar a última resposta do generator
+                    workflow_result = workflow_responses[-1].content if workflow_responses else {'status': 'error', 'message': 'No response'}
                     
                     # Atualizar status
                     if workflow_result['status'] == 'success':

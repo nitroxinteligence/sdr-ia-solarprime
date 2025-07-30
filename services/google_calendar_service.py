@@ -176,12 +176,19 @@ class GoogleCalendarService:
                     }
                 }
             
-            # Criar evento
-            created_event = self.service.events().insert(
-                calendarId=self.calendar_id,
-                body=event,
-                sendNotifications=True
-            ).execute()
+            # Criar evento com timeout de 10 segundos
+            loop = asyncio.get_event_loop()
+            created_event = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: self.service.events().insert(
+                        calendarId=self.calendar_id,
+                        body=event,
+                        sendNotifications=True
+                    ).execute()
+                ),
+                timeout=10.0
+            )
             
             logger.success(f"✅ Evento criado: {created_event.get('htmlLink')}")
             
@@ -220,11 +227,18 @@ class GoogleCalendarService:
             return None
         
         try:
-            # Buscar evento atual
-            event = self.service.events().get(
-                calendarId=self.calendar_id,
-                eventId=event_id
-            ).execute()
+            # Buscar evento atual com timeout de 10 segundos
+            loop = asyncio.get_event_loop()
+            event = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: self.service.events().get(
+                        calendarId=self.calendar_id,
+                        eventId=event_id
+                    ).execute()
+                ),
+                timeout=10.0
+            )
             
             # Aplicar atualizações
             for key, value in updates.items():
@@ -243,13 +257,19 @@ class GoogleCalendarService:
                 elif key == 'attendees':
                     event['attendees'] = [{'email': email} for email in value]
             
-            # Atualizar evento
-            updated_event = self.service.events().update(
-                calendarId=self.calendar_id,
-                eventId=event_id,
-                body=event,
-                sendNotifications=True
-            ).execute()
+            # Atualizar evento com timeout de 10 segundos
+            updated_event = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: self.service.events().update(
+                        calendarId=self.calendar_id,
+                        eventId=event_id,
+                        body=event,
+                        sendNotifications=True
+                    ).execute()
+                ),
+                timeout=10.0
+            )
             
             logger.success(f"✅ Evento atualizado: {event_id}")
             
@@ -288,12 +308,19 @@ class GoogleCalendarService:
             return False
         
         try:
-            # Cancelar evento
-            self.service.events().delete(
-                calendarId=self.calendar_id,
-                eventId=event_id,
-                sendNotifications=send_notifications
-            ).execute()
+            # Cancelar evento com timeout de 10 segundos
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: self.service.events().delete(
+                        calendarId=self.calendar_id,
+                        eventId=event_id,
+                        sendNotifications=send_notifications
+                    ).execute()
+                ),
+                timeout=10.0
+            )
             
             logger.success(f"✅ Evento cancelado: {event_id}")
             return True
@@ -348,14 +375,22 @@ class GoogleCalendarService:
             else:
                 time_max = end_date.isoformat() + 'Z'
             
-            events_result = self.service.events().list(
-                calendarId=self.calendar_id,
-                timeMin=time_min,
-                timeMax=time_max,
-                maxResults=max_results,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
+            # Buscar eventos com timeout de 10 segundos
+            loop = asyncio.get_event_loop()
+            events_result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: self.service.events().list(
+                        calendarId=self.calendar_id,
+                        timeMin=time_min,
+                        timeMax=time_max,
+                        maxResults=max_results,
+                        singleEvents=True,
+                        orderBy='startTime'
+                    ).execute()
+                ),
+                timeout=10.0
+            )
             
             events = events_result.get('items', [])
             

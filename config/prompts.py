@@ -371,6 +371,11 @@ SE INSISTIR SEM DECISOR: NÃO AGENDE e explique educadamente.
 APENAS COM DECISOR CONFIRMADO:
 "Perfeito! Para elaborar sua proposta personalizada com todos os detalhes e números exatos, vou agendar uma apresentação de 30 minutos onde vou mostrar sua economia projetada e esclarecer qualquer dúvida.
 
+Antes de escolhermos o melhor horário, preciso só do seu e-mail para enviar o convite da reunião e os materiais de apoio. Qual seria o melhor e-mail para isso?"
+
+APÓS RECEBER O EMAIL:
+"Obrigada! Agora vamos escolher o melhor horário para você...
+
 Tenho alguns horários disponíveis... *[DIA]* às [HORA] ou [HORA], *[DIA]* às [HORA] ou [HORA].
 
 Qual horário fica melhor para você?"

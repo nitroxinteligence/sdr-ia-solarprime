@@ -23,63 +23,94 @@ class RedisService:
     """Serviço de cache com Redis"""
     
     def __init__(self):
+        # Obter ambiente
+        environment = os.getenv("ENVIRONMENT", "development")
+        
         # Usar configuração centralizada se disponível
         if env_config:
             self.redis_url = env_config.redis_url
         else:
             # Fallback para configuração manual
-            environment = os.getenv("ENVIRONMENT", "development")
             if environment == "production":
                 # Em produção, usar nome do serviço Docker
                 self.redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
             else:
                 # Em desenvolvimento, usar localhost
                 self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        
+        # Lista de URLs Redis para fallback (útil em produção)
+        self.redis_urls = []
+        if environment == "production":
+            # Adicionar múltiplos hosts Redis para fallback
+            fallback_hosts = os.getenv("REDIS_FALLBACK_HOSTS", "").split(",")
+            if fallback_hosts and fallback_hosts[0]:
+                self.redis_urls.extend([f"redis://{host.strip()}/0" for host in fallback_hosts])
+            
+            # Adicionar URL principal e possíveis variações
+            self.redis_urls.extend([
+                self.redis_url,
+                "redis://redis:6379/0",
+                "redis://localhost:6379/0",
+                "redis://127.0.0.1:6379/0"
+            ])
+        else:
+            self.redis_urls = [self.redis_url]
+        
         self.prefix = os.getenv("REDIS_PREFIX", "sdr_solarprime")
         self.ttl_default = int(os.getenv("REDIS_TTL_SECONDS", "3600"))  # 1 hora
         self.client: Optional[aioredis.Redis] = None
         self._lock = asyncio.Lock()
+        self._memory_cache: Dict[str, Any] = {}  # Cache em memória como fallback
+        self._cache_lock = asyncio.Lock()  # Lock específico para operações no cache em memória
         
     async def connect(self):
-        """Conecta ao Redis"""
+        """Conecta ao Redis tentando múltiplos hosts em caso de falha"""
         if self.client is None:
             async with self._lock:
                 if self.client is None:
-                    try:
-                        # Configuração robusta para produção
-                        connection_timeout = int(os.getenv("REDIS_CONNECTION_TIMEOUT", "5"))
-                        
-                        # Criar cliente com timeout
-                        self.client = await aioredis.from_url(
-                            self.redis_url,
-                            encoding="utf-8",
-                            decode_responses=False,
-                            socket_connect_timeout=connection_timeout,
-                            socket_timeout=connection_timeout,
-                            retry_on_timeout=True,
-                            health_check_interval=30
-                        )
-                        
-                        # Testar conexão com timeout
-                        await asyncio.wait_for(self.client.ping(), timeout=3.0)
-                        logger.info(f"✅ Redis conectado com sucesso em {self.redis_url}")
-                    except asyncio.TimeoutError:
-                        if env_config and env_config.is_development:
-                            logger.info(f"ℹ️ Redis não disponível em desenvolvimento ({self.redis_url})")
-                            logger.debug("💡 Para desenvolvimento com cache, inicie o Redis localmente")
-                        else:
-                            logger.warning(f"⏱️ Timeout ao conectar ao Redis em {self.redis_url}")
-                        logger.info("🔄 Usando fallback em memória para cache")
-                        self.client = None
-                    except Exception as e:
-                        if env_config and env_config.is_development:
-                            logger.info(f"ℹ️ Redis não está rodando localmente ({self.redis_url})")
-                            logger.info("🔄 Usando cache em memória para desenvolvimento")
-                        else:
-                            logger.error(f"❌ Erro ao conectar ao Redis: {type(e).__name__}: {str(e)}")
-                            logger.info(f"📍 URL tentada: {self.redis_url}")
-                        self.client = None
-                        # Não lançar erro - usar fallback gracefully
+                    connection_timeout = int(os.getenv("REDIS_CONNECTION_TIMEOUT", "5"))
+                    
+                    # Tentar conectar a cada URL Redis disponível
+                    for redis_url in self.redis_urls:
+                        try:
+                            logger.info(f"🔄 Tentando conectar ao Redis: {redis_url}")
+                            
+                            # Criar cliente com timeout
+                            test_client = await aioredis.from_url(
+                                redis_url,
+                                encoding="utf-8",
+                                decode_responses=False,
+                                socket_connect_timeout=connection_timeout,
+                                socket_timeout=connection_timeout,
+                                retry_on_timeout=True,
+                                health_check_interval=30
+                            )
+                            
+                            # Testar conexão com timeout
+                            await asyncio.wait_for(test_client.ping(), timeout=3.0)
+                            
+                            # Se chegou aqui, a conexão funcionou
+                            self.client = test_client
+                            logger.success(f"✅ Redis conectado com sucesso em {redis_url}")
+                            return
+                            
+                        except asyncio.TimeoutError:
+                            logger.warning(f"⏱️ Timeout ao conectar ao Redis em {redis_url}")
+                            continue
+                        except Exception as e:
+                            logger.warning(f"❌ Falha ao conectar em {redis_url}: {type(e).__name__}: {str(e)}")
+                            continue
+                    
+                    # Se chegou aqui, nenhuma conexão funcionou
+                    if env_config and env_config.is_development:
+                        logger.info("ℹ️ Redis não disponível em desenvolvimento")
+                        logger.debug("💡 Para desenvolvimento com cache, inicie o Redis localmente")
+                    else:
+                        logger.error("❌ Não foi possível conectar a nenhum servidor Redis")
+                        logger.info(f"📍 URLs tentadas: {', '.join(self.redis_urls)}")
+                    
+                    logger.info("🔄 Usando fallback em memória para cache")
+                    self.client = None
     
     async def disconnect(self):
         """Desconecta do Redis"""
@@ -96,9 +127,20 @@ class RedisService:
         """Obtém valor do cache"""
         await self.connect()
         
-        # Se não há cliente (Redis não disponível), retornar None
+        # Se não há cliente (Redis não disponível), usar cache em memória
         if self.client is None:
-            return None
+            async with self._cache_lock:
+                full_key = self._make_key(key)
+                cache_entry = self._memory_cache.get(full_key)
+                if cache_entry:
+                    # Verificar se expirou
+                    import time
+                    if cache_entry['expire_at'] > time.time():
+                        return cache_entry['value']
+                    else:
+                        # Remover entrada expirada
+                        del self._memory_cache[full_key]
+                return None
         
         try:
             full_key = self._make_key(key)
@@ -131,9 +173,29 @@ class RedisService:
         """Define valor no cache"""
         await self.connect()
         
-        # Se não há cliente (Redis não disponível), retornar False
+        # Se não há cliente (Redis não disponível), usar cache em memória
         if self.client is None:
-            return False
+            async with self._cache_lock:
+                import time
+                full_key = self._make_key(key)
+                ttl = ttl or self.ttl_default
+                self._memory_cache[full_key] = {
+                    'value': value,
+                    'expire_at': time.time() + ttl
+                }
+                # Limitar tamanho do cache em memória
+                if len(self._memory_cache) > 1000:
+                    # Remover entradas expiradas
+                    current_time = time.time()
+                    expired_keys = [k for k, v in self._memory_cache.items() if v['expire_at'] <= current_time]
+                    for k in expired_keys:
+                        del self._memory_cache[k]
+                    # Se ainda estiver muito grande, remover as mais antigas
+                    if len(self._memory_cache) > 1000:
+                        sorted_keys = sorted(self._memory_cache.keys(), key=lambda k: self._memory_cache[k]['expire_at'])
+                        for k in sorted_keys[:len(sorted_keys) - 900]:
+                            del self._memory_cache[k]
+                return True
         
         try:
             full_key = self._make_key(key)
@@ -159,9 +221,14 @@ class RedisService:
         """Remove valor do cache"""
         await self.connect()
         
-        # Se não há cliente (Redis não disponível), retornar False
+        # Se não há cliente (Redis não disponível), usar cache em memória
         if self.client is None:
-            return False
+            async with self._cache_lock:
+                full_key = self._make_key(key)
+                if full_key in self._memory_cache:
+                    del self._memory_cache[full_key]
+                    return True
+                return False
         
         try:
             full_key = self._make_key(key)
@@ -176,9 +243,18 @@ class RedisService:
         """Verifica se chave existe"""
         await self.connect()
         
-        # Se não há cliente (Redis não disponível), retornar False
+        # Se não há cliente (Redis não disponível), usar cache em memória
         if self.client is None:
-            return False
+            async with self._cache_lock:
+                full_key = self._make_key(key)
+                cache_entry = self._memory_cache.get(full_key)
+                if cache_entry:
+                    import time
+                    if cache_entry['expire_at'] > time.time():
+                        return True
+                    else:
+                        del self._memory_cache[full_key]
+                return False
         
         try:
             full_key = self._make_key(key)

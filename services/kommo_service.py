@@ -60,7 +60,7 @@ class KommoService:
                 "Content-Type": "application/json"
             }
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.request(
                     method=method,
                     url=f"{self.base_url}{endpoint}",

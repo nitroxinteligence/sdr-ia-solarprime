@@ -184,7 +184,10 @@ class WhatsAppService:
             info["type"] = "audio"
             info["media_data"] = {
                 "duration": message["audioMessage"].get("seconds", 0),
-                "mimetype": message["audioMessage"].get("mimetype", "audio/ogg")
+                "mimetype": message["audioMessage"].get("mimetype", "audio/ogg"),
+                "url": message["audioMessage"].get("url", ""),
+                "directPath": message["audioMessage"].get("directPath", ""),
+                "mediaKey": message["audioMessage"].get("mediaKey", "")
             }
             
         elif "documentMessage" in message:

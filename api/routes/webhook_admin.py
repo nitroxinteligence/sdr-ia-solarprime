@@ -334,3 +334,83 @@ def update_webhook_metrics(event_type: str, success: bool, processing_time: floa
         webhook_metrics["total_errors"] += 1
         webhook_metrics["last_error"] = datetime.now()
         webhook_metrics["hourly_stats"][current_hour]["errors"] += 1
+
+
+@router.post("/reconfigure", dependencies=[Depends(verify_admin_api_key)])
+async def reconfigure_webhook() -> Dict[str, Any]:
+    """
+    Reconfigura o webhook da Evolution API
+    
+    Este endpoint é útil quando o webhook URL muda no EasyPanel.
+    Ele força uma reconfiguração com a URL correta.
+    """
+    try:
+        # Obter configuração atual
+        current_config = await evolution_client.get_webhook_info()
+        logger.info(f"Configuração atual do webhook: {current_config}")
+        
+        # Configurar URL do webhook baseado no ambiente
+        webhook_base_url = os.getenv("WEBHOOK_BASE_URL")
+        if not webhook_base_url:
+            # Tentar determinar automaticamente
+            if os.getenv("ENVIRONMENT", "development") == "production":
+                # Em produção no EasyPanel, usar nome do serviço interno
+                service_name = os.getenv("SERVICE_NAME", "sdr-ia")
+                webhook_base_url = f"http://{service_name}:8000"
+            else:
+                webhook_base_url = "http://localhost:8000"
+        
+        webhook_url = f"{webhook_base_url}/webhook/whatsapp"
+        
+        # Eventos essenciais para SDR
+        essential_events = [
+            "MESSAGES_UPSERT",
+            "MESSAGES_UPDATE",
+            "CONNECTION_UPDATE",
+            "PRESENCE_UPDATE",
+            "QRCODE_UPDATED"
+        ]
+        
+        # Configurar webhook
+        logger.info(f"Reconfigurando webhook para: {webhook_url}")
+        result = await evolution_client.create_webhook(
+            webhook_url=webhook_url,
+            events=essential_events,
+            webhook_by_events=False,
+            webhook_base64=False
+        )
+        
+        if result:
+            logger.info("✅ Webhook reconfigurado com sucesso")
+            return {
+                "status": "success",
+                "webhook_url": webhook_url,
+                "events": essential_events,
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Falha ao reconfigurar webhook")
+            
+    except Exception as e:
+        logger.error(f"Erro ao reconfigurar webhook: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao reconfigurar webhook: {str(e)}"
+        )
+
+
+@router.get("/auto-reconfigure/status")
+async def get_auto_reconfigure_status() -> Dict[str, Any]:
+    """
+    Verifica o status da reconfiguração automática do webhook
+    """
+    from api.main import webhook_reconfigure_task
+    
+    task_running = webhook_reconfigure_task is not None and not webhook_reconfigure_task.done()
+    
+    return {
+        "auto_reconfigure_enabled": task_running,
+        "interval_minutes": int(os.getenv("WEBHOOK_RECONFIGURE_INTERVAL", "30")),
+        "webhook_base_url": os.getenv("WEBHOOK_BASE_URL", "auto-detect"),
+        "environment": os.getenv("ENVIRONMENT", "development")
+    }

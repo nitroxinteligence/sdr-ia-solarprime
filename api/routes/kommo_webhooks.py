@@ -55,9 +55,33 @@ async def kommo_webhook_events(
     - note:add - Nota adicionada
     """
     try:
+        # Verificar Content-Type
+        content_type = request.headers.get("content-type", "")
+        if not content_type.startswith("application/json"):
+            logger.warning(f"Webhook Kommo recebido com Content-Type inválido: {content_type}")
+            # Tentar processar mesmo assim, mas com cuidado
+        
         # Obter body raw para verificação
         body = await request.body()
-        data = await request.json()
+        
+        # Tentar decodificar JSON
+        try:
+            data = await request.json()
+        except Exception as json_error:
+            logger.error(f"Erro ao decodificar JSON do webhook Kommo: {json_error}")
+            logger.debug(f"Body recebido: {body[:500] if body else 'vazio'}")
+            
+            # Tentar decodificar manualmente
+            try:
+                import json
+                data = json.loads(body.decode('utf-8'))
+            except:
+                # Se ainda falhar, retornar erro
+                return {
+                    "status": "error",
+                    "error": "Invalid JSON format",
+                    "detail": "O webhook deve enviar dados em formato JSON válido"
+                }
         
         # TODO: Implementar verificação de assinatura quando Kommo fornecer
         # Por enquanto, verificar token simples se fornecido
@@ -67,7 +91,19 @@ async def kommo_webhook_events(
                 raise HTTPException(status_code=401, detail="Token inválido")
         
         # Log do evento recebido
-        logger.info(f"Webhook Kommo recebido: {data}")
+        logger.info(f"Webhook Kommo recebido - tipo de dados: {type(data)}")
+        
+        # Verificar se data é um dict válido
+        if not isinstance(data, dict):
+            logger.warning(f"Webhook Kommo recebeu dados que não são um dicionário: {type(data)}")
+            return {
+                "status": "error",
+                "error": "Invalid data format",
+                "detail": "Expected JSON object, got " + str(type(data).__name__)
+            }
+        
+        # Log do conteúdo para debug
+        logger.debug(f"Dados do webhook: {data}")
         
         # Processar diferentes tipos de eventos
         if "leads" in data:
@@ -82,7 +118,11 @@ async def kommo_webhook_events(
             # Processar eventos de tarefas
             await process_tasks_events(data["tasks"], background_tasks)
             
-        return {"status": "ok"}
+        # Se não encontrou nenhum evento conhecido, logar para debug
+        if not any(key in data for key in ["leads", "contacts", "tasks"]):
+            logger.warning(f"Webhook Kommo sem eventos conhecidos. Keys recebidas: {list(data.keys())}")
+            
+        return {"status": "ok", "processed": True}
         
     except Exception as e:
         logger.error(f"Erro ao processar webhook Kommo: {str(e)}")

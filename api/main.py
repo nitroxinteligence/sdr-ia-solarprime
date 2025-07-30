@@ -13,7 +13,7 @@ import os
 from typing import Optional
 import asyncio
 
-from api.routes import webhooks, health, instance, webhook_admin, auth, kommo_webhooks
+from api.routes import webhooks, health, instance, webhook_admin, auth, kommo_webhooks, diagnostics
 from services.evolution_api import evolution_client
 from services.connection_monitor import connection_monitor
 from middleware.rate_limiter import RateLimiter, RateLimiterMiddleware
@@ -27,6 +27,65 @@ except ImportError:
     validate_startup_config = None
 
 logger = logging.getLogger(__name__)
+
+# Variável global para a task de reconfiguração do webhook
+webhook_reconfigure_task: Optional[asyncio.Task] = None
+
+
+async def webhook_reconfigure_loop():
+    """Loop que reconfigura o webhook periodicamente"""
+    interval_minutes = int(os.getenv("WEBHOOK_RECONFIGURE_INTERVAL", "30"))
+    interval_seconds = interval_minutes * 60
+    
+    logger.info(f"Iniciando loop de reconfiguração de webhook a cada {interval_minutes} minutos")
+    
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            
+            logger.info("⏰ Executando reconfiguração automática do webhook...")
+            
+            # Importar aqui para evitar importação circular
+            from api.routes.webhook_admin import reconfigure_webhook
+            
+            # Chamar a função diretamente (sem dependências do FastAPI)
+            webhook_base_url = os.getenv("WEBHOOK_BASE_URL")
+            if not webhook_base_url:
+                if os.getenv("ENVIRONMENT", "development") == "production":
+                    service_name = os.getenv("SERVICE_NAME", "sdr-ia")
+                    webhook_base_url = f"http://{service_name}:8000"
+                else:
+                    webhook_base_url = "http://localhost:8000"
+            
+            webhook_url = f"{webhook_base_url}/webhook/whatsapp"
+            
+            # Verificar se URL mudou
+            current_config = await evolution_client.get_webhook_info()
+            current_url = current_config.get("webhook", {}).get("url", "")
+            
+            if current_url != webhook_url:
+                logger.warning(f"⚠️ Webhook URL mudou! Atual: {current_url}, Esperado: {webhook_url}")
+                
+                # Reconfigurar
+                result = await evolution_client.create_webhook(
+                    webhook_url=webhook_url,
+                    events=["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "PRESENCE_UPDATE", "QRCODE_UPDATED"],
+                    webhook_by_events=False,
+                    webhook_base64=False
+                )
+                
+                if result:
+                    logger.success("✅ Webhook reconfigurado automaticamente!")
+                else:
+                    logger.error("❌ Falha na reconfiguração automática do webhook")
+            else:
+                logger.info("✅ Webhook URL está correto, nenhuma ação necessária")
+                
+        except Exception as e:
+            logger.error(f"Erro no loop de reconfiguração do webhook: {e}")
+            # Continuar executando mesmo com erro
+            await asyncio.sleep(60)  # Aguardar 1 minuto antes de tentar novamente
+
 
 # Lifespan para startup/shutdown
 @asynccontextmanager
@@ -136,6 +195,17 @@ async def lifespan(app: FastAPI):
             logger.error(f"❌ Erro ao iniciar follow-up scheduler: {scheduler_error}")
             # Não falhar a aplicação se o scheduler falhar
     
+    # Iniciar reconfiguração automática de webhook em produção
+    global webhook_reconfigure_task
+    if os.getenv("ENVIRONMENT", "development") == "production":
+        if os.getenv("WEBHOOK_AUTO_RECONFIGURE", "true").lower() == "true":
+            try:
+                webhook_reconfigure_task = asyncio.create_task(webhook_reconfigure_loop())
+                logger.info("✅ Reconfiguração automática de webhook iniciada")
+                logger.info(f"  🔄 Verificando webhook a cada {os.getenv('WEBHOOK_RECONFIGURE_INTERVAL', '30')} minutos")
+            except Exception as e:
+                logger.error(f"❌ Erro ao iniciar reconfiguração automática de webhook: {e}")
+    
     logger.info("Aplicação iniciada com sucesso!")
     
     yield
@@ -156,6 +226,14 @@ async def lifespan(app: FastAPI):
             logger.info("✅ Follow-up scheduler parado")
         except Exception as e:
             logger.warning(f"Erro ao parar follow-up scheduler: {e}")
+    
+    # Parar reconfiguração automática de webhook
+    if webhook_reconfigure_task and not webhook_reconfigure_task.done():
+        webhook_reconfigure_task.cancel()
+        try:
+            await webhook_reconfigure_task
+        except asyncio.CancelledError:
+            logger.info("✅ Reconfiguração automática de webhook parada")
     
     # Fechar cliente Evolution API
     try:
@@ -211,6 +289,7 @@ app.include_router(instance.router, prefix="/instance", tags=["instance"])
 app.include_router(webhook_admin.router, tags=["webhook-admin"])
 app.include_router(auth.router, tags=["authentication"])
 app.include_router(kommo_webhooks.router, tags=["kommo-webhooks"])
+app.include_router(diagnostics.router, tags=["diagnostics"])
 
 # Tratamento global de erros
 @app.exception_handler(Exception)

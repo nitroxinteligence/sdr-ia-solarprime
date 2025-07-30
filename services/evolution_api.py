@@ -74,10 +74,10 @@ class EvolutionAPIClient:
                     
                     # Configuração robusta para produção
                     timeout_config = httpx.Timeout(
-                        connect=5.0,  # Timeout de conexão menor
-                        read=30.0,
-                        write=30.0,
-                        pool=5.0
+                        connect=5.0,  # Timeout de conexão
+                        read=30.0,    # Timeout de leitura padrão
+                        write=30.0,   # Timeout de escrita
+                        pool=5.0      # Timeout do pool de conexões
                     )
                     
                     self.client = httpx.AsyncClient(

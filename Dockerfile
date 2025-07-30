@@ -48,6 +48,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libmagic1 \
     poppler-utils \
+    ffmpeg \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Criar usuário não-root
