@@ -796,6 +796,19 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
             logger.info(f"🎯 Processamento de mídia iniciado - Tipo: {media_type}")
             logger.debug(f"Dados recebidos - Tipo: {type(media_data)}, É dict: {isinstance(media_data, dict)}")
             
+            # Log detalhado do conteúdo recebido para debug
+            if isinstance(media_data, dict):
+                logger.info(f"📋 Dados disponíveis: {list(media_data.keys())}")
+                if 'content' in media_data:
+                    logger.info(f"✅ Conteúdo binário presente: {len(media_data['content']) if media_data['content'] else 0} bytes")
+                if 'base64' in media_data:
+                    logger.info(f"✅ Base64 presente: {len(media_data['base64']) if media_data['base64'] else 0} chars")
+                if 'url' in media_data:
+                    logger.info(f"🔗 URL presente: {media_data['url'][:50] if media_data['url'] else 'None'}...")
+                    # Avisar sobre URLs do WhatsApp
+                    if media_data.get('url') and ('whatsapp.net' in media_data['url'] or 'mmg.whatsapp.net' in media_data['url']):
+                        logger.warning("⚠️ URL do WhatsApp detectada - usará conteúdo binário/base64 ao invés da URL")
+            
             if media_type == "image":
                 logger.info("🖼️ Iniciando processamento de imagem...")
                 logger.debug(f"Dados da mídia recebidos: type={type(media_data)}, keys={media_data.keys() if isinstance(media_data, dict) else 'N/A'}")
@@ -1260,18 +1273,26 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
             # Validar dados da imagem primeiro
             if isinstance(image_data, dict):
                 logger.info(f"📦 Processando dict com keys: {list(image_data.keys())}")
-                is_valid, error_msg, metadata = ImageValidator.validate_image_data(image_data)
                 
-                if not is_valid:
-                    logger.error(f"Imagem inválida: {error_msg}")
-                    return None
+                # IMPORTANTE: Priorizar conteúdo binário/base64 sobre URL
+                # URLs do WhatsApp exigem autenticação e não funcionam com APIs externas
                 
-                logger.debug(f"Imagem validada: {metadata}")
+                # 1. Tentar usar conteúdo binário direto primeiro
+                if 'content' in image_data and image_data['content']:
+                    logger.info("🔄 Usando conteúdo binário direto")
+                    try:
+                        img_bytes = image_data['content']
+                        if isinstance(img_bytes, str):
+                            img_bytes = img_bytes.encode()
+                        # Corrigir orientação se necessário
+                        img_bytes = ImageValidator.fix_image_orientation(img_bytes)
+                        return Image(content=img_bytes)
+                    except Exception as e:
+                        logger.error(f"Erro ao processar conteúdo binário: {e}")
                 
-                # Criar objeto Image baseado no tipo
-                if 'url' in image_data:
-                    return Image(url=image_data['url'])
-                elif 'base64' in image_data:
+                # 2. Tentar usar base64
+                if 'base64' in image_data and image_data['base64']:
+                    logger.info("🔄 Usando base64")
                     try:
                         img_bytes = base64.b64decode(image_data['base64'])
                         # Corrigir orientação se necessário
@@ -1279,9 +1300,10 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
                         return Image(content=img_bytes)
                     except Exception as e:
                         logger.error(f"Erro ao decodificar base64: {e}")
-                        return None
-                elif 'path' in image_data:
-                    # Ler e validar arquivo
+                
+                # 3. Tentar ler de arquivo
+                if 'path' in image_data and image_data['path']:
+                    logger.info("🔄 Lendo de arquivo")
                     try:
                         with open(image_data['path'], 'rb') as f:
                             img_bytes = f.read()
@@ -1290,7 +1312,16 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
                         return Image(content=img_bytes)
                     except Exception as e:
                         logger.error(f"Erro ao ler arquivo de imagem: {e}")
+                
+                # 4. URL como última opção (provavelmente falhará com URLs do WhatsApp)
+                if 'url' in image_data and image_data['url']:
+                    logger.warning("⚠️ Tentando usar URL diretamente (pode falhar com URLs do WhatsApp)")
+                    # Verificar se é URL do WhatsApp
+                    if 'whatsapp.net' in image_data['url'] or 'mmg.whatsapp.net' in image_data['url']:
+                        logger.error("❌ URLs do WhatsApp requerem autenticação e não funcionam diretamente com APIs de visão")
+                        logger.info("💡 Use o conteúdo binário ou base64 ao invés da URL")
                         return None
+                    return Image(url=image_data['url'])
                         
             elif isinstance(image_data, str):
                 # String pode ser URL ou path
