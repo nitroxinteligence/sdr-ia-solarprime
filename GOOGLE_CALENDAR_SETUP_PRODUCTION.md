@@ -3,19 +3,26 @@
 ## Problema
 O arquivo de credenciais do Google Calendar (`credentials/google_calendar_credentials.json`) não está sendo enviado para produção porque a pasta `credentials/` está no `.gitignore`.
 
-## Solução 1: Variáveis de Ambiente no EasyPanel (Recomendado)
+## Solução 1: Variáveis de Ambiente no EasyPanel (Recomendado) ✅
 
 ### 1. Adicione estas variáveis de ambiente no EasyPanel:
 
 ```bash
-# Credenciais do Google Calendar
+# Credenciais do Google Calendar (OBRIGATÓRIAS)
 GOOGLE_CLIENT_ID=<seu_client_id_aqui>
 GOOGLE_CLIENT_SECRET=<seu_client_secret_aqui>
 GOOGLE_PROJECT_ID=<seu_project_id_aqui>
 
-# Opcional - para desabilitar temporariamente
-DISABLE_GOOGLE_CALENDAR=true
+# Configuração do caminho (manter o padrão)
+GOOGLE_CALENDAR_CREDENTIALS_PATH=credentials/google_calendar_credentials.json
+
+# Para desabilitar temporariamente
+DISABLE_GOOGLE_CALENDAR=false  # mudar para true se quiser desabilitar
 ```
+
+**✨ NOVO: O sistema agora cria automaticamente o arquivo de credenciais a partir das variáveis de ambiente!**
+
+Você só precisa definir `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` no EasyPanel e o arquivo será criado automaticamente no primeiro startup.
 
 ### 2. Criar arquivo de credenciais em runtime (adicionar ao código):
 

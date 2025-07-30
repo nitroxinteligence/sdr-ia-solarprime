@@ -115,18 +115,64 @@ class SDRAgent:
             if os.getenv("DISABLE_GOOGLE_CALENDAR", "false").lower() == "true":
                 logger.info("ℹ️ Google Calendar desabilitado via configuração")
                 self.calendar_service = None
-            elif os.path.exists(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH", "")):
-                self.calendar_service = GoogleCalendarService(self.config)
-                logger.info("✅ GoogleCalendarService inicializado com sucesso")
             else:
-                logger.warning("⚠️ Credenciais do Google Calendar não encontradas - Calendar desabilitado")
-                logger.info("💡 Para desabilitar este aviso, defina DISABLE_GOOGLE_CALENDAR=true")
-                self.calendar_service = None
+                # Tentar criar arquivo de credenciais a partir de variáveis de ambiente
+                if self._create_google_credentials_from_env():
+                    logger.info("✅ Arquivo de credenciais criado a partir de variáveis de ambiente")
+                
+                # Verificar se arquivo existe agora
+                credentials_path = os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH", "credentials/google_calendar_credentials.json")
+                if os.path.exists(credentials_path):
+                    self.calendar_service = GoogleCalendarService(self.config)
+                    logger.info("✅ GoogleCalendarService inicializado com sucesso")
+                else:
+                    logger.warning("⚠️ Credenciais do Google Calendar não encontradas - Calendar desabilitado")
+                    logger.info("💡 Para desabilitar este aviso, defina DISABLE_GOOGLE_CALENDAR=true")
+                    self.calendar_service = None
         except Exception as e:
             logger.error(f"❌ Erro ao inicializar GoogleCalendarService: {e}")
             self.calendar_service = None
         
         logger.info(f"SDR Agent '{self.config.personality.name}' inicializado com AGnO Framework")
+    
+    def _create_google_credentials_from_env(self) -> bool:
+        """Cria arquivo de credenciais do Google Calendar a partir de variáveis de ambiente"""
+        try:
+            client_id = os.getenv('GOOGLE_CLIENT_ID')
+            client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
+            project_id = os.getenv('GOOGLE_PROJECT_ID', 'solarprime-ia-sdr')
+            
+            if not client_id or not client_secret:
+                return False
+            
+            credentials = {
+                "installed": {
+                    "client_id": client_id,
+                    "project_id": project_id,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                    "client_secret": client_secret,
+                    "redirect_uris": ["http://localhost"]
+                }
+            }
+            
+            # Criar diretório se não existir
+            credentials_dir = os.path.dirname(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH", "credentials/google_calendar_credentials.json"))
+            if credentials_dir:
+                os.makedirs(credentials_dir, exist_ok=True)
+            
+            # Salvar arquivo
+            credentials_path = os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH", "credentials/google_calendar_credentials.json")
+            with open(credentials_path, 'w') as f:
+                json.dump(credentials, f, indent=2)
+            
+            logger.info(f"✅ Arquivo de credenciais criado em: {credentials_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao criar arquivo de credenciais: {e}")
+            return False
     
     def _get_or_create_agent(self, phone_number: str) -> Agent:
         """Obtém ou cria um agente para o número de telefone"""
