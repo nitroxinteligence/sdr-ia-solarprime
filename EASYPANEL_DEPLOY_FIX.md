@@ -5,6 +5,17 @@ O erro "Failed to pull changes" ocorre porque fizemos um force push para remover
 
 ## Solução no EasyPanel
 
+### 🚀 SOLUÇÃO MAIS SIMPLES: Usar Nova Branch
+Criamos novas branches para facilitar o deploy. No EasyPanel:
+
+1. Vá em **Source** ou **Git Configuration**
+2. Mude a branch de `main` para uma das opções:
+   - **`production`** (recomendado)
+   - **`deploy`** (alternativa)
+3. Salve e faça o deploy novamente
+
+As branches `production` e `deploy` têm o mesmo código da `main` mas sem o problema do histórico.
+
 ### Opção 1: Reset do Repositório (Recomendado)
 No painel de configuração do seu app no EasyPanel:
 
