@@ -16,7 +16,7 @@ from services.whatsapp_service import whatsapp_service
 from services.redis_service import redis_service
 from services.kommo_service import KommoService
 from services.google_calendar_service import GoogleCalendarService
-from services.evolution_api import evolution_api
+from services.evolution_api import evolution_client as evolution_api
 from repositories.lead_repository import lead_repository
 from config.config import get_config
 

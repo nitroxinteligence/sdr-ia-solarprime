@@ -52,7 +52,7 @@ from models.conversation import ConversationCreate
 from services.kommo_service import KommoService
 from services.google_calendar_service import GoogleCalendarService
 from models.kommo_models import KommoLead, LeadStatus, SolutionType
-from services.evolution_api import evolution_api
+from services.evolution_api import evolution_client as evolution_api
 
 
 class SDRAgent:
