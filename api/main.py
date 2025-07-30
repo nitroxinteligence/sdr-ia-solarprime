@@ -13,10 +13,16 @@ import os
 from typing import Optional
 import asyncio
 
-from api.routes import webhooks, health, instance, webhook_admin
+from api.routes import webhooks, health, instance, webhook_admin, auth, kommo_webhooks
 from services.evolution_api import evolution_client
 from services.connection_monitor import connection_monitor
 from middleware.rate_limiter import RateLimiter, RateLimiterMiddleware
+
+# Importar validador de startup
+try:
+    from api.startup_config import validate_startup_config
+except ImportError:
+    validate_startup_config = None
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +32,14 @@ async def lifespan(app: FastAPI):
     """Gerencia ciclo de vida da aplicação"""
     # Startup
     logger.info("Iniciando aplicação SDR SolarPrime...")
+    
+    # Validar configuração no startup
+    if validate_startup_config:
+        if not validate_startup_config():
+            logger.error("❌ Validação de configuração falhou!")
+            # Em desenvolvimento, continuar mesmo com erro
+            if os.getenv("ENVIRONMENT", "development") == "production":
+                raise RuntimeError("Configuração inválida para produção")
     
     # Rate limiter já foi configurado antes do app iniciar
     logger.info("✅ Rate limiter já configurado")
@@ -90,7 +104,11 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️ Evolution API em estado desconhecido: {connection_status.get('state')}")
             
     except Exception as e:
-        logger.error(f"❌ Erro ao verificar Evolution API: {e}")
+        if os.getenv("ENVIRONMENT", "development") == "development":
+            logger.info("ℹ️ Evolution API não disponível em desenvolvimento")
+            logger.info("💡 A aplicação funcionará sem WhatsApp")
+        else:
+            logger.error(f"❌ Erro ao verificar Evolution API: {e}")
         # Não falhar a aplicação se Evolution API estiver offline
     
     # Iniciar monitor de conexão se configurado
@@ -169,6 +187,8 @@ app.include_router(webhooks.router, tags=["webhooks"])
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(instance.router, prefix="/instance", tags=["instance"])
 app.include_router(webhook_admin.router, tags=["webhook-admin"])
+app.include_router(auth.router, tags=["authentication"])
+app.include_router(kommo_webhooks.router, tags=["kommo-webhooks"])
 
 # Tratamento global de erros
 @app.exception_handler(Exception)

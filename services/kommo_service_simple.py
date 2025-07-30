@@ -545,7 +545,7 @@ class KommoService:
                 }
             }
             
-            await self._make_request("POST", "/leads/notes", [note_payload])
+            await self._make_request("POST", "/notes", [note_payload])
             logger.info(f"Nota adicionada ao lead {lead_id}")
             return True
             

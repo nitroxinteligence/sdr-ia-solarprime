@@ -24,6 +24,7 @@ from services.analytics_service import analytics_service
 from agents.tools.message_chunker_tool import chunk_message_standalone
 from utils.message_formatter import format_message_for_whatsapp
 from services.follow_up_service import follow_up_service
+from services.kommo_follow_up_service import kommo_follow_up_service
 
 logger = logging.getLogger(__name__)
 
@@ -338,6 +339,21 @@ class WhatsAppService:
             
             # Criar follow-up automático se habilitado
             if metadata.get('stage') not in ['SCHEDULED', 'NOT_INTERESTED']:
+                # Usar follow-up do Kommo se disponível
+                if metadata.get('lead_id') and kommo_follow_up_service:
+                    try:
+                        # Agendar follow-up via Kommo
+                        kommo_success = await kommo_follow_up_service.schedule_follow_up(
+                            lead_id=metadata.get('lead_id'),
+                            follow_up_number=1  # Primeiro follow-up
+                        )
+                        
+                        if kommo_success:
+                            logger.info(f"Follow-up Kommo agendado para lead {metadata.get('lead_id')}")
+                    except Exception as e:
+                        logger.error(f"Erro ao agendar follow-up Kommo: {e}")
+                
+                # Também criar follow-up local (fallback)
                 follow_up_result = await follow_up_service.create_follow_up_after_message(
                     phone_number=message_info["from"],
                     lead_id=metadata.get('lead_id'),

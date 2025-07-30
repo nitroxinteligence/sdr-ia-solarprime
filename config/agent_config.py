@@ -29,6 +29,59 @@ class OpenAIConfig(BaseModel):
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=2048)
 
+class KommoConfig(BaseModel):
+    """Configurações do Kommo CRM"""
+    client_id: str = Field(default_factory=lambda: os.getenv("KOMMO_CLIENT_ID", ""))
+    client_secret: str = Field(default_factory=lambda: os.getenv("KOMMO_CLIENT_SECRET", ""))
+    subdomain: str = Field(default_factory=lambda: os.getenv("KOMMO_SUBDOMAIN", ""))
+    redirect_uri: str = Field(default_factory=lambda: os.getenv("KOMMO_REDIRECT_URI", "http://localhost:8000/auth/kommo/callback"))
+    
+    # Pipeline e estágios
+    pipeline_id: int = Field(default_factory=lambda: int(os.getenv("KOMMO_PIPELINE_ID", "0")))
+    
+    # IDs dos estágios
+    stage_ids: Dict[str, int] = Field(default_factory=lambda: {
+        "new": int(os.getenv("KOMMO_STAGE_NEW", "0")),
+        "in_qualification": int(os.getenv("KOMMO_STAGE_IN_QUALIFICATION", "0")),
+        "qualified": int(os.getenv("KOMMO_STAGE_QUALIFIED", "0")),
+        "meeting_scheduled": int(os.getenv("KOMMO_STAGE_MEETING_SCHEDULED", "0")),
+        "meeting_confirmed": int(os.getenv("KOMMO_STAGE_MEETING_CONFIRMED", "0")),
+        "in_negotiation": int(os.getenv("KOMMO_STAGE_IN_NEGOTIATION", "0")),
+        "proposal_sent": int(os.getenv("KOMMO_STAGE_PROPOSAL_SENT", "0")),
+        "won": int(os.getenv("KOMMO_STAGE_WON", "0")),
+        "lost": int(os.getenv("KOMMO_STAGE_LOST", "0"))
+    })
+    
+    # IDs dos campos customizados
+    custom_fields: Dict[str, int] = Field(default_factory=lambda: {
+        "lead_source": int(os.getenv("KOMMO_FIELD_LEAD_SOURCE", "0")),
+        "whatsapp_number": int(os.getenv("KOMMO_FIELD_WHATSAPP", "0")),
+        "energy_bill_value": int(os.getenv("KOMMO_FIELD_ENERGY_BILL", "0")),
+        "solution_type": int(os.getenv("KOMMO_FIELD_SOLUTION_TYPE", "0")),
+        "current_discount": int(os.getenv("KOMMO_FIELD_CURRENT_DISCOUNT", "0")),
+        "competitor": int(os.getenv("KOMMO_FIELD_COMPETITOR", "0")),
+        "qualification_score": int(os.getenv("KOMMO_FIELD_QUALIFICATION_SCORE", "0")),
+        "ai_notes": int(os.getenv("KOMMO_FIELD_AI_NOTES", "0")),
+        "follow_up_count": int(os.getenv("KOMMO_FIELD_FOLLOW_UP_COUNT", "0")),
+        "meeting_datetime": int(os.getenv("KOMMO_FIELD_MEETING_DATETIME", "0"))
+    })
+    
+    # IDs dos usuários responsáveis
+    responsible_users: Dict[str, int] = Field(default_factory=lambda: {
+        "default": int(os.getenv("KOMMO_USER_DEFAULT", "0")),
+        "high_value": int(os.getenv("KOMMO_USER_HIGH_VALUE", "0")),
+        "investment": int(os.getenv("KOMMO_USER_INVESTMENT", "0"))
+    })
+    
+    # Valores dos campos select
+    solution_type_values: Dict[str, int] = Field(default_factory=lambda: {
+        "usina_propria": int(os.getenv("KOMMO_VALUE_USINA_PROPRIA", "0")),
+        "usina_parceira": int(os.getenv("KOMMO_VALUE_USINA_PARCEIRA", "0")),
+        "desconto_alto": int(os.getenv("KOMMO_VALUE_DESCONTO_ALTO", "0")),
+        "desconto_baixo": int(os.getenv("KOMMO_VALUE_DESCONTO_BAIXO", "0")),
+        "investimento": int(os.getenv("KOMMO_VALUE_INVESTIMENTO", "0"))
+    })
+
 class AgentPersonality(BaseModel):
     """Personalidade e características do agente"""
     name: str = Field(default="Luna")
@@ -169,6 +222,7 @@ class SDRConfig(BaseSettings):
     # Configurações dos componentes
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
+    kommo: KommoConfig = Field(default_factory=KommoConfig)
     personality: AgentPersonality = Field(default_factory=AgentPersonality)
     sales_stages: SalesStages = Field(default_factory=SalesStages)
     solutions: SolarSolutions = Field(default_factory=SolarSolutions)
@@ -246,7 +300,9 @@ def validate_config():
 # Exporta componentes principais
 __all__ = [
     "SDRConfig",
-    "GeminiConfig", 
+    "GeminiConfig",
+    "OpenAIConfig",
+    "KommoConfig", 
     "AgentPersonality",
     "SalesStages",
     "SolarSolutions",

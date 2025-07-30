@@ -16,6 +16,12 @@ import json
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from dotenv import load_dotenv
 
+# Importar configuração centralizada
+try:
+    from core.environment import env_config
+except ImportError:
+    env_config = None
+
 # Carregar variáveis de ambiente
 load_dotenv()
 
@@ -26,10 +32,24 @@ class EvolutionAPIClient:
     """Cliente para integração com Evolution API v2 - Singleton persistente"""
     
     def __init__(self):
-        # Configurações base
-        self.base_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
-        self.api_key = os.getenv("EVOLUTION_API_KEY", "")
-        self.instance_name = os.getenv("EVOLUTION_INSTANCE_NAME", "solarprime")
+        # Usar configuração centralizada se disponível
+        if env_config:
+            self.base_url = env_config.evolution_api_url
+            self.api_key = env_config.evolution_api_key
+            self.instance_name = env_config.evolution_instance_name
+        else:
+            # Fallback para configuração manual
+            environment = os.getenv("ENVIRONMENT", "development")
+            
+            if environment == "production":
+                # Em produção, usar nome do serviço Docker
+                self.base_url = os.getenv("EVOLUTION_API_URL", "http://evolution-api:8080")
+            else:
+                # Em desenvolvimento, usar localhost
+                self.base_url = os.getenv("EVOLUTION_API_URL", "http://localhost:8080")
+                
+            self.api_key = os.getenv("EVOLUTION_API_KEY", "")
+            self.instance_name = os.getenv("EVOLUTION_INSTANCE_NAME", "solarprime")
         
         # Remover /manager da URL base se existir
         if self.base_url.endswith('/manager'):
@@ -51,16 +71,29 @@ class EvolutionAPIClient:
             async with self._client_lock:
                 if not self._initialized:
                     logger.info(f"Inicializando Evolution API Client - URL: {self.base_url}")
+                    
+                    # Configuração robusta para produção
+                    timeout_config = httpx.Timeout(
+                        connect=5.0,  # Timeout de conexão menor
+                        read=30.0,
+                        write=30.0,
+                        pool=5.0
+                    )
+                    
                     self.client = httpx.AsyncClient(
                         base_url=self.base_url,
                         headers=self.headers,
-                        timeout=httpx.Timeout(30.0, connect=10.0),
+                        timeout=timeout_config,
                         limits=httpx.Limits(
                             max_keepalive_connections=10,
                             max_connections=20,
                             keepalive_expiry=30.0
                         ),
-                        follow_redirects=True
+                        follow_redirects=True,
+                        transport=httpx.AsyncHTTPTransport(
+                            retries=3,
+                            verify=True
+                        )
                     )
                     self._initialized = True
                     logger.info("✅ Evolution API Client inicializado com sucesso")
@@ -84,11 +117,14 @@ class EvolutionAPIClient:
         retry=retry_if_exception_type(httpx.RequestError)
     )
     async def check_connection(self) -> Dict[str, Any]:
-        """Verifica conexão e status da instância"""
+        """Verifica conexão e status da instância com tratamento robusto"""
         await self._ensure_initialized()
         try:
-            # Verificar status da instância
-            response = await self.client.get(f"/instance/connectionState/{self.instance_name}")
+            # Verificar status da instância com timeout curto
+            response = await asyncio.wait_for(
+                self.client.get(f"/instance/connectionState/{self.instance_name}"),
+                timeout=5.0
+            )
             response.raise_for_status()
             
             data = response.json()
@@ -110,12 +146,26 @@ class EvolutionAPIClient:
             logger.info(f"Status da instância {self.instance_name}: {state}")
             return result
             
+        except asyncio.TimeoutError:
+            if env_config and env_config.is_development:
+                logger.info(f"⏱️ Evolution API não disponível em desenvolvimento ({self.base_url})")
+            else:
+                logger.warning(f"⏱️ Timeout ao verificar Evolution API em {self.base_url}")
+            return {"state": "error", "error": "Connection timeout", "url": self.base_url}
+        except httpx.ConnectError as e:
+            if env_config and env_config.is_development:
+                logger.info(f"ℹ️ Evolution API não está rodando localmente ({self.base_url})")
+                logger.debug("💡 Para desenvolvimento com WhatsApp, inicie a Evolution API localmente")
+            else:
+                logger.error(f"❌ Não foi possível conectar à Evolution API em {self.base_url}")
+                logger.debug(f"Detalhes do erro: {type(e).__name__}: {str(e)}")
+            return {"state": "error", "error": "Connection failed", "url": self.base_url}
         except httpx.HTTPStatusError as e:
             logger.error(f"Erro HTTP ao verificar conexão: {e.response.status_code}")
-            return {"state": "error", "error": str(e)}
+            return {"state": "error", "error": f"HTTP {e.response.status_code}"}
         except Exception as e:
-            logger.error(f"Erro ao verificar Evolution API: {e}")
-            return {"state": "error", "error": str(e)}
+            logger.error(f"Erro ao verificar Evolution API: {type(e).__name__}: {str(e)}")
+            return {"state": "error", "error": str(e), "type": type(e).__name__}
     
     async def send_text_message(
         self,

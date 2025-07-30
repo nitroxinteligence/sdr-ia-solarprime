@@ -22,6 +22,7 @@ from agents.tools.message_buffer_tool import process_buffered_messages, analyze_
 from agents.tools.google_calendar_tools import calendar_tools
 from services.database import supabase_client
 from services.kommo_service import kommo_service
+from services.qualification_kommo_integration import qualification_kommo_integration
 from repositories.lead_repository import lead_repository
 from repositories.conversation_repository import conversation_repository
 from repositories.message_repository import message_repository
@@ -498,6 +499,42 @@ class SDRAgentV2:
                     current_stage=session_state.get('current_stage'),
                     qualification_score=self._calculate_lead_score(lead_info, session_state)
                 )
+                
+                # Sincronizar com Kommo CRM
+                if kommo_service and qualification_kommo_integration:
+                    try:
+                        # Criar/atualizar lead no Kommo
+                        ai_notes = f"Estágio: {session_state.get('current_stage')}\n"
+                        ai_notes += f"Score: {self._calculate_lead_score(lead_info, session_state)}\n"
+                        ai_notes += f"Última mensagem: {message[:100]}..."
+                        
+                        kommo_lead_id = await qualification_kommo_integration.sync_lead_to_kommo(
+                            lead,
+                            ai_notes=ai_notes,
+                            current_stage=session_state.get('current_stage')
+                        )
+                        
+                        # Se moveu para agendamento, notificar Kommo
+                        if session_state.get('current_stage') == 'SCHEDULING':
+                            await qualification_kommo_integration.update_lead_stage(
+                                lead,
+                                'SCHEDULING',
+                                notes="Cliente iniciou processo de agendamento via WhatsApp"
+                            )
+                        
+                        # Adicionar interação como nota no Kommo
+                        await qualification_kommo_integration.add_whatsapp_interaction(
+                            lead,
+                            message_type="text",
+                            content=message,
+                            response=response
+                        )
+                        
+                        logger.info(f"Lead sincronizado com Kommo: {kommo_lead_id}")
+                        
+                    except Exception as e:
+                        logger.error(f"Erro ao sincronizar com Kommo: {e}")
+                        # Não falhar a operação principal se Kommo falhar
                 
             # Analytics
             await analytics_service.track_event(
