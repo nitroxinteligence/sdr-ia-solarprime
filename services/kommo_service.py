@@ -627,6 +627,101 @@ class KommoService:
         
         return available_slots
     
+    async def update_lead_custom_field(
+        self, 
+        lead_id: int, 
+        field_name: str, 
+        value: Any
+    ) -> bool:
+        """
+        Atualiza um campo customizado específico do lead
+        
+        Args:
+            lead_id: ID do lead no Kommo
+            field_name: Nome do campo (ex: 'google_calendar_link')
+            value: Valor a ser definido
+            
+        Returns:
+            bool: True se atualizado com sucesso
+        """
+        try:
+            # Buscar ID do campo
+            field_id = self.config.kommo.custom_fields.get(field_name)
+            if not field_id:
+                logger.warning(f"Campo '{field_name}' não configurado")
+                return False
+            
+            # Preparar payload
+            payload = [{
+                "id": lead_id,
+                "custom_fields_values": [{
+                    "field_id": field_id,
+                    "values": [{
+                        "value": str(value)
+                    }]
+                }]
+            }]
+            
+            # Atualizar lead
+            response = await self._make_request("PATCH", "/leads", data=payload)
+            
+            if response and "_embedded" in response:
+                logger.info(f"Campo '{field_name}' atualizado para lead {lead_id}")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Erro ao atualizar campo customizado: {str(e)}")
+            return False
+    
+    async def get_lead_by_google_event_id(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Busca lead pelo ID do evento do Google Calendar
+        
+        Args:
+            event_id: ID do evento no Google Calendar
+            
+        Returns:
+            Lead se encontrado, None caso contrário
+        """
+        try:
+            # Buscar campo google_calendar_link
+            field_id = self.config.kommo.custom_fields.get("google_calendar_link")
+            if not field_id:
+                logger.warning("Campo 'google_calendar_link' não configurado")
+                return None
+            
+            # Buscar leads com filtro
+            # Nota: Kommo não suporta busca direta por campo customizado
+            # Precisamos buscar todos e filtrar localmente
+            params = {
+                "limit": 250,
+                "with": "contacts"
+            }
+            
+            response = await self._make_request("GET", "/leads", params=params)
+            
+            if not response or "_embedded" not in response:
+                return None
+            
+            leads = response["_embedded"].get("leads", [])
+            
+            # Filtrar pelo event_id
+            for lead in leads:
+                custom_fields = lead.get("custom_fields_values", [])
+                for field in custom_fields:
+                    if field.get("field_id") == field_id:
+                        values = field.get("values", [])
+                        if values and event_id in str(values[0].get("value", "")):
+                            return lead
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Erro ao buscar lead por event_id: {str(e)}")
+            return None
+    
     async def schedule_meeting(self, lead_id: int, meeting_datetime: datetime, notes: str = "") -> bool:
         """Agenda reunião para um lead"""
         try:

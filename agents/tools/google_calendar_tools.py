@@ -182,6 +182,30 @@ Por favor, continue a qualificação antes de agendar.""",
                 notes=f"Reunião agendada para {date} às {time}"
             )
             
+            # Salvar link do Calendar no Kommo se o lead tiver kommo_lead_id
+            if lead.kommo_lead_id:
+                try:
+                    from services.kommo_service import kommo_service
+                    
+                    # Atualizar campo google_calendar_link no Kommo
+                    await kommo_service.update_lead_custom_field(
+                        lead_id=int(lead.kommo_lead_id),
+                        field_name='google_calendar_link',
+                        value=event_result['link']
+                    )
+                    
+                    # Atualizar também o status da reunião
+                    await kommo_service.update_lead_custom_field(
+                        lead_id=int(lead.kommo_lead_id),
+                        field_name='meeting_status',
+                        value='scheduled'
+                    )
+                    
+                    logger.info(f"Link do Calendar salvo no Kommo para lead {lead.kommo_lead_id}")
+                except Exception as e:
+                    logger.error(f"Erro ao salvar link no Kommo: {e}")
+                    # Não falhar a operação se o Kommo falhar
+            
             return {
                 "status": "sucesso",
                 "mensagem": f"""✅ Reunião agendada com sucesso!

@@ -157,6 +157,7 @@ async def process_tasks_events(events: Dict[str, List], background_tasks: Backgr
             task_id = event.get("id")
             entity_id = event.get("entity_id")
             text = event.get("text", "")
+            task_type = event.get("task_type", 0)
             
             logger.info(f"Tarefa {task_id} criada para lead {entity_id}")
             
@@ -168,14 +169,38 @@ async def process_tasks_events(events: Dict[str, List], background_tasks: Backgr
                     text
                 )
     
-    # Tarefa completada
+    # Tarefa atualizada
     if "update" in events:
         for event in events["update"]:
             task_id = event.get("id")
             is_completed = event.get("is_completed")
+            text = event.get("text", "")
             
-            if is_completed:
-                logger.info(f"Tarefa {task_id} foi completada")
+            # Se for uma tarefa de reunião
+            if "reunião" in text.lower() or "meeting" in text.lower():
+                if is_completed:
+                    logger.info(f"Reunião {task_id} foi completada")
+                    # Atualizar status da reunião
+                    background_tasks.add_task(
+                        update_meeting_status,
+                        event.get("entity_id"),
+                        "completed"
+                    )
+    
+    # Tarefa deletada
+    if "delete" in events:
+        for event in events["delete"]:
+            task_id = event.get("id")
+            text = event.get("text", "")
+            
+            # Se for uma tarefa de reunião sendo cancelada
+            if "reunião" in text.lower() or "meeting" in text.lower():
+                logger.info(f"Reunião {task_id} foi cancelada")
+                background_tasks.add_task(
+                    handle_meeting_cancellation,
+                    event.get("entity_id"),
+                    "Reunião cancelada pelo vendedor"
+                )
 
 
 # Funções de background
@@ -314,6 +339,127 @@ async def send_follow_up_message(lead_id: int, task_text: str):
             
     except Exception as e:
         logger.error(f"Erro ao enviar follow-up: {str(e)}")
+
+
+async def handle_meeting_cancellation(lead_id: int, reason: str = ""):
+    """Processa cancelamento de reunião do Kommo"""
+    try:
+        # Buscar lead no Kommo
+        kommo_lead = await kommo_service.get_lead(lead_id)
+        if not kommo_lead:
+            return
+        
+        # Buscar WhatsApp do lead
+        whatsapp = None
+        custom_fields = kommo_lead.get("custom_fields_values", [])
+        whatsapp_field_id = get_config().kommo.custom_fields.get("whatsapp_number", 0)
+        
+        for field in custom_fields:
+            if field.get("field_id") == whatsapp_field_id:
+                whatsapp = field.get("values", [{}])[0].get("value")
+                break
+        
+        if not whatsapp:
+            logger.warning(f"WhatsApp não encontrado para lead {lead_id}")
+            return
+        
+        # Buscar lead local
+        lead = await lead_repository.get_by_phone(whatsapp)
+        if not lead or not lead.google_event_id:
+            logger.warning(f"Lead local ou evento não encontrado para WhatsApp {whatsapp}")
+            return
+        
+        # Cancelar evento no Google Calendar
+        from services.google_calendar_service import get_google_calendar_service
+        calendar_service = get_google_calendar_service()
+        
+        success = await calendar_service.cancel_event(lead.google_event_id)
+        
+        if success:
+            # Atualizar lead local
+            await lead_repository.update(lead.id, {
+                "meeting_scheduled_at": None,
+                "google_event_id": None,
+                "meeting_status": "cancelled"
+            })
+            
+            # Enviar mensagem WhatsApp informando cancelamento
+            message = f"""😔 Olá {kommo_lead.get('name', '')}!
+
+Infelizmente precisamos cancelar nossa reunião agendada.
+
+{f'Motivo: {reason}' if reason else ''}
+
+Por favor, entre em contato quando quiser reagendar. Estamos à disposição!
+
+Atenciosamente,
+Equipe SolarPrime"""
+            
+            await whatsapp_service.send_text_message(whatsapp, message)
+            logger.info(f"Reunião cancelada e cliente notificado: {whatsapp}")
+            
+            # Atualizar campo no Kommo
+            await kommo_service.update_lead_custom_field(
+                lead_id=lead_id,
+                field_name='meeting_status',
+                value='cancelled'
+            )
+            
+    except Exception as e:
+        logger.error(f"Erro ao processar cancelamento de reunião: {str(e)}")
+
+
+async def update_meeting_status(lead_id: int, status: str):
+    """Atualiza status da reunião quando completada ou modificada"""
+    try:
+        # Buscar lead no Kommo
+        kommo_lead = await kommo_service.get_lead(lead_id)
+        if not kommo_lead:
+            return
+        
+        # Buscar WhatsApp
+        whatsapp = None
+        custom_fields = kommo_lead.get("custom_fields_values", [])
+        whatsapp_field_id = get_config().kommo.custom_fields.get("whatsapp_number", 0)
+        
+        for field in custom_fields:
+            if field.get("field_id") == whatsapp_field_id:
+                whatsapp = field.get("values", [{}])[0].get("value")
+                break
+        
+        if whatsapp:
+            # Buscar lead local
+            lead = await lead_repository.get_by_phone(whatsapp)
+            if lead:
+                # Atualizar status
+                await lead_repository.update(lead.id, {
+                    "meeting_status": status
+                })
+                
+                # Atualizar campo no Kommo
+                await kommo_service.update_lead_custom_field(
+                    lead_id=lead_id,
+                    field_name='meeting_status',
+                    value=status
+                )
+                
+                # Se reunião foi completada, enviar mensagem de agradecimento
+                if status == "completed":
+                    message = f"""🎉 {kommo_lead.get('name', '')}, obrigado por participar da reunião!
+
+Foi um prazer conversar com você sobre as soluções de energia solar da SolarPrime.
+
+Em breve entraremos em contato com a proposta personalizada para você.
+
+Qualquer dúvida, estou à disposição!
+
+Atenciosamente,
+Equipe SolarPrime"""
+                    
+                    await whatsapp_service.send_text_message(whatsapp, message)
+                    
+    except Exception as e:
+        logger.error(f"Erro ao atualizar status da reunião: {str(e)}")
 
 
 @router.post("/setup")

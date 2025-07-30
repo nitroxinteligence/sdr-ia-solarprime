@@ -63,7 +63,9 @@ class KommoConfig(BaseModel):
         "qualification_score": int(os.getenv("KOMMO_FIELD_QUALIFICATION_SCORE", "0")),
         "ai_notes": int(os.getenv("KOMMO_FIELD_AI_NOTES", "0")),
         "follow_up_count": int(os.getenv("KOMMO_FIELD_FOLLOW_UP_COUNT", "0")),
-        "meeting_datetime": int(os.getenv("KOMMO_FIELD_MEETING_DATETIME", "0"))
+        "meeting_datetime": int(os.getenv("KOMMO_FIELD_MEETING_DATETIME", "0")),
+        "google_calendar_link": int(os.getenv("KOMMO_FIELD_GOOGLE_CALENDAR_LINK", "0")),
+        "meeting_status": int(os.getenv("KOMMO_FIELD_MEETING_STATUS", "0"))
     })
     
     # IDs dos usuários responsáveis
