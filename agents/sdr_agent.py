@@ -1281,11 +1281,29 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
                 if 'content' in image_data and image_data['content']:
                     logger.info("🔄 Usando conteúdo binário direto")
                     try:
-                        img_bytes = image_data['content']
-                        if isinstance(img_bytes, str):
-                            img_bytes = img_bytes.encode()
+                        content = image_data['content']
+                        
+                        # Validar que é bytes real e não string
+                        if isinstance(content, str):
+                            logger.warning("⚠️ Content é string, convertendo para bytes")
+                            try:
+                                # Tentar decodificar como base64 primeiro
+                                content = base64.b64decode(content)
+                                logger.info("✅ String era base64, decodificada com sucesso")
+                            except:
+                                # Se não for base64, tentar como bytes diretos
+                                content = content.encode('latin-1')
+                                logger.info("✅ String convertida para bytes (latin-1)")
+                        
+                        # Validar tamanho mínimo
+                        if len(content) < 100:
+                            logger.error(f"❌ Conteúdo muito pequeno: {len(content)} bytes")
+                            return None
+                        
+                        logger.info(f"📦 Conteúdo binário válido: {len(content)} bytes")
+                        
                         # Corrigir orientação se necessário
-                        img_bytes = ImageValidator.fix_image_orientation(img_bytes)
+                        img_bytes = ImageValidator.fix_image_orientation(content)
                         return Image(content=img_bytes)
                     except Exception as e:
                         logger.error(f"Erro ao processar conteúdo binário: {e}")

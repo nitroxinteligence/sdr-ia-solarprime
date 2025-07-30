@@ -517,9 +517,18 @@ class WhatsAppService:
                     logger.error(f"❌ Falha ao baixar mídia {message_id} após todas as tentativas")
                     return None
                 
+                # IMPORTANTE: Validar que é conteúdo real
+                logger.info(f"✅ Mídia baixada: {len(media_data)} bytes")
+                
+                if len(media_data) < 100:
+                    logger.error(f"⚠️ Conteúdo suspeito (muito pequeno): {len(media_data)} bytes")
+                    logger.warning("💡 Tentando download novamente ou considere usar fallback")
+                    # Aqui poderia implementar retry ou estratégia alternativa
+                    return None
+                
                 # Cachear mídia
                 await self.redis_service.cache_media(message_id, media_data)
-                logger.success(f"✅ Mídia {message_id} cacheada com sucesso")
+                logger.success(f"✅ Mídia {message_id} cacheada com sucesso ({len(media_data)} bytes)")
             
             # Determinar extensão baseada no mimetype ou tipo
             mimetype = media_info.get("mimetype", "")

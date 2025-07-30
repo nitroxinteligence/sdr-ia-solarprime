@@ -291,6 +291,7 @@ class EvolutionAPIClient:
         
         # Tentar primeiro o endpoint getBase64FromMediaMessage
         try:
+            logger.info(f"🔍 Iniciando download de mídia: {message_id}")
             logger.info(f"📥 Tentando baixar mídia {message_id} via getBase64FromMediaMessage...")
             
             response = await self.client.post(
@@ -307,10 +308,20 @@ class EvolutionAPIClient:
             response.raise_for_status()
             
             data = response.json()
+            logger.info(f"📊 Resposta recebida: {list(data.keys())}")
+            
             if "base64" in data and data["base64"]:
-                logger.success(f"✅ Mídia baixada via base64: {len(data['base64'])} chars")
-                return base64.b64decode(data["base64"])
+                logger.success(f"✅ Base64 recebido: {len(data['base64'])} chars")
+                decoded_content = base64.b64decode(data["base64"])
+                logger.info(f"📦 Conteúdo decodificado: {len(decoded_content)} bytes")
+                
+                # Validar conteúdo mínimo
+                if len(decoded_content) < 100:
+                    logger.warning(f"⚠️ Conteúdo muito pequeno ({len(decoded_content)} bytes), pode estar corrompido")
+                
+                return decoded_content
             else:
+                logger.error(f"❌ Resposta sem base64: {data}")
                 logger.warning(f"⚠️ Resposta sem base64 ou vazia: {list(data.keys())}")
                 
         except httpx.TimeoutError:
