@@ -456,6 +456,7 @@ class GoogleCalendarService:
             parts.append("\n" + "="*50 + "\n")
         
         if lead_data:
+            # Seção 1: Informações Básicas do Cliente
             parts.append("📋 INFORMAÇÕES DO CLIENTE\n")
             
             if lead_data.get('name'):
@@ -467,8 +468,14 @@ class GoogleCalendarService:
             if lead_data.get('email'):
                 parts.append(f"📧 Email: {lead_data['email']}")
             
+            # Seção 2: Dados de Consumo e Interesse
+            parts.append("\n💡 DADOS DE CONSUMO E INTERESSE\n")
+            
             if lead_data.get('bill_value'):
                 parts.append(f"💰 Valor atual da conta: R$ {lead_data['bill_value']}")
+                # Calcular economia potencial
+                economia = float(lead_data['bill_value']) * 0.95
+                parts.append(f"💸 Economia potencial (95%): R$ {economia:.2f}/mês")
             
             if lead_data.get('consumption_kwh'):
                 parts.append(f"⚡ Consumo mensal: {lead_data['consumption_kwh']} kWh")
@@ -482,13 +489,54 @@ class GoogleCalendarService:
             if lead_data.get('current_discount'):
                 parts.append(f"💳 Desconto atual: {lead_data['current_discount']}%")
             
-            # Adicionar link do CRM se disponível
-            if lead_data.get('crm_link'):
-                parts.append(f"\n🔗 Link no CRM: {lead_data['crm_link']}")
+            # Seção 3: Status de Qualificação
+            parts.append("\n🎯 STATUS DE QUALIFICAÇÃO\n")
             
-            # Adicionar observações
+            if lead_data.get('qualification_score'):
+                score = lead_data['qualification_score']
+                status_emoji = "🔥" if score >= 80 else "⚡" if score >= 60 else "❄️"
+                parts.append(f"{status_emoji} Score de qualificação: {score}/100")
+            
+            if lead_data.get('current_stage'):
+                parts.append(f"📊 Estágio atual: {lead_data['current_stage']}")
+            
+            # Critérios de qualificação
+            parts.append("\n✅ CRITÉRIOS DE QUALIFICAÇÃO:")
+            parts.append(f"• É decisor: {lead_data.get('is_decision_maker', 'N/A')}")
+            parts.append(f"• Tem sistema solar: {lead_data.get('has_solar_system', 'N/A')}")
+            
+            if lead_data.get('has_solar_system') == 'Sim':
+                parts.append(f"  → Quer novo sistema: {lead_data.get('wants_new_solar_system', 'N/A')}")
+            
+            parts.append(f"• Tem contrato vigente: {lead_data.get('has_active_contract', 'N/A')}")
+            
+            if lead_data.get('has_active_contract') == 'Sim':
+                parts.append(f"  → Término do contrato: {lead_data.get('contract_end_date', 'N/A')}")
+            
+            # Seção 4: Resumo da Conversa
+            if lead_data.get('conversation_summary'):
+                parts.append("\n💬 RESUMO DA CONVERSA\n")
+                parts.append("="*40)
+                # Limitar o resumo para não ficar muito longo
+                summary = lead_data['conversation_summary']
+                if len(summary) > 1000:
+                    summary = summary[:1000] + "\n... (resumo truncado)"
+                parts.append(summary)
+                parts.append("="*40)
+            
+            # Seção 5: Observações e Notas
             if lead_data.get('notes'):
-                parts.append(f"\n📝 Observações:\n{lead_data['notes']}")
+                parts.append(f"\n📝 OBSERVAÇÕES DO AGENTE:\n{lead_data['notes']}")
+            
+            # Seção 6: Links e Referências
+            parts.append("\n🔗 LINKS E REFERÊNCIAS\n")
+            
+            # Link do CRM
+            if lead_data.get('crm_link') and lead_data['crm_link'] != '#':
+                parts.append(f"📊 CRM: {lead_data['crm_link']}")
+            
+            # Adicionar data/hora de criação do evento
+            parts.append(f"\n⏰ Evento criado em: {datetime.now().strftime('%d/%m/%Y às %H:%M')}")
         
         return "\n".join(parts)
 

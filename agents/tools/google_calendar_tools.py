@@ -49,7 +49,63 @@ async def schedule_solar_meeting(
                 "mensagem": "Lead não encontrado. Por favor, forneça suas informações primeiro."
             }
         
-        # Preparar dados do lead
+        # VERIFICAÇÃO CRÍTICA DE QUALIFICAÇÃO
+        # Um lead só pode agendar reunião se estiver qualificado
+        qualification_errors = []
+        
+        # 1. Verificar valor da conta (deve ser acima de R$ 4.000)
+        if not lead.bill_value or lead.bill_value < 4000:
+            qualification_errors.append("Conta deve ser acima de R$ 4.000 para qualificação comercial")
+        
+        # 2. Verificar se é o decisor (deve estar marcado como true)
+        if not lead.is_decision_maker:
+            qualification_errors.append("Apenas o decisor principal pode agendar reuniões")
+        
+        # 3. Verificar se tem usina própria (não deve ter, exceto se quer nova)
+        if lead.has_solar_system and not lead.wants_new_solar_system:
+            qualification_errors.append("Lead já possui sistema solar e não demonstrou interesse em novo")
+        
+        # 4. Verificar contrato vigente (não deve ter)
+        if lead.has_active_contract:
+            qualification_errors.append("Lead possui contrato de energia vigente com outra empresa")
+        
+        # 5. Verificar interesse real (deve estar qualificado)
+        if lead.qualification_status != 'QUALIFIED':
+            qualification_errors.append("Lead ainda não foi totalmente qualificado")
+        
+        # Se houver erros de qualificação, não permitir agendamento
+        if qualification_errors:
+            return {
+                "status": "não_qualificado",
+                "mensagem": f"""❌ Não foi possível agendar a reunião.
+                
+O lead precisa atender todos os critérios de qualificação:
+{chr(10).join(f'• {erro}' for erro in qualification_errors)}
+
+Por favor, continue a qualificação antes de agendar.""",
+                "erros_qualificacao": qualification_errors
+            }
+        
+        # Buscar contexto da conversa
+        conversation_summary = ""
+        try:
+            # Buscar conversa ativa
+            from repositories.conversation_repository import conversation_repository
+            conversations = await conversation_repository.get_active_conversations_by_lead(lead.id)
+            
+            if conversations:
+                conversation = conversations[0]  # Pegar a mais recente
+                
+                # Buscar contexto formatado da conversa
+                from repositories.message_repository import message_repository
+                conversation_summary = await message_repository.get_conversation_context(
+                    conversation_id=conversation.id,
+                    max_messages=10  # Últimas 10 mensagens para resumo
+                )
+        except Exception as e:
+            logger.warning(f"Não foi possível obter contexto da conversa: {e}")
+        
+        # Preparar dados do lead enriquecidos
         lead_data = {
             'id': str(lead.id),
             'name': lead_name or lead.name,
@@ -58,7 +114,16 @@ async def schedule_solar_meeting(
             'bill_value': lead.bill_value or 0,
             'consumption_kwh': lead.consumption_kwh or 0,
             'solution_interest': lead.solution_interest or 'A definir',
-            'crm_link': lead.kommo_lead_id or '#'
+            'crm_link': lead.kommo_lead_id or '#',
+            'qualification_score': lead.qualification_score or 0,
+            'current_stage': lead.current_stage,
+            'is_decision_maker': 'Sim' if lead.is_decision_maker else 'Não confirmado',
+            'has_solar_system': 'Sim' if lead.has_solar_system else 'Não',
+            'wants_new_solar_system': 'Sim' if lead.wants_new_solar_system else 'Não',
+            'has_active_contract': 'Sim' if lead.has_active_contract else 'Não',
+            'contract_end_date': lead.contract_end_date.strftime('%d/%m/%Y') if lead.contract_end_date else 'N/A',
+            'notes': lead.notes or '',
+            'conversation_summary': conversation_summary
         }
         
         # Converter data e hora
@@ -107,11 +172,13 @@ async def schedule_solar_meeting(
         )
         
         if event_result:
-            # Atualizar lead com informações da reunião
+            # Atualizar lead com informações da reunião e google_event_id
             await lead_repository.update_lead(
                 lead_id=lead.id,
                 meeting_scheduled_at=meeting_datetime,
+                google_event_id=event_result['id'],  # Salvando o ID do evento
                 current_stage='MEETING_SCHEDULED',
+                meeting_status='scheduled',
                 notes=f"Reunião agendada para {date} às {time}"
             )
             
@@ -176,8 +243,12 @@ async def reschedule_meeting(
                 "mensagem": "Não encontrei uma reunião agendada para reagendar."
             }
         
-        # TODO: Buscar event_id do banco ou metadata
-        # Por ora, vamos criar um novo evento
+        # Verificar se tem google_event_id para atualizar
+        if not lead.google_event_id:
+            return {
+                "status": "erro",
+                "mensagem": "Não foi possível encontrar o evento no calendário. Por favor, cancele e agende uma nova reunião."
+            }
         
         # Converter nova data e hora
         try:
@@ -189,33 +260,93 @@ async def reschedule_meeting(
                 int(hour), int(minute)
             )
             
+            # Validar horário comercial
+            if not _is_business_hours(new_datetime):
+                return {
+                    "status": "horário_inválido",
+                    "mensagem": "Por favor, escolha um horário entre 9h e 18h de segunda a sexta.",
+                    "horarios_disponiveis": await get_available_slots(new_date)
+                }
+            
         except ValueError:
             return {
                 "status": "erro",
                 "mensagem": "Formato de data ou hora inválido. Use DD/MM/AAAA e HH:MM"
             }
         
-        # Agendar nova reunião
-        result = await schedule_solar_meeting(
-            lead_phone=lead_phone,
-            date=new_date,
-            time=new_time,
-            lead_name=lead.name,
-            meeting_type="follow_up_meeting"
+        # Atualizar evento existente no Google Calendar
+        calendar_service = get_google_calendar_service()
+        
+        # Preparar dados atualizados
+        lead_data = {
+            'id': str(lead.id),
+            'name': lead.name,
+            'phone': lead_phone,
+            'email': lead.email,
+            'bill_value': lead.bill_value or 0,
+            'consumption_kwh': lead.consumption_kwh or 0,
+            'solution_interest': lead.solution_interest or 'A definir',
+            'crm_link': lead.kommo_lead_id or '#',
+            'notes': lead.notes
+        }
+        
+        # Obter template
+        from config.google_calendar_config import google_calendar_config
+        template = google_calendar_config.get_event_template('follow_up_meeting')
+        
+        # Formatar título e descrição
+        title = template['title'].format(lead_name=lead.name)
+        description = template['description'].format(**lead_data)
+        
+        # Adicionar motivo do reagendamento na descrição
+        if reason:
+            description += f"\n\n📝 MOTIVO DO REAGENDAMENTO:\n{reason}"
+        
+        # Atualizar evento
+        update_result = await calendar_service.update_event(
+            event_id=lead.google_event_id,
+            updates={
+                'summary': title,
+                'start_datetime': new_datetime,
+                'end_datetime': new_datetime + timedelta(hours=1),
+                'description': description
+            }
         )
         
-        if result['status'] == 'sucesso':
-            # Adicionar informação sobre reagendamento
-            result['mensagem'] = f"✅ Reunião reagendada com sucesso!\n\n{result['mensagem']}"
-            
-            # Registrar motivo se fornecido
+        if update_result:
+            # Atualizar lead com nova data
+            notes = f"Reunião reagendada de {lead.meeting_scheduled_at.strftime('%d/%m/%Y %H:%M')} para {new_date} {new_time}"
             if reason:
-                await lead_repository.update_lead(
-                    lead_id=lead.id,
-                    notes=f"Reunião reagendada. Motivo: {reason}"
-                )
-        
-        return result
+                notes += f". Motivo: {reason}"
+            
+            await lead_repository.update_lead(
+                lead_id=lead.id,
+                meeting_scheduled_at=new_datetime,
+                notes=notes
+            )
+            
+            return {
+                "status": "sucesso",
+                "mensagem": f"""✅ Reunião reagendada com sucesso!
+
+📅 Nova data: {new_date}
+🕐 Novo horário: {new_time}
+📍 Local: {google_calendar_config.meeting_location}
+
+Enviaremos lembretes:
+- 1 dia antes
+- 1 hora antes
+- 15 minutos antes
+
+Link do evento: {update_result['link']}""",
+                "event_id": update_result['id'],
+                "event_link": update_result['link']
+            }
+        else:
+            return {
+                "status": "erro",
+                "mensagem": "Não foi possível reagendar a reunião. Por favor, tente novamente."
+            }
         
     except Exception as e:
         logger.error(f"Erro ao reagendar reunião: {e}")
@@ -251,13 +382,22 @@ async def cancel_meeting(
                 "mensagem": "Não encontrei uma reunião agendada para cancelar."
             }
         
-        # TODO: Implementar cancelamento real no Google Calendar
-        # Por ora, apenas atualizar o banco
+        # Cancelar evento no Google Calendar se existir google_event_id
+        if lead.google_event_id:
+            try:
+                calendar_service = get_google_calendar_service()
+                await calendar_service.cancel_event(lead.google_event_id)
+                logger.info(f"Evento {lead.google_event_id} cancelado no Google Calendar")
+            except Exception as e:
+                logger.error(f"Erro ao cancelar evento no Calendar: {e}")
+                # Continua mesmo se falhar no Calendar
         
         # Atualizar lead
         await lead_repository.update_lead(
             lead_id=lead.id,
             meeting_scheduled_at=None,
+            google_event_id=None,
+            meeting_status='cancelled',
             current_stage='QUALIFICATION',
             notes=f"Reunião cancelada. Motivo: {reason or 'Não especificado'}"
         )

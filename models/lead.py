@@ -32,6 +32,18 @@ class Lead(BaseDBModel):
     current_stage: str = Field("INITIAL_CONTACT", description="Estágio atual do lead")
     qualification_score: Optional[int] = Field(None, ge=0, le=100, description="Score de qualificação")
     interested: bool = Field(True, description="Se está interessado")
+    qualification_status: Optional[str] = Field("PENDING", description="Status de qualificação: PENDING, QUALIFIED, NOT_QUALIFIED")
+    
+    # Critérios de qualificação
+    is_decision_maker: Optional[bool] = Field(None, description="Se é o decisor principal")
+    has_solar_system: Optional[bool] = Field(None, description="Se já possui sistema solar")
+    wants_new_solar_system: Optional[bool] = Field(None, description="Se quer instalar novo sistema solar")
+    has_active_contract: Optional[bool] = Field(None, description="Se tem contrato de energia vigente")
+    contract_end_date: Optional[datetime] = Field(None, description="Data de término do contrato atual")
+    solution_interest: Optional[str] = Field(None, description="Tipo de solução de interesse")
+    
+    # Observações e notas
+    notes: Optional[str] = Field(None, description="Observações gerais sobre o lead")
     
     # Integrações
     kommo_lead_id: Optional[str] = Field(None, description="ID do lead no Kommo CRM")
@@ -76,6 +88,14 @@ class LeadUpdate(BaseModel):
     current_stage: Optional[str] = None
     qualification_score: Optional[int] = None
     interested: Optional[bool] = None
+    qualification_status: Optional[str] = None
+    is_decision_maker: Optional[bool] = None
+    has_solar_system: Optional[bool] = None
+    wants_new_solar_system: Optional[bool] = None
+    has_active_contract: Optional[bool] = None
+    contract_end_date: Optional[datetime] = None
+    solution_interest: Optional[str] = None
+    notes: Optional[str] = None
     kommo_lead_id: Optional[str] = None
     google_event_id: Optional[str] = None
     meeting_scheduled_at: Optional[datetime] = None
