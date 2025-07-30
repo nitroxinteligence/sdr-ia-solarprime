@@ -187,17 +187,17 @@ Por favor, continue a qualificação antes de agendar.""",
                 try:
                     from services.kommo_service import kommo_service
                     
-                    # Atualizar campo google_calendar_link no Kommo
+                    # Atualizar campo google_calendar_link no Kommo usando nome interno
                     await kommo_service.update_lead_custom_field(
                         lead_id=int(lead.kommo_lead_id),
-                        field_name='google_calendar_link',
+                        field_name='google_calendar_link',  # Nome interno do campo
                         value=event_result['link']
                     )
                     
                     # Atualizar também o status da reunião
                     await kommo_service.update_lead_custom_field(
                         lead_id=int(lead.kommo_lead_id),
-                        field_name='meeting_status',
+                        field_name='meeting_status',  # Nome interno do campo
                         value='scheduled'
                     )
                     

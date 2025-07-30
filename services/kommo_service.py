@@ -34,6 +34,8 @@ class KommoService:
         self._pipeline_id = None
         self._stage_ids = None
         self._custom_fields = None
+        self._custom_fields_by_name = None  # Cache de campos por nome
+        self._fields_last_update = None  # Timestamp da última atualização
         
         if self.token:
             logger.info(f"✅ KommoService inicializado com Long-Lived Token para: {self.subdomain}")
@@ -195,6 +197,10 @@ class KommoService:
                     temp_custom_fields["first_message"] = field_id
                 elif any(word in field_name for word in ["conversa", "chat", "id"]):
                     temp_custom_fields["conversation_id"] = field_id
+                elif any(word in field_name for word in ["calendar", "google", "evento", "link"]) and "google" in field_name:
+                    temp_custom_fields["google_calendar_link"] = field_id
+                elif any(word in field_name for word in ["status", "reunião", "meeting"]) and "reuni" in field_name:
+                    temp_custom_fields["meeting_status"] = field_id
                 
                 # Log do mapeamento
                 logger.info(f"Campo mapeado: '{field['name']}' (ID: {field_id}, Tipo: {field_type})")
@@ -627,6 +633,79 @@ class KommoService:
         
         return available_slots
     
+    async def _get_field_id_by_name(self, field_name: str) -> Optional[int]:
+        """
+        Busca ID do campo customizado pelo nome (case-insensitive)
+        Usa cache para evitar múltiplas chamadas à API
+        
+        Args:
+            field_name: Nome do campo a buscar
+            
+        Returns:
+            ID do campo se encontrado, None caso contrário
+        """
+        try:
+            # Atualizar cache se necessário (a cada 1 hora)
+            if (self._custom_fields_by_name is None or 
+                self._fields_last_update is None or
+                (datetime.now() - self._fields_last_update).seconds > 3600):
+                
+                await self._refresh_custom_fields_cache()
+            
+            # Buscar no cache por nome (case-insensitive)
+            if self._custom_fields_by_name:
+                # Tentar match exato primeiro
+                for name, field_info in self._custom_fields_by_name.items():
+                    if name.lower() == field_name.lower():
+                        return field_info['id']
+                
+                # Tentar match parcial
+                for name, field_info in self._custom_fields_by_name.items():
+                    if field_name.lower() in name.lower() or name.lower() in field_name.lower():
+                        logger.info(f"Campo '{field_name}' mapeado para '{name}' (ID: {field_info['id']})")
+                        return field_info['id']
+            
+            logger.warning(f"Campo '{field_name}' não encontrado no Kommo")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Erro ao buscar ID do campo: {str(e)}")
+            return None
+    
+    async def _refresh_custom_fields_cache(self):
+        """Atualiza o cache de campos customizados"""
+        try:
+            response = await self._make_request("GET", "/leads/custom_fields")
+            
+            if response and "_embedded" in response:
+                self._custom_fields_by_name = {}
+                fields = response["_embedded"].get("custom_fields", [])
+                
+                for field in fields:
+                    field_id = field.get("id")
+                    field_name = field.get("name", "")
+                    field_type = field.get("type", "")
+                    
+                    if field_id and field_name:
+                        self._custom_fields_by_name[field_name] = {
+                            'id': field_id,
+                            'type': field_type,
+                            'name': field_name
+                        }
+                        
+                        # Se for campo select, armazenar também as opções
+                        if field_type == "select" and "enums" in field:
+                            self._custom_fields_by_name[field_name]['options'] = {
+                                enum.get('value', ''): enum.get('id')
+                                for enum in field.get('enums', [])
+                            }
+                
+                self._fields_last_update = datetime.now()
+                logger.info(f"Cache de campos customizados atualizado: {len(self._custom_fields_by_name)} campos")
+                
+        except Exception as e:
+            logger.error(f"Erro ao atualizar cache de campos: {str(e)}")
+    
     async def update_lead_custom_field(
         self, 
         lead_id: int, 
@@ -635,20 +714,26 @@ class KommoService:
     ) -> bool:
         """
         Atualiza um campo customizado específico do lead
+        Usa o mapeamento inteligente já existente
         
         Args:
             lead_id: ID do lead no Kommo
-            field_name: Nome do campo (ex: 'google_calendar_link')
+            field_name: Nome interno do campo (ex: 'google_calendar_link')
             value: Valor a ser definido
             
         Returns:
             bool: True se atualizado com sucesso
         """
         try:
-            # Buscar ID do campo
-            field_id = self.config.kommo.custom_fields.get(field_name)
+            # Garantir que os campos foram carregados
+            if not self._custom_fields:
+                await self._load_custom_fields()
+            
+            # Buscar ID do campo no cache
+            field_id = self._custom_fields.get(field_name)
+            
             if not field_id:
-                logger.warning(f"Campo '{field_name}' não configurado")
+                logger.warning(f"Campo '{field_name}' não encontrado no mapeamento")
                 return False
             
             # Preparar payload
@@ -666,7 +751,7 @@ class KommoService:
             response = await self._make_request("PATCH", "/leads", data=payload)
             
             if response and "_embedded" in response:
-                logger.info(f"Campo '{field_name}' atualizado para lead {lead_id}")
+                logger.info(f"Campo '{field_name}' (ID: {field_id}) atualizado para lead {lead_id}")
                 return True
             
             return False
