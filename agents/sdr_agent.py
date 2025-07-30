@@ -112,13 +112,19 @@ class SDRAgent:
             
         # Tentar inicializar Google Calendar Service
         try:
-            if os.path.exists(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH", "")):
+            if os.getenv("DISABLE_GOOGLE_CALENDAR", "false").lower() == "true":
+                logger.info("ℹ️ Google Calendar desabilitado via configuração")
+                self.calendar_service = None
+            elif os.path.exists(os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH", "")):
                 self.calendar_service = GoogleCalendarService(self.config)
                 logger.info("✅ GoogleCalendarService inicializado com sucesso")
             else:
                 logger.warning("⚠️ Credenciais do Google Calendar não encontradas - Calendar desabilitado")
+                logger.info("💡 Para desabilitar este aviso, defina DISABLE_GOOGLE_CALENDAR=true")
+                self.calendar_service = None
         except Exception as e:
             logger.error(f"❌ Erro ao inicializar GoogleCalendarService: {e}")
+            self.calendar_service = None
         
         logger.info(f"SDR Agent '{self.config.personality.name}' inicializado com AGnO Framework")
     
@@ -2292,14 +2298,21 @@ Se alguma informação não estiver disponível, use null."""
                 'location': 'Online - Link será enviado por WhatsApp'
             }
             
-            result = await self.calendar_service.create_event(event_data)
-            
-            if result and result.get('htmlLink'):
-                logger.info(f"✅ Reunião criada no Google Calendar: {result['htmlLink']}")
+            # Criar evento no Google Calendar se disponível
+            if self.calendar_service:
+                result = await self.calendar_service.create_event(event_data)
                 
-                # Salvar link no session_state
-                session_state["meeting_link"] = result['htmlLink']
+                if result and result.get('htmlLink'):
+                    logger.info(f"✅ Reunião criada no Google Calendar: {result['htmlLink']}")
+                    
+                    # Salvar link no session_state
+                    session_state["meeting_link"] = result['htmlLink']
+                    session_state["meeting_datetime"] = meeting_datetime.isoformat()
+            else:
+                logger.info("ℹ️ Google Calendar não disponível - reunião será gerenciada manualmente")
+                # Salvar informações básicas da reunião
                 session_state["meeting_datetime"] = meeting_datetime.isoformat()
+                session_state["meeting_scheduled"] = True
                 
                 # Atualizar Kommo com link da reunião
                 if self.kommo_service and session_state.get("kommo_lead_id"):
