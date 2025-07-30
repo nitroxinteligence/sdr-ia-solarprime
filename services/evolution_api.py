@@ -283,13 +283,16 @@ class EvolutionAPIClient:
     
     async def download_media(
         self,
-        message_id: str
+        message_id: str,
+        media_url: Optional[str] = None
     ) -> Optional[bytes]:
-        """Baixa mídia recebida"""
+        """Baixa mídia recebida com fallback para download direto"""
         await self._ensure_initialized()
         
+        # Tentar primeiro o endpoint getBase64FromMediaMessage
         try:
-            # Endpoint correto conforme documentação Evolution API v2
+            logger.info(f"📥 Tentando baixar mídia {message_id} via getBase64FromMediaMessage...")
+            
             response = await self.client.post(
                 f"/chat/getBase64FromMediaMessage/{self.instance_name}",
                 json={
@@ -298,19 +301,64 @@ class EvolutionAPIClient:
                             "id": message_id
                         }
                     }
-                }
+                },
+                timeout=30.0  # Timeout específico para download de mídia
             )
             response.raise_for_status()
             
             data = response.json()
-            if "base64" in data:
+            if "base64" in data and data["base64"]:
+                logger.success(f"✅ Mídia baixada via base64: {len(data['base64'])} chars")
                 return base64.b64decode(data["base64"])
-            
-            return None
-            
+            else:
+                logger.warning(f"⚠️ Resposta sem base64 ou vazia: {list(data.keys())}")
+                
+        except httpx.TimeoutError:
+            logger.warning(f"⏱️ Timeout ao baixar mídia {message_id} via base64")
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"⚠️ Erro HTTP {e.response.status_code} ao baixar via base64")
         except Exception as e:
-            logger.error(f"Erro ao baixar mídia: {e}")
-            return None
+            logger.warning(f"⚠️ Erro ao baixar via base64: {type(e).__name__}: {str(e)}")
+        
+        # Fallback: tentar download direto se temos a URL
+        if media_url:
+            try:
+                logger.info(f"🔄 Tentando download direto da URL: {media_url[:50]}...")
+                
+                # Fazer download direto da URL
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.get(media_url)
+                    response.raise_for_status()
+                    
+                    content = response.content
+                    if content:
+                        logger.success(f"✅ Mídia baixada diretamente: {len(content)} bytes")
+                        return content
+                        
+            except Exception as e:
+                logger.error(f"❌ Erro ao baixar diretamente: {e}")
+        
+        # Última tentativa: endpoint alternativo (se existir na v2)
+        try:
+            logger.info(f"🔄 Tentando endpoint alternativo para {message_id}...")
+            
+            # Tentar endpoint de download de arquivo
+            response = await self.client.get(
+                f"/chat/getMediaMessage/{self.instance_name}/{message_id}",
+                timeout=30.0
+            )
+            
+            if response.status_code == 200:
+                content = response.content
+                if content:
+                    logger.success(f"✅ Mídia baixada via endpoint alternativo: {len(content)} bytes")
+                    return content
+                    
+        except Exception as e:
+            logger.debug(f"Endpoint alternativo não disponível: {e}")
+        
+        logger.error(f"❌ Todas as tentativas de download falharam para {message_id}")
+        return None
     
     async def get_profile_picture(
         self,

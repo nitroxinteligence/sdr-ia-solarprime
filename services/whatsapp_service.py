@@ -173,7 +173,10 @@ class WhatsAppService:
             info["type"] = "image"
             info["content"] = message["imageMessage"].get("caption", "")
             info["media_data"] = {
-                "mimetype": message["imageMessage"].get("mimetype", "image/jpeg")
+                "mimetype": message["imageMessage"].get("mimetype", "image/jpeg"),
+                "url": message["imageMessage"].get("url", ""),
+                "directPath": message["imageMessage"].get("directPath", ""),
+                "mediaKey": message["imageMessage"].get("mediaKey", "")
             }
             
         elif "audioMessage" in message:
@@ -190,7 +193,10 @@ class WhatsAppService:
             info["content"] = message["documentMessage"].get("caption", "")
             info["media_data"] = {
                 "filename": message["documentMessage"].get("fileName", ""),
-                "mimetype": message["documentMessage"].get("mimetype", "")
+                "mimetype": message["documentMessage"].get("mimetype", ""),
+                "url": message["documentMessage"].get("url", ""),
+                "directPath": message["documentMessage"].get("directPath", ""),
+                "mediaKey": message["documentMessage"].get("mediaKey", "")
             }
             
         elif "pollCreationMessage" in message:
@@ -482,47 +488,86 @@ class WhatsAppService:
         media_type: str,
         media_info: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """Processa e baixa mídia com cache"""
+        """Processa e baixa mídia com cache e múltiplas estratégias"""
         
         try:
+            logger.info(f"📦 Processando mídia {media_type}: {message_id}")
+            logger.debug(f"🔍 Media info recebida: {media_info}")
+            
             # Verificar cache primeiro
             cached_media = await self.redis_service.get_media(message_id)
             
             if cached_media:
-                logger.debug(f"Mídia {message_id} recuperada do cache")
+                logger.debug(f"📦 Mídia {message_id} recuperada do cache")
                 media_data = cached_media
             else:
-                # Baixar mídia
-                media_data = await evolution_client.download_media(message_id)
+                # Extrair URL da mídia para fallback
+                media_url = media_info.get("url", "")
+                if not media_url and media_info.get("directPath"):
+                    # Construir URL se temos directPath
+                    media_url = f"https://mmg.whatsapp.net{media_info['directPath']}"
+                
+                # Baixar mídia com fallback para URL direta
+                media_data = await evolution_client.download_media(
+                    message_id=message_id,
+                    media_url=media_url
+                )
                 
                 if not media_data:
-                    logger.error(f"Falha ao baixar mídia {message_id}")
+                    logger.error(f"❌ Falha ao baixar mídia {message_id} após todas as tentativas")
                     return None
                 
                 # Cachear mídia
                 await self.redis_service.cache_media(message_id, media_data)
+                logger.success(f"✅ Mídia {message_id} cacheada com sucesso")
             
-            # Salvar temporariamente
-            extension = {
-                "image": ".jpg",
-                "audio": ".ogg",
-                "document": ".pdf"
-            }.get(media_type, ".bin")
+            # Determinar extensão baseada no mimetype ou tipo
+            mimetype = media_info.get("mimetype", "")
+            extension = ".bin"  # default
+            
+            if "pdf" in mimetype:
+                extension = ".pdf"
+            elif "image" in mimetype or media_type == "image":
+                if "png" in mimetype:
+                    extension = ".png"
+                elif "gif" in mimetype:
+                    extension = ".gif"
+                else:
+                    extension = ".jpg"
+            elif "audio" in mimetype or media_type == "audio":
+                extension = ".ogg"
+            elif media_type == "document":
+                # Tentar extrair extensão do filename
+                original_filename = media_info.get("filename", "")
+                if original_filename and "." in original_filename:
+                    extension = os.path.splitext(original_filename)[1]
+                else:
+                    extension = ".pdf"  # Assumir PDF para documentos
             
             filename = f"{uuid.uuid4()}{extension}"
             filepath = os.path.join(tempfile.gettempdir(), filename)
             
+            # Salvar arquivo com conteúdo completo
             with open(filepath, "wb") as f:
                 f.write(media_data)
             
-            logger.info(f"Mídia salva temporariamente: {filepath}")
+            logger.info(f"💾 Mídia salva: {filepath} ({len(media_data)} bytes)")
             
-            # Retornar dados para o agente
+            # Verificar se o arquivo foi salvo corretamente
+            if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+                logger.success(f"✅ Arquivo verificado: {os.path.getsize(filepath)} bytes")
+            else:
+                logger.error(f"❌ Erro ao salvar arquivo ou arquivo vazio")
+            
+            # Retornar dados completos para o agente
             return {
                 "path": filepath,
-                "base64": base64.b64encode(media_data).decode() if media_type == "image" else None,
+                "base64": base64.b64encode(media_data).decode(),  # Sempre incluir base64
                 "mimetype": media_info.get("mimetype", ""),
-                "filename": media_info.get("filename", filename)
+                "filename": media_info.get("filename", filename),
+                "content": media_data,  # Conteúdo binário direto
+                "size": len(media_data),  # Tamanho para verificação
+                "original_filename": media_info.get("filename", "")  # Nome original
             }
                 
         except Exception as e:

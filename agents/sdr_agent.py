@@ -1496,16 +1496,30 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
         """Processa PDF usando capacidades nativas do Gemini 2.5 Pro"""
         try:
             logger.info("📄 Processamento de PDF iniciado - usando Gemini 2.5 Pro nativo")
+            logger.debug(f"🔍 Dados recebidos para processamento: {list(pdf_data.keys())}")
             
             # Preparar conteúdo do PDF
             pdf_content = None
             temp_file_path = None
             
             try:
-                if 'path' in pdf_data:
+                # Primeiro tentar usar conteúdo binário se disponível
+                if 'content' in pdf_data and pdf_data['content']:
+                    logger.info("📦 Usando conteúdo binário direto do PDF")
+                    pdf_content = pdf_data['content']
+                    if isinstance(pdf_content, bytes):
+                        logger.info(f"✅ Conteúdo binário recebido: {len(pdf_content)} bytes")
+                    else:
+                        logger.warning("⚠️ Conteúdo não é bytes, tentando converter...")
+                        
+                elif 'path' in pdf_data:
                     logger.info(f"📂 Processando PDF do caminho: {pdf_data['path']}")
-                    with open(pdf_data['path'], 'rb') as f:
-                        pdf_content = f.read()
+                    if os.path.exists(pdf_data['path']):
+                        with open(pdf_data['path'], 'rb') as f:
+                            pdf_content = f.read()
+                        logger.info(f"✅ PDF lido com sucesso: {len(pdf_content)} bytes")
+                    else:
+                        logger.error(f"❌ Arquivo PDF não encontrado: {pdf_data['path']}")
                         
                 elif 'url' in pdf_data:
                     logger.info(f"🌐 Baixando PDF da URL: {pdf_data['url']}")
