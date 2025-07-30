@@ -17,6 +17,8 @@ from api.routes import webhooks, health, instance, webhook_admin, auth, kommo_we
 from services.evolution_api import evolution_client
 from services.connection_monitor import connection_monitor
 from middleware.rate_limiter import RateLimiter, RateLimiterMiddleware
+from workflows.follow_up_workflow import follow_up_scheduler
+from config.agent_config import config as agent_config
 
 # Importar validador de startup
 try:
@@ -122,6 +124,18 @@ async def lifespan(app: FastAPI):
             logger.error(f"❌ Erro ao iniciar monitor de conexão: {monitor_error}")
             # Não falhar a aplicação se o monitor falhar
     
+    # Iniciar Follow-up Scheduler se configurado
+    if agent_config.enable_follow_up:
+        try:
+            asyncio.create_task(follow_up_scheduler.start())
+            logger.info("✅ Follow-up scheduler iniciado")
+            logger.info(f"  📅 Verificando follow-ups a cada 1 minuto")
+            logger.info(f"  ⏰ Primeiro follow-up após {agent_config.follow_up_delay_minutes} minutos")
+            logger.info(f"  ⏰ Segundo follow-up após {agent_config.follow_up_second_delay_hours} horas")
+        except Exception as scheduler_error:
+            logger.error(f"❌ Erro ao iniciar follow-up scheduler: {scheduler_error}")
+            # Não falhar a aplicação se o scheduler falhar
+    
     logger.info("Aplicação iniciada com sucesso!")
     
     yield
@@ -134,6 +148,14 @@ async def lifespan(app: FastAPI):
         await connection_monitor.stop()
     except Exception as e:
         logger.warning(f"Erro ao parar monitor de conexão: {e}")
+    
+    # Parar follow-up scheduler
+    if agent_config.enable_follow_up:
+        try:
+            await follow_up_scheduler.stop()
+            logger.info("✅ Follow-up scheduler parado")
+        except Exception as e:
+            logger.warning(f"Erro ao parar follow-up scheduler: {e}")
     
     # Fechar cliente Evolution API
     try:

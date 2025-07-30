@@ -373,8 +373,8 @@ class FollowUpScheduler:
                 # Processar follow-ups pendentes
                 await self._process_pending_follow_ups()
                 
-                # Aguardar 5 minutos antes da próxima verificação
-                await asyncio.sleep(300)
+                # Aguardar 1 minuto antes da próxima verificação
+                await asyncio.sleep(60)
                 
             except Exception as e:
                 logger.error(f"Erro no scheduler de follow-up: {e}")

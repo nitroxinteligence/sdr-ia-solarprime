@@ -25,6 +25,7 @@ from agents.tools.message_chunker_tool import chunk_message_standalone
 from utils.message_formatter import format_message_for_whatsapp
 from services.follow_up_service import follow_up_service
 from services.kommo_follow_up_service import kommo_follow_up_service
+from config.messages import get_error_message, get_special_message, SPECIAL_SITUATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -371,11 +372,8 @@ class WhatsAppService:
         except Exception as e:
             logger.error(f"Erro ao processar mensagem: {e}", exc_info=True)
             
-            # Enviar mensagem de erro genérica
-            error_message = (
-                "Desculpe, encontrei um problema ao processar sua mensagem. "
-                "Por favor, tente novamente em alguns instantes."
-            )
+            # Enviar mensagem de erro mais humanizada
+            error_message = get_error_message("ERRO_TECNICO")
             
             try:
                 await evolution_client.send_text_message(
@@ -729,7 +727,15 @@ class WhatsAppService:
             
             # Se não houver conteúdo de texto mas houver mídia
             if not final_content and media_items:
-                final_content = f"O usuário enviou {len(media_items)} arquivo(s)"
+                if len(media_items) == 1:
+                    media_type_name = {
+                        "image": "uma imagem",
+                        "audio": "um áudio",
+                        "document": "um documento"
+                    }.get(media_items[0]['type'], "um arquivo")
+                    final_content = f"Recebi {media_type_name}!"
+                else:
+                    final_content = f"Recebi {len(media_items)} arquivos!"
             
             # Criar message_info consolidado
             consolidated_message_info = {
@@ -840,10 +846,8 @@ class WhatsAppService:
             logger.error(f"Erro ao processar mensagens bufferizadas: {e}", exc_info=True)
             
             # Enviar mensagem de erro
-            error_message = (
-                "Desculpe, recebi suas mensagens mas tive um problema ao processá-las. "
-                "Pode resumir em uma única mensagem, por favor?"
-            )
+            name = messages[0].get("pushName", "") if messages else ""
+            error_message = get_special_message("multiplas_mensagens", name)
             
             try:
                 await evolution_client.send_text_message(
@@ -899,16 +903,12 @@ class WhatsAppService:
             logger.info(f"Buffer de mensagens limpo para {phone}")
             
             # Enviar confirmação
-            confirmation_message = (
-                "✅ *Comando #CLEAR executado com sucesso!*\n\n"
-                "🧹 Todas as informações foram limpas:\n"
-                "• Histórico de mensagens deletado\n"
-                "• Memória do agente resetada\n"
-                "• Dados de qualificação removidos\n"
-                "• Follow-ups cancelados\n\n"
-                "💬 Você pode iniciar uma nova conversa agora.\n"
-                "Olá! Como posso ajudá-lo hoje?"
-            )
+            # Tentar obter o nome do lead
+            from repositories.lead_repository import lead_repository
+            lead = await lead_repository.get_lead_by_phone(phone)
+            name = lead.name if lead and lead.name else message_info.get("pushName", "")
+            
+            confirmation_message = get_special_message("comando_clear", name)
             
             await evolution_client.send_text_message(
                 phone=phone,
@@ -921,10 +921,8 @@ class WhatsAppService:
         except Exception as e:
             logger.error(f"Erro ao executar comando #CLEAR: {e}", exc_info=True)
             
-            error_message = (
-                "❌ Erro ao executar comando #CLEAR.\n"
-                "Por favor, tente novamente mais tarde."
-            )
+            # Usar mensagem de erro genérica mais amigável
+            error_message = get_error_message("ERRO_TECNICO")
             
             await evolution_client.send_text_message(
                 phone=phone,

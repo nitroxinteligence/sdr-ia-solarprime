@@ -22,24 +22,9 @@ from agno.storage.agent.sqlite import SqliteAgentStorage
 from agno.media import Image, Audio, Video
 AGNO_MEDIA_AVAILABLE = True
 
-# Tentar importar módulos de leitura de documentos do AGnO
-try:
-    # Tentar import direto primeiro
-    from agno.document_reader.pdf import PDFReader
-    from agno.document_reader.pdf_image import PDFImageReader
-    AGNO_READERS_AVAILABLE = True
-    logger.info("✅ Módulos PDFReader e PDFImageReader do AGnO disponíveis")
-except ImportError:
-    try:
-        # Tentar import alternativo
-        from agno.readers import PDFReader, PDFImageReader
-        AGNO_READERS_AVAILABLE = True
-        logger.info("✅ Módulos PDFReader e PDFImageReader do AGnO disponíveis (via readers)")
-    except ImportError:
-        logger.warning("⚠️ Módulos PDFReader/PDFImageReader não disponíveis - PDFs serão convertidos para imagem")
-        AGNO_READERS_AVAILABLE = False
-        PDFReader = None
-        PDFImageReader = None
+# Nota: PDFs serão processados diretamente pelo Gemini 2.5 Pro que suporta PDFs nativamente
+# PDFReader/PDFImageReader são para criar knowledge bases, não para processamento multimodal direto
+logger.info("✅ Processamento de PDFs será feito nativamente pelo Gemini 2.5 Pro")
 
 # Imports para retry e fallback
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -48,6 +33,10 @@ import httpx
 # Configurações locais
 from config.agent_config import config, get_config
 from config.prompts import PromptTemplates, get_example_response
+from config.messages import (
+    get_error_message, get_fallback_message, get_follow_up_message,
+    IMAGE_ERRORS, PDF_ERRORS, AUDIO_ERRORS, personalize_message
+)
 from utils.helpers import calculate_typing_delay, format_phone_number
 from utils.currency_parser import parse_brazilian_currency
 
@@ -367,7 +356,9 @@ class SDRAgent:
             
         except Exception as e:
             logger.error(f"Erro ao processar mensagem: {e}")
-            return self._get_error_response(), {"error": str(e)}
+            # Usar mensagem humanizada ao invés de erro técnico
+            error_msg = get_error_message("ERRO_TECNICO")
+            return error_msg, {"error": str(e), "humanized": True}
     
     async def _run_agent(
         self, 
@@ -558,18 +549,10 @@ class SDRAgent:
         """Resposta de fallback baseada no contexto da conversa"""
         stage = session_state.get('current_stage', 'INITIAL_CONTACT')
         lead_info = session_state.get('lead_info', {})
+        lead_name = lead_info.get('name', '')
         
-        fallback_responses = {
-            'INITIAL_CONTACT': "Oi! 😊 Sou a Luna da SolarPrime. Estamos com alta demanda, mas quero muito te ajudar a economizar na conta de luz! Como posso te chamar?",
-            'IDENTIFICATION': f"Desculpe a demora{' ' + lead_info.get('name', '') if lead_info.get('name') else ''}! Para continuar nossa conversa sobre economia solar, qual seu nome completo?",
-            'DISCOVERY': "Ops, tive uma instabilidade! 😅 Me conta, você mora em casa ou apartamento? Isso ajuda a calcular sua economia!",
-            'QUALIFICATION': "Perdão pelo atraso! Para calcular sua economia exata, preciso saber: qual o valor médio da sua conta de luz?",
-            'SCHEDULING': "Desculpe a demora! Nossos consultores têm horários disponíveis:\n📅 Amanhã: 10h, 14h ou 16h\n📅 Quinta: 9h, 11h ou 15h\n\nQual horário fica melhor pra você?",
-            'OBJECTION_HANDLING': "Entendo sua preocupação! 🤝 A energia solar realmente é um investimento que se paga. Que tal conversarmos melhor sobre isso?",
-            'NURTURING': "Oi! Voltei para saber se você ainda tem interesse em economizar até 95% na conta de luz. Posso te ajudar?"
-        }
-        
-        return fallback_responses.get(stage, self._get_fallback_response())
+        # Usar mensagens humanizadas com variações automáticas
+        return get_fallback_message(stage, lead_name)
     
     async def _analyze_context(
         self, 
@@ -810,6 +793,9 @@ IMPORTANTE: Responda APENAS com um JSON válido, sem texto adicional.
     ) -> Optional[Dict[str, Any]]:
         """Processa mídia usando capacidades do Gemini 2.5 Pro"""
         try:
+            logger.info(f"🎯 Processamento de mídia iniciado - Tipo: {media_type}")
+            logger.debug(f"Dados recebidos - Tipo: {type(media_data)}, É dict: {isinstance(media_data, dict)}")
+            
             if media_type == "image":
                 logger.info("🖼️ Iniciando processamento de imagem...")
                 logger.debug(f"Dados da mídia recebidos: type={type(media_data)}, keys={media_data.keys() if isinstance(media_data, dict) else 'N/A'}")
@@ -853,11 +839,17 @@ Se alguma informação não estiver disponível, use null."""
                     return result
                 else:
                     logger.warning("❌ Não foi possível extrair dados da imagem")
+                    import random
+                    messages = [
+                        "Parece que a imagem não veio completa... 🤔 Pode enviar de novo? Às vezes o WhatsApp corta a qualidade!",
+                        "Opa, a foto tá meio embaçada aqui! 📸 Tenta tirar outra com mais luz? Prometo que consigo ler!",
+                        "Xi, não consegui ler direito a imagem... Que tal mandar outra foto? Capricha na iluminação! 💡"
+                    ]
                     return {
                         "media_received": "image",
                         "analysis_status": "failed",
-                        "user_message": "Não consegui analisar a imagem da conta. Pode tirar uma foto mais nítida e enviar novamente? 📸",
-                        "suggestion": "Dicas: Certifique-se de que a conta esteja bem iluminada e a foto não esteja tremida."
+                        "user_message": random.choice(messages),
+                        "suggestion": "Dica: Coloca a conta numa superfície plana e tira a foto de cima, com boa luz! 😊"
                     }
                     
             elif media_type == "audio":
@@ -883,28 +875,46 @@ Retorne um JSON com essas informações."""
                     return result
                 else:
                     logger.warning("❌ Não foi possível processar o áudio")
+                    import random
+                    messages = [
+                        "O áudio chegou meio cortado aqui... 🎤 Que tal me contar por mensagem mesmo? Prometo que respondo rapidinho! 💬",
+                        "Ops, o áudio tá com um chiado! Pode escrever pra mim? Assim a gente conversa melhor! 😊",
+                        "Ih, não consegui ouvir direito... 🙉 Manda por texto que eu te respondo na hora!"
+                    ]
                     return {
                         "media_received": "audio",
                         "analysis_status": "failed",
-                        "user_message": "Não consegui processar seu áudio. Pode tentar enviar novamente ou digitar sua mensagem? 🎤",
-                        "suggestion": "Certifique-se de que o áudio está claro e sem muito ruído de fundo."
+                        "user_message": random.choice(messages),
+                        "suggestion": "Prefiro conversar por mensagem mesmo, assim não perdemos nada! 📱"
                     }
                 
             elif media_type == "document":
                 # Verificar mimetype (sem underscore)
                 mimetype = media_data.get('mimetype') or media_data.get('mime_type', '')
+                filename = media_data.get('filename', '')
                 
-                if mimetype == 'application/pdf' or (media_data.get('filename', '').lower().endswith('.pdf')):
-                    logger.info("Processando documento PDF...")
+                logger.info(f"📄 Documento recebido - Tipo: {mimetype}, Nome: {filename}")
+                logger.debug(f"Dados do documento: {list(media_data.keys()) if isinstance(media_data, dict) else 'N/A'}")
+                
+                if mimetype == 'application/pdf' or filename.lower().endswith('.pdf'):
+                    logger.info("📑 Iniciando processamento de PDF...")
                     # Processar PDF com OCR se necessário
                     result = await self._process_pdf_with_ocr(media_data)
+                    
+                    if result:
+                        logger.info(f"✅ PDF processado com sucesso. Status: {result.get('analysis_status', 'completed')}")
+                    else:
+                        logger.warning("⚠️ Processamento de PDF retornou resultado vazio")
+                    
                     return result
                 else:
-                    logger.info(f"Tipo de documento não suportado: {mimetype}")
+                    logger.info(f"❌ Tipo de documento não suportado: {mimetype}")
                     return {
                         "media_received": "document",
                         "mimetype": mimetype,
-                        "analysis_pending": True
+                        "filename": filename,
+                        "analysis_status": "unsupported_type",
+                        "suggestion": "Pode mandar um PDF ou foto da conta de luz? Assim calculo sua economia! 📸"
                     }
             elif media_type == "buffered":
                 # Tipo buffered pode conter diferentes tipos de mídia
@@ -929,12 +939,21 @@ Retorne um JSON com essas informações."""
                     logger.warning("Dados de mídia buffered inválidos")
                     return None
             else:
-                logger.warning(f"Tipo de mídia não suportado: {media_type}")
-                return None
+                logger.warning(f"❌ Tipo de mídia não suportado: {media_type}")
+                return {
+                    "media_received": media_type,
+                    "analysis_status": "unsupported_media_type",
+                    "suggestion": "Manda uma imagem, PDF ou áudio que eu processo pra você! 😊"
+                }
                 
         except Exception as e:
-            logger.error(f"Erro ao processar mídia: {e}")
-            return None
+            logger.error(f"❌ Erro ao processar mídia: {e}", exc_info=True)
+            return {
+                "media_received": media_type,
+                "analysis_status": "error",
+                "error": str(e),
+                "suggestion": "Opa, deu um probleminha ao processar seu arquivo! 😅 Tenta mandar de novo?"
+            }
     
     def _update_lead_info(self, analysis: Dict[str, Any], agent: Agent, session_state: Dict[str, Any]):
         """Atualiza informações do lead baseado na análise"""
@@ -1423,7 +1442,7 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
                 "media_received": "audio",
                 "analysis_status": "unsupported",
                 "transcription": None,
-                "user_message": "Desculpe, no momento não consigo processar áudios. Por favor, digite sua mensagem.",
+                "user_message": "Poxa, ainda não consigo ouvir áudios! 🙉 Mas se você escrever, eu respondo super rápido! 💬",
                 "_processed_by": "openai_fallback"
             }
             
@@ -1474,67 +1493,48 @@ IMPORTANTE: Retorne APENAS um JSON válido, sem texto adicional antes ou depois.
             return None
     
     async def _process_pdf_with_ocr(self, pdf_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Processa PDF com OCR se necessário"""
+        """Processa PDF usando capacidades nativas do Gemini 2.5 Pro"""
         try:
-            logger.info("Processamento de PDF iniciado")
+            logger.info("📄 Processamento de PDF iniciado - usando Gemini 2.5 Pro nativo")
             
-            # Verificar se temos os módulos PDF do AGnO disponíveis
-            if AGNO_READERS_AVAILABLE and PDFImageReader:
-                logger.info("Usando PDFImageReader do AGnO para processar PDF com OCR")
+            # Preparar conteúdo do PDF
+            pdf_content = None
+            temp_file_path = None
+            
+            try:
+                if 'path' in pdf_data:
+                    logger.info(f"📂 Processando PDF do caminho: {pdf_data['path']}")
+                    with open(pdf_data['path'], 'rb') as f:
+                        pdf_content = f.read()
+                        
+                elif 'url' in pdf_data:
+                    logger.info(f"🌐 Baixando PDF da URL: {pdf_data['url']}")
+                    import aiohttp
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(pdf_data['url']) as response:
+                            pdf_content = await response.read()
+                            logger.info(f"✅ PDF baixado com sucesso: {len(pdf_content)} bytes")
+                            
+                elif 'base64' in pdf_data:
+                    logger.info("🔐 Decodificando PDF de base64")
+                    pdf_content = base64.b64decode(pdf_data['base64'])
+                    
+                if not pdf_content:
+                    logger.error("❌ Não foi possível obter conteúdo do PDF")
+                    raise ValueError("Conteúdo do PDF vazio")
                 
-                try:
-                    # Criar PDFImageReader baseado no tipo de dados
-                    pdf_reader = None
-                    
-                    if 'path' in pdf_data:
-                        # Se temos o caminho do arquivo, usar diretamente
-                        pdf_reader = PDFImageReader(pdf=pdf_data['path'])
-                        logger.info(f"PDFImageReader criado com path: {pdf_data['path']}")
-                    elif 'url' in pdf_data:
-                        # Se temos URL, baixar primeiro e salvar temporariamente
-                        import aiohttp
-                        import tempfile
-                        import os
-                        
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(pdf_data['url']) as response:
-                                pdf_content = await response.read()
-                                
-                                # Salvar temporariamente
-                                with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
-                                    tmp_file.write(pdf_content)
-                                    tmp_path = tmp_file.name
-                                
-                                pdf_reader = PDFImageReader(pdf=tmp_path)
-                                logger.info(f"PDFImageReader criado com arquivo temporário: {tmp_path}")
-                                
-                                # Limpar arquivo temporário depois
-                                os.unlink(tmp_path)
-                    
-                    elif 'base64' in pdf_data:
-                        # Decodificar base64 e salvar temporariamente
-                        import tempfile
-                        import os
-                        
-                        pdf_bytes = base64.b64decode(pdf_data['base64'])
-                        
-                        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
-                            tmp_file.write(pdf_bytes)
-                            tmp_path = tmp_file.name
-                        
-                        pdf_reader = PDFImageReader(pdf=tmp_path)
-                        logger.info(f"PDFImageReader criado com base64 convertido: {tmp_path}")
-                        
-                        # Limpar arquivo temporário depois
-                        os.unlink(tmp_path)
-                    
-                    if pdf_reader:
-                        # O PDFImageReader do AGnO converte cada página do PDF em imagem
-                        # e pode ser usado diretamente com o modelo multimodal
-                        logger.info("PDFImageReader criado com sucesso, processando com modelo multimodal...")
-                        
-                        # Criar prompt específico para análise de conta de luz
-                        analysis_prompt = """Analise esta conta de energia elétrica e extraia IMEDIATAMENTE as seguintes informações:
+                # Salvar temporariamente para processamento
+                import tempfile
+                import os
+                
+                with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
+                    tmp_file.write(pdf_content)
+                    temp_file_path = tmp_file.name
+                    logger.info(f"💾 PDF salvo temporariamente em: {temp_file_path}")
+                
+                # Criar prompt específico para análise de conta de luz
+                analysis_prompt = """Analise esta conta de energia elétrica e extraia IMEDIATAMENTE as seguintes informações:
 
 1. Valor total da fatura (em R$)
 2. Consumo em kWh
@@ -1559,148 +1559,169 @@ Formato esperado:
 }
 
 Se alguma informação não estiver disponível, use null."""
-                        
-                        # Criar agente temporário para análise
-                        vision_agent = Agent(
-                            name="Analisador PDF",
-                            description="Analisador de contas de luz em PDF",
-                            instructions="Analise documentos e retorne APENAS JSON estruturado, sem texto adicional.",
-                            model=self.model,  # Gemini 2.5 Pro
-                            reasoning=False  # Desabilitar reasoning para resposta direta
-                        )
-                        
-                        # Executar análise passando o PDFImageReader como documento
-                        # O AGnO Framework deve processar automaticamente
-                        result = await asyncio.to_thread(
-                            vision_agent.run,
-                            analysis_prompt,
-                            pdf=pdf_reader  # Passar o PDFImageReader diretamente
-                        )
-                        
-                        # Parsear resultado
-                        parsed_result = self._parse_vision_result(result)
-                        
-                        if parsed_result:
-                            logger.info("PDF processado com sucesso via PDFImageReader")
-                            parsed_result['_processed_by'] = 'agno_pdf_image_reader'
-                            return parsed_result
-                        else:
-                            logger.warning("PDFImageReader não conseguiu extrair dados estruturados")
-                    
-                except Exception as e:
-                    logger.error(f"Erro ao usar PDFImageReader: {e}")
-                    # Continuar para fallback
-            
-            # Fallback: processar PDF convertendo para imagem manualmente
-            logger.info("Tentando processar PDF com conversão manual para imagem (fallback)")
-            
-            # Se temos path, tentar converter com ferramentas do sistema
-            if 'path' in pdf_data:
+
+                logger.info("🤖 Criando agente para análise do PDF")
+                
+                # Criar agente temporário para análise
+                vision_agent = Agent(
+                    name="Analisador PDF Gemini",
+                    description="Analisador de contas de luz em PDF",
+                    instructions="Analise documentos e retorne APENAS JSON estruturado, sem texto adicional.",
+                    model=self.model,  # Gemini 2.5 Pro
+                    reasoning=False  # Desabilitar reasoning para resposta direta
+                )
+                
+                # Processar PDF diretamente com Gemini
+                # O Gemini 2.5 Pro suporta PDFs nativamente
+                logger.info("🚀 Enviando PDF para análise com Gemini 2.5 Pro...")
+                
+                # Converter PDF em imagem se o processamento direto falhar
                 try:
-                    # Tentar usar pdf2image se disponível
-                    from pdf2image import convert_from_path
-                    import tempfile
+                    # Primeiro, tentar processar o PDF diretamente como arquivo
+                    # Gemini pode processar PDFs, mas às vezes funciona melhor convertendo para imagem
+                    result = await self._process_pdf_as_image_fallback(temp_file_path, analysis_prompt)
                     
-                    # Converter primeira página para imagem
-                    images = convert_from_path(pdf_data['path'], first_page=1, last_page=1)
-                    
-                    if images:
-                        # Salvar imagem temporariamente
-                        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
-                            images[0].save(tmp_file.name, 'JPEG')
-                            tmp_image_path = tmp_file.name
+                    if result:
+                        logger.success("✅ PDF processado com sucesso!")
+                        return result
                         
-                        # Processar como imagem
-                        image_data = {'path': tmp_image_path}
-                        
-                        # Usar o mesmo prompt de análise
-                        analysis_prompt = """Analise esta conta de energia elétrica e extraia IMEDIATAMENTE as seguintes informações:
-
-1. Valor total da fatura (em R$)
-2. Consumo em kWh
-3. Mês/Ano de referência
-4. Nome do titular da conta
-5. Endereço completo
-6. CPF ou CNPJ
-7. Nome da distribuidora de energia
-8. Histórico de consumo (se disponível)
-
-IMPORTANTE: Retorne APENAS um JSON válido com essas informações, sem texto adicional."""
-                        
-                        result = await self._analyze_image_with_gemini(image_data, analysis_prompt)
-                        
-                        # Limpar arquivo temporário
-                        os.unlink(tmp_image_path)
-                        
-                        if result:
-                            logger.info("PDF processado como imagem com sucesso (pdf2image)")
-                            result['_processed_by'] = 'pdf2image_conversion'
-                            result['_original_format'] = 'pdf'
-                            return result
-                            
-                except ImportError:
-                    logger.warning("pdf2image não disponível para conversão")
                 except Exception as e:
-                    logger.error(f"Erro ao converter PDF para imagem: {e}")
+                    logger.warning(f"⚠️ Processamento direto falhou: {e}")
+                
+            finally:
+                # Limpar arquivo temporário
+                if temp_file_path and os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+                    logger.debug(f"🧹 Arquivo temporário removido: {temp_file_path}")
             
-            # Se nada funcionou, retornar sugestão
-            logger.warning("Não foi possível processar o PDF. Sugerindo alternativas.")
+            # Se chegou aqui, o processamento falhou
+            logger.warning("❌ Não foi possível processar o PDF")
             
             return {
                 "media_received": "pdf",
                 "analysis_status": "processing_failed",
-                "suggestion": "Recebi seu PDF! Para uma análise mais rápida e precisa, você pode tirar uma foto da conta de luz com seu celular? As fotos geralmente funcionam melhor! 📸",
+                "suggestion": "Recebi o PDF! 📄 Mas tá um pouquinho pesado pra processar... Uma foto da conta funciona super bem também! Quer tentar? 📱",
                 "fallback": "request_image",
-                "_attempted_methods": ["agno_pdf_image_reader", "pdf2image", "direct_analysis"]
+                "_attempted_methods": ["gemini_native", "pdf_to_image_conversion"]
             }
                 
         except Exception as e:
-            logger.error(f"Erro ao processar PDF: {e}")
+            logger.error(f"❌ Erro ao processar PDF: {e}")
             return {
                 "media_received": "pdf",
                 "analysis_status": "error",
                 "error": str(e),
-                "suggestion": "Tive um probleminha ao abrir o PDF. 😅 Que tal enviar uma foto da conta? Assim consigo analisar na hora!"
+                "suggestion": "Tive um probleminha ao abrir o PDF. 😅 Que tal enviar uma foto da conta? Assim consigo analisar na hora! 📱"
             }
     
-    async def _analyze_pdf_content(self, content: str) -> Dict[str, Any]:
-        """Analisa conteúdo extraído de PDF"""
-        # Usar o mesmo prompt de análise de conta
-        prompt = f"""Analise o texto extraído desta conta de energia e retorne um JSON com:
-        - bill_value
-        - consumption_kwh
-        - reference_period
-        - customer_name
-        - address
-        - document
-        - distributor
-        
-        Texto extraído:
-        {content[:2000]}  # Limitar para não exceder contexto
-        
-        Retorne APENAS o JSON, sem explicações."""
-        
-        # Criar agente temporário
-        analyzer = Agent(
-            name="Analisador PDF",
-            model=self.model,
-            instructions="Extraia informações e retorne JSON"
-        )
-        
-        result = await asyncio.to_thread(analyzer.run, prompt)
-        return self._parse_vision_result(result)
+    async def _process_pdf_as_image_fallback(self, pdf_path: str, analysis_prompt: str) -> Optional[Dict[str, Any]]:
+        """Processa PDF convertendo para imagem como fallback"""
+        try:
+            logger.info("🔄 Tentando converter PDF para imagem...")
+            
+            # Tentar usar pdf2image se disponível
+            try:
+                from pdf2image import convert_from_path
+                import tempfile
+                import os
+                
+                # Converter primeira página para imagem
+                logger.info("📸 Convertendo primeira página do PDF para imagem...")
+                images = convert_from_path(pdf_path, first_page=1, last_page=1, dpi=200)
+                
+                if images:
+                    # Salvar imagem temporariamente
+                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
+                        images[0].save(tmp_file.name, 'JPEG', quality=95)
+                        tmp_image_path = tmp_file.name
+                        logger.info(f"✅ Imagem criada: {tmp_image_path}")
+                    
+                    # Processar como imagem
+                    image_data = {'path': tmp_image_path}
+                    result = await self._analyze_image_with_gemini(image_data, analysis_prompt)
+                    
+                    # Limpar arquivo temporário
+                    os.unlink(tmp_image_path)
+                    
+                    if result:
+                        logger.success("✅ PDF processado como imagem com sucesso!")
+                        result['_processed_by'] = 'pdf2image_conversion'
+                        result['_original_format'] = 'pdf'
+                        return result
+                        
+            except ImportError:
+                logger.warning("⚠️ pdf2image não está instalado")
+                
+                # Tentar alternativa com Pillow se disponível
+                try:
+                    from PIL import Image as PILImage
+                    import fitz  # PyMuPDF
+                    import tempfile
+                    import os
+                    
+                    logger.info("📑 Tentando com PyMuPDF...")
+                    
+                    # Abrir PDF
+                    pdf_document = fitz.open(pdf_path)
+                    page = pdf_document[0]  # Primeira página
+                    
+                    # Renderizar página como imagem
+                    mat = fitz.Matrix(2, 2)  # Zoom 2x para melhor qualidade
+                    pix = page.get_pixmap(matrix=mat)
+                    
+                    # Salvar como imagem
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                        pix.save(tmp_file.name)
+                        tmp_image_path = tmp_file.name
+                        logger.info(f"✅ Imagem criada com PyMuPDF: {tmp_image_path}")
+                    
+                    pdf_document.close()
+                    
+                    # Processar como imagem
+                    image_data = {'path': tmp_image_path}
+                    result = await self._analyze_image_with_gemini(image_data, analysis_prompt)
+                    
+                    # Limpar arquivo temporário
+                    os.unlink(tmp_image_path)
+                    
+                    if result:
+                        logger.success("✅ PDF processado com PyMuPDF!")
+                        result['_processed_by'] = 'pymupdf_conversion'
+                        result['_original_format'] = 'pdf'
+                        return result
+                        
+                except ImportError:
+                    logger.warning("⚠️ PyMuPDF também não está disponível")
+                    
+        except Exception as e:
+            logger.error(f"❌ Erro no fallback de conversão: {e}")
+            
+        return None
+    
     
     def _get_fallback_response(self) -> str:
         """Resposta de fallback em caso de erro"""
-        return """Desculpe, tive um pequeno problema técnico. 😅
-
-Mas estou aqui para ajudar você com energia solar! Pode repetir sua pergunta?"""
+        import random
+        responses = [
+            "Opa, acho que me confundi um pouquinho aqui 😅 Pode repetir? Prometo prestar mais atenção!",
+            "Hmm, não entendi direito... 🤔 Pode me explicar de outro jeito? Às vezes sou meio lerda!",
+            "Desculpa, tive uma pequena confusão aqui! Vamos tentar de novo? 💫",
+            "Eita, me perdi! 😄 Pode repetir pra mim? Juro que agora vai!",
+            "Xi, deu um branco aqui! 🙈 Me conta de novo que eu prometo caprichar na resposta!"
+        ]
+        return random.choice(responses)
     
     def _get_error_response(self) -> str:
         """Resposta de erro genérica"""
-        return """Ops! Parece que estamos com uma instabilidade temporária. 
-
-Por favor, tente novamente em alguns instantes. Nossa equipe já foi notificada!"""
+        import random
+        responses = [
+            "Opa! Precisei dar uma paradinha técnica aqui 🛠️ Mas já, já volto! Você pode tentar de novo em alguns segundinhos?",
+            "Ih, o sistema deu uma travadinha... 😅 Que tal a gente tentar de novo daqui a pouquinho? Prometo que vai funcionar!",
+            "Puxa, tô com uma lentidão aqui! 🐌 Me dá um minutinho que já volto turbinada pra te ajudar!",
+            "Ops, preciso de um segundinho pra organizar as coisas aqui! ⏰ Tenta de novo rapidinho?",
+            "Eita, deu uma engasgada no sistema! 🤖 Mas relaxa, daqui a pouco tá tudo funcionando de novo!"
+        ]
+        return random.choice(responses)
     
     def _should_react_to_message(
         self, 

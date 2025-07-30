@@ -11,6 +11,7 @@ from celery import Celery
 from celery.schedules import crontab
 
 from config.config import get_config
+from config.messages import get_follow_up_message
 from services.kommo_service import kommo_service
 from services.qualification_kommo_integration import qualification_kommo_integration
 from models.kommo_models import KommoTask, TaskType, LeadStatus
@@ -34,13 +35,8 @@ class KommoFollowUpService:
             4: timedelta(days=7)         # 4º follow-up após 7 dias
         }
         
-        # Templates de mensagens
-        self.follow_up_templates = {
-            1: "Oi {name}! 👋 Vi que você demonstrou interesse em energia solar. Ainda posso te ajudar a economizar até 95% na conta de luz?",
-            2: "Olá {name}! ☀️ Passando para ver se você teve tempo de pensar sobre a economia na conta de luz. Posso tirar alguma dúvida?",
-            3: "{name}, muitas famílias já estão economizando com energia solar! 💡 Que tal conversarmos sobre como você também pode economizar?",
-            4: "Última chance {name}! 🌟 Não perca a oportunidade de economizar na conta de luz. Posso te ajudar com alguma informação?"
-        }
+        # Usar mensagens humanizadas centralizadas
+        # Os templates agora vêm do módulo messages.py com múltiplas variações
         
         logger.info("Serviço de follow-up Kommo inicializado")
     
@@ -107,7 +103,7 @@ class KommoFollowUpService:
                 "follow_up_number": follow_up_number,
                 "scheduled_at": scheduled_time,
                 "status": "scheduled",
-                "message": custom_message or self.follow_up_templates.get(follow_up_number)
+                "message": custom_message or get_follow_up_message(self._get_interval_key(follow_up_number), lead.name or "")
             })
             
             logger.info(f"Follow-up #{follow_up_number} agendado para {scheduled_time}")
@@ -144,8 +140,9 @@ class KommoFollowUpService:
             if custom_message:
                 message = custom_message
             else:
-                template = self.follow_up_templates.get(follow_up_number, self.follow_up_templates[1])
-                message = template.format(name=lead.name or "")
+                # Usar mensagem humanizada com variação automática
+                interval_key = self._get_interval_key(follow_up_number)
+                message = get_follow_up_message(interval_key, lead.name or "")
             
             # Enviar via WhatsApp
             # Importação local para evitar circular import
@@ -258,6 +255,24 @@ class KommoFollowUpService:
         except Exception as e:
             logger.error(f"Erro ao processar tarefa do Kommo: {str(e)}")
             return False
+    
+    def _get_interval_key(self, follow_up_number: int) -> str:
+        """
+        Mapeia número do follow-up para chave de intervalo
+        
+        Args:
+            follow_up_number: Número do follow-up (1-4)
+            
+        Returns:
+            Chave do intervalo para buscar mensagem
+        """
+        interval_map = {
+            1: "30_minutos",
+            2: "24_horas", 
+            3: "48_horas",
+            4: "7_dias"
+        }
+        return interval_map.get(follow_up_number, "24_horas")
     
     async def get_leads_for_follow_up(self) -> List[Dict[str, Any]]:
         """

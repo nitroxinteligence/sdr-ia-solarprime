@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 
 from config.config import config
+from config.agent_config import config as agent_config
 from services.evolution_api import evolution_client
 from services.connection_monitor import connection_monitor
 from services.whatsapp_service_v2 import whatsapp_service_v2
@@ -38,7 +39,7 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(
             whatsapp_service_v2.initialize(),
             connection_monitor.start(),
-            follow_up_scheduler.start() if config.enable_follow_up else asyncio.sleep(0)
+            follow_up_scheduler.start() if agent_config.enable_follow_up else asyncio.sleep(0)
         )
         
         logger.info("✅ Aplicação iniciada com sucesso!")

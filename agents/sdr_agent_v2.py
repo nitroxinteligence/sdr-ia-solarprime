@@ -277,14 +277,26 @@ class SDRAgentV2:
             
         except asyncio.TimeoutError:
             logger.error("Timeout ao processar mensagem (>25s)")
-            return "Desculpe, estou com uma lentidão aqui. Pode repetir? 🙏", {
+            import random
+            timeout_responses = [
+                "Opa, deu uma lentidão aqui! 🐌 Pode repetir? Prometo caprichar na resposta!",
+                "Xi, travei um pouquinho! 😅 Me conta de novo?",
+                "Eita, me perdi! Pode repetir pra mim? Agora vai! 💪"
+            ]
+            return random.choice(timeout_responses), {
                 'error': 'timeout',
                 'response_time': 30.0
             }
             
         except Exception as e:
             logger.error(f"Erro ao processar mensagem: {e}", exc_info=True)
-            return "Ops, tive um probleminha técnico. Já volto! 🔧", {
+            import random
+            error_responses = [
+                "Ops, tive um probleminha técnico aqui! 🔧 Já já volto!",
+                "Ih, deu uma travadinha no sistema! 😅 Me dá um segundinho?",
+                "Eita, bugou aqui! 🐛 Mas relaxa que já vou resolver!"
+            ]
+            return random.choice(error_responses), {
                 'error': str(e),
                 'response_time': (datetime.now() - start_time).total_seconds()
             }
@@ -552,9 +564,29 @@ class SDRAgentV2:
             
     async def handle_greeting(self, phone_number: str) -> Tuple[str, Dict[str, Any]]:
         """Mensagem de boas-vindas otimizada"""
-        greeting = "Oi! 😊 Eu sou a Luna da SolarPrime. Vim te ajudar a economizar até 95% na conta de luz! Como posso te chamar?"
+        import random
+        from datetime import datetime
         
-        return greeting, {
+        hour = datetime.now().hour
+        greetings = []
+        
+        if hour < 12:
+            greetings = [
+                "Bom dia! ☀️ Eu sou a Luna da SolarPrime. Vim te ajudar a economizar até 95% na conta de luz! Como posso te chamar?",
+                "Oi, bom dia! 😊 Sou a Luna, especialista em economia solar. Vamos reduzir essa conta de luz? Qual seu nome?"
+            ]
+        elif hour < 18:
+            greetings = [
+                "Boa tarde! 😊 Eu sou a Luna da SolarPrime. Que tal economizar até 95% na energia? Como posso te chamar?",
+                "Oi, boa tarde! ☀️ Sou a Luna e vim te mostrar como economizar muito na conta de luz! Qual seu nome?"
+            ]
+        else:
+            greetings = [
+                "Boa noite! 🌙 Eu sou a Luna da SolarPrime. Ainda dá tempo de começar a economizar na energia! Como posso te chamar?",
+                "Oi, boa noite! 😊 Sou a Luna e posso te ajudar a reduzir até 95% da conta de luz! Qual seu nome?"
+            ]
+        
+        return random.choice(greetings), {
             'stage': 'IDENTIFICATION',
             'is_greeting': True,
             'typing_delay': 1.0  # Reduzido de calculate_typing_delay
@@ -681,7 +713,13 @@ class SDRAgentV2:
             
         except asyncio.TimeoutError:
             logger.error("Timeout ao processar mensagens bufferizadas")
-            return "Desculpe pela demora! Recebi suas mensagens. Como posso ajudar com energia solar?", {
+            import random
+            timeout_msgs = [
+                "Opa, recebi várias mensagens de uma vez! 😅 Me conta resumidinho: o que você precisa saber sobre energia solar?",
+                "Eita, chegou tudo junto! 📱 Vamos com calma... Como posso te ajudar a economizar na conta de luz?",
+                "Xi, recebi um montão de mensagens! 😄 Me diz: você quer saber sobre economia na energia?"
+            ]
+            return random.choice(timeout_msgs), {
                 'error': 'timeout',
                 'response_time': 30.0,
                 'buffered_messages': len(messages)
@@ -689,7 +727,13 @@ class SDRAgentV2:
             
         except Exception as e:
             logger.error(f"Erro ao processar mensagens bufferizadas: {e}", exc_info=True)
-            return "Ops, tive um probleminha ao processar suas mensagens. Pode me dizer como posso ajudar?", {
+            import random
+            error_msgs = [
+                "Ops, me atrapalhei com tantas mensagens! 🤭 Pode me dizer o principal que você quer saber?",
+                "Ih, bugou com várias mensagens! 😅 Vamos recomeçar: como posso ajudar com energia solar?",
+                "Eita, me perdi nas mensagens! 🙈 Me conta de novo, mas resumidinho?"
+            ]
+            return random.choice(error_msgs), {
                 'error': str(e),
                 'response_time': (datetime.now() - start_time).total_seconds(),
                 'buffered_messages': len(messages)

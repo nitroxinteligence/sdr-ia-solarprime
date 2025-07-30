@@ -330,9 +330,14 @@ async def send_follow_up_message(lead_id: int, task_text: str):
         
         if whatsapp:
             # Enviar mensagem personalizada
-            message = f"Olá {kommo_lead.get('name', '')}! 👋\n\n"
-            message += "Estou entrando em contato para dar continuidade à nossa conversa sobre energia solar.\n\n"
-            message += "Você ainda tem interesse em conhecer como economizar até 95% na sua conta de luz?"
+            import random
+            name = kommo_lead.get('name', '').split()[0] if kommo_lead.get('name') else ''
+            messages = [
+                f"Oi {name}! 👋 Tudo bem? Voltei pra ver se você ainda quer economizar naquela conta de luz... Que tal a gente conversar? 😊",
+                f"E aí, {name}! Lembrei de você agora! ☀️ Ainda tá interessado em reduzir até 95% da conta de energia?",
+                f"Olá {name}! Passando rapidinho pra saber se você ainda quer aquela economia que conversamos... Posso te ajudar? 💡"
+            ]
+            message = random.choice(messages)
             
             await whatsapp_service.send_text_message(whatsapp, message)
             logger.info(f"Follow-up enviado para {whatsapp}")
