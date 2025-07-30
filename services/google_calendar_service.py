@@ -77,12 +77,41 @@ class GoogleCalendarService:
                     flow = InstalledAppFlow.from_client_secrets_file(
                         self.credentials_path, self.SCOPES
                     )
-                    # Para aplicativo desktop, usar porta 0 (dinâmica) é mais seguro
-                    self.credentials = flow.run_local_server(
-                        port=0,  # Porta dinâmica
-                        success_message='A autenticação foi concluída! Você pode fechar esta janela.',
-                        open_browser=True
-                    )
+                    
+                    # Detectar se estamos em ambiente sem interface gráfica
+                    import os
+                    headless = os.getenv('DISPLAY') is None or os.getenv('ENVIRONMENT') == 'production'
+                    
+                    if headless:
+                        # Usar fluxo de autenticação para ambientes headless
+                        logger.info("🔐 Ambiente headless detectado - usando autenticação sem navegador")
+                        logger.info("Por favor, visite esta URL para autorizar a aplicação:")
+                        auth_url, _ = flow.authorization_url(prompt='consent')
+                        logger.info(f"🔗 {auth_url}")
+                        logger.info("Após autorizar, copie o código e defina a variável GOOGLE_AUTH_CODE")
+                        
+                        # Tentar obter código de autorização da variável de ambiente
+                        auth_code = os.getenv('GOOGLE_AUTH_CODE')
+                        if auth_code:
+                            flow.fetch_token(code=auth_code)
+                            self.credentials = flow.credentials
+                            logger.info("✅ Autenticação realizada com sucesso via código")
+                        else:
+                            logger.warning("⚠️ GOOGLE_AUTH_CODE não encontrado - Calendar desabilitado")
+                            logger.info("💡 Para autenticar:")
+                            logger.info("1. Visite a URL acima")
+                            logger.info("2. Autorize a aplicação")
+                            logger.info("3. Copie o código")
+                            logger.info("4. Defina GOOGLE_AUTH_CODE=<código> no .env")
+                            logger.info("5. Reinicie a aplicação")
+                            return
+                    else:
+                        # Ambiente com interface gráfica - usar navegador
+                        self.credentials = flow.run_local_server(
+                            port=0,  # Porta dinâmica
+                            success_message='A autenticação foi concluída! Você pode fechar esta janela.',
+                            open_browser=True
+                        )
                 
                 # Salvar token para próximas execuções
                 os.makedirs(os.path.dirname(self.token_path), exist_ok=True)

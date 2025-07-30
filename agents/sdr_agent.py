@@ -123,14 +123,30 @@ class SDRAgent:
                 # Verificar se arquivo existe agora
                 credentials_path = os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH", "credentials/google_calendar_credentials.json")
                 if os.path.exists(credentials_path):
-                    self.calendar_service = GoogleCalendarService(self.config)
-                    logger.info("✅ GoogleCalendarService inicializado com sucesso")
+                    try:
+                        self.calendar_service = GoogleCalendarService(self.config)
+                        # Verificar se o serviço foi realmente inicializado
+                        if hasattr(self.calendar_service, 'service') and self.calendar_service.service:
+                            logger.info("✅ GoogleCalendarService inicializado com sucesso")
+                        else:
+                            logger.warning("⚠️ Google Calendar Service não pôde ser inicializado (possivelmente falta autenticação)")
+                            logger.info("💡 Em produção, considere usar DISABLE_GOOGLE_CALENDAR=true ou configurar autenticação headless")
+                            self.calendar_service = None
+                    except Exception as init_error:
+                        logger.warning(f"⚠️ Erro ao inicializar Google Calendar: {init_error}")
+                        if "could not locate runnable browser" in str(init_error):
+                            logger.info("💡 Ambiente sem interface gráfica detectado")
+                            logger.info("📖 Veja GOOGLE_CALENDAR_HEADLESS_AUTH.md para instruções de autenticação")
+                        logger.info("💡 Para desabilitar, defina DISABLE_GOOGLE_CALENDAR=true")
+                        self.calendar_service = None
                 else:
                     logger.warning("⚠️ Credenciais do Google Calendar não encontradas - Calendar desabilitado")
                     logger.info("💡 Para desabilitar este aviso, defina DISABLE_GOOGLE_CALENDAR=true")
                     self.calendar_service = None
         except Exception as e:
             logger.error(f"❌ Erro ao inicializar GoogleCalendarService: {e}")
+            if "could not locate runnable browser" in str(e):
+                logger.info("💡 Ambiente headless detectado - veja GOOGLE_CALENDAR_HEADLESS_AUTH.md")
             self.calendar_service = None
         
         logger.info(f"SDR Agent '{self.config.personality.name}' inicializado com AGnO Framework")

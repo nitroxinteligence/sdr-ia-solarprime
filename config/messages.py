@@ -14,14 +14,14 @@ class HumanizedMessages:
     
     # Mensagens de erro técnico - mais naturais e menos robóticas
     ERRO_TECNICO = [
-        "Opa, me perdi um pouquinho aqui 😊 Pode repetir, por favor?",
+        "Opa, me perdi um pouquinho aqui Pode repetir, por favor?",
         "Nossa, acho que me confundi... Vamos tentar de novo?",
         "Hmm, deixa eu organizar melhor aqui... Pode me dizer novamente?",
         "Xiii, travou alguma coisa aqui do meu lado... Me dá um segundinho?",
         "Eita, preciso de uma ajudinha sua... Pode reformular a pergunta?",
         "Desculpa, acho que não captei direito... Pode explicar de outro jeito?",
         "Opa, tive um pequeno contratempo aqui... Vamos recomeçar?",
-        "Me confundi aqui 😅 Pode me ajudar repetindo?",
+        "Me confundi aqui Pode me ajudar repetindo?",
         "Parece que algo não funcionou como esperado... Tentamos de novo?"
     ]
     
@@ -43,7 +43,7 @@ class HumanizedMessages:
         "O arquivo PDF está demorando para processar... Que tal enviar uma foto? É mais rápido! 📸",
         "Parece que o PDF está com algum problema... Uma foto da primeira página já me ajuda muito!",
         "Tive dificuldade com o PDF... Mas se você tirar uma foto da conta, consigo analisar na hora!",
-        "O PDF não quer colaborar comigo hoje 😅 Manda uma foto que eu analiso rapidinho!"
+        "O PDF não quer colaborar comigo hoje Manda uma foto que eu analiso rapidinho!"
     ]
     
     # Mensagens para processamento de áudio
