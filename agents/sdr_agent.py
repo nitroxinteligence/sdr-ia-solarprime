@@ -116,33 +116,60 @@ class SDRAgent:
                 logger.info("ℹ️ Google Calendar desabilitado via configuração")
                 self.calendar_service = None
             else:
-                # Tentar criar arquivo de credenciais a partir de variáveis de ambiente
-                if self._create_google_credentials_from_env():
-                    logger.info("✅ Arquivo de credenciais criado a partir de variáveis de ambiente")
+                # Verificar se está usando Service Account
+                use_service_account = os.getenv('GOOGLE_USE_SERVICE_ACCOUNT', 'true').lower() == 'true'
                 
-                # Verificar se arquivo existe agora
-                credentials_path = os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH", "credentials/google_calendar_credentials.json")
-                if os.path.exists(credentials_path):
+                if use_service_account:
+                    # Service Account: inicializar diretamente sem verificar credentials.json
+                    logger.info("🔐 Usando Google Calendar com Service Account")
                     try:
                         self.calendar_service = GoogleCalendarService(self.config)
                         # Verificar se o serviço foi realmente inicializado
                         if hasattr(self.calendar_service, 'service') and self.calendar_service.service:
-                            logger.info("✅ GoogleCalendarService inicializado com sucesso")
+                            logger.info("✅ GoogleCalendarService inicializado com sucesso (Service Account)")
                         else:
-                            logger.warning("⚠️ Google Calendar Service não pôde ser inicializado (possivelmente falta autenticação)")
-                            logger.info("💡 Em produção, considere usar DISABLE_GOOGLE_CALENDAR=true ou configurar autenticação headless")
+                            logger.warning("⚠️ Google Calendar Service não pôde ser inicializado")
+                            logger.info("💡 Verifique as variáveis de ambiente do Service Account")
                             self.calendar_service = None
                     except Exception as init_error:
-                        logger.warning(f"⚠️ Erro ao inicializar Google Calendar: {init_error}")
-                        if "could not locate runnable browser" in str(init_error):
-                            logger.info("💡 Ambiente sem interface gráfica detectado")
-                            logger.info("📖 Veja GOOGLE_CALENDAR_HEADLESS_AUTH.md para instruções de autenticação")
-                        logger.info("💡 Para desabilitar, defina DISABLE_GOOGLE_CALENDAR=true")
+                        logger.warning(f"⚠️ Erro ao inicializar Google Calendar com Service Account: {init_error}")
+                        logger.info("💡 Verifique se todas as variáveis do Service Account estão configuradas:")
+                        logger.info("   - GOOGLE_SERVICE_ACCOUNT_EMAIL")
+                        logger.info("   - GOOGLE_PRIVATE_KEY")
+                        logger.info("   - GOOGLE_PROJECT_ID")
+                        logger.info("   - GOOGLE_CALENDAR_ID")
                         self.calendar_service = None
                 else:
-                    logger.warning("⚠️ Credenciais do Google Calendar não encontradas - Calendar desabilitado")
-                    logger.info("💡 Para desabilitar este aviso, defina DISABLE_GOOGLE_CALENDAR=true")
-                    self.calendar_service = None
+                    # OAuth: manter lógica original
+                    logger.info("🔑 Usando Google Calendar com OAuth")
+                    # Tentar criar arquivo de credenciais a partir de variáveis de ambiente
+                    if self._create_google_credentials_from_env():
+                        logger.info("✅ Arquivo de credenciais OAuth criado a partir de variáveis de ambiente")
+                    
+                    # Verificar se arquivo existe agora
+                    credentials_path = os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH", "credentials/google_calendar_credentials.json")
+                    if os.path.exists(credentials_path):
+                        try:
+                            self.calendar_service = GoogleCalendarService(self.config)
+                            # Verificar se o serviço foi realmente inicializado
+                            if hasattr(self.calendar_service, 'service') and self.calendar_service.service:
+                                logger.info("✅ GoogleCalendarService inicializado com sucesso (OAuth)")
+                            else:
+                                logger.warning("⚠️ Google Calendar Service não pôde ser inicializado (possivelmente falta autenticação)")
+                                logger.info("💡 Em produção, considere usar DISABLE_GOOGLE_CALENDAR=true ou configurar Service Account")
+                                self.calendar_service = None
+                        except Exception as init_error:
+                            logger.warning(f"⚠️ Erro ao inicializar Google Calendar: {init_error}")
+                            if "could not locate runnable browser" in str(init_error):
+                                logger.info("💡 Ambiente sem interface gráfica detectado")
+                                logger.info("📖 Use Service Account definindo GOOGLE_USE_SERVICE_ACCOUNT=true")
+                            logger.info("💡 Para desabilitar, defina DISABLE_GOOGLE_CALENDAR=true")
+                            self.calendar_service = None
+                    else:
+                        logger.warning("⚠️ Credenciais OAuth do Google Calendar não encontradas - Calendar desabilitado")
+                        logger.info("💡 Para usar Service Account, defina GOOGLE_USE_SERVICE_ACCOUNT=true")
+                        logger.info("💡 Para desabilitar este aviso, defina DISABLE_GOOGLE_CALENDAR=true")
+                        self.calendar_service = None
         except Exception as e:
             logger.error(f"❌ Erro ao inicializar GoogleCalendarService: {e}")
             if "could not locate runnable browser" in str(e):

@@ -116,25 +116,59 @@ async def check_kommo_integration() -> Dict[str, Any]:
 async def check_google_calendar() -> Dict[str, Any]:
     """Verifica integração com Google Calendar"""
     try:
-        # Verificar se está configurado
-        credentials_path = os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH")
-        if not credentials_path or not os.path.exists(credentials_path):
-            return {
-                "status": "not_configured",
-                "error": "Credenciais do Google Calendar não encontradas"
-            }
+        # Verificar se está usando Service Account
+        use_service_account = os.getenv('GOOGLE_USE_SERVICE_ACCOUNT', 'true').lower() == 'true'
+        
+        if use_service_account:
+            # Service Account: verificar variáveis de ambiente
+            service_account_email = os.getenv('GOOGLE_SERVICE_ACCOUNT_EMAIL')
+            private_key = os.getenv('GOOGLE_PRIVATE_KEY')
+            project_id = os.getenv('GOOGLE_PROJECT_ID')
+            
+            if not all([service_account_email, private_key, project_id]):
+                return {
+                    "status": "not_configured",
+                    "error": "Variáveis do Service Account não configuradas",
+                    "auth_type": "service_account",
+                    "missing_vars": [
+                        var for var, val in [
+                            ("GOOGLE_SERVICE_ACCOUNT_EMAIL", service_account_email),
+                            ("GOOGLE_PRIVATE_KEY", private_key),
+                            ("GOOGLE_PROJECT_ID", project_id)
+                        ] if not val
+                    ]
+                }
+        else:
+            # OAuth: verificar arquivo de credenciais
+            credentials_path = os.getenv("GOOGLE_CALENDAR_CREDENTIALS_PATH")
+            if not credentials_path or not os.path.exists(credentials_path):
+                return {
+                    "status": "not_configured",
+                    "error": "Credenciais OAuth do Google Calendar não encontradas",
+                    "auth_type": "oauth"
+                }
         
         # Criar instância temporária para teste
-        calendar = GoogleCalendarService()
+        from config.config import Config
+        calendar = GoogleCalendarService(Config())
         
-        # Tentar listar calendários
-        calendars = await calendar.list_calendars()
+        # Verificar se foi inicializado
+        if not hasattr(calendar, 'service') or not calendar.service:
+            return {
+                "status": "error",
+                "error": "Serviço não inicializado",
+                "auth_type": "service_account" if use_service_account else "oauth"
+            }
+        
+        # Tentar listar eventos como teste
+        events = await calendar.list_events(max_results=1)
         
         return {
-            "status": "connected" if calendars else "error",
+            "status": "connected",
             "calendar_id": calendar.calendar_id,
-            "calendars_count": len(calendars) if calendars else 0,
-            "credentials_path": credentials_path
+            "auth_type": "service_account" if use_service_account else "oauth",
+            "service_account_email": os.getenv('GOOGLE_SERVICE_ACCOUNT_EMAIL') if use_service_account else None,
+            "test_result": "success" if events is not None else "failed"
         }
     except Exception as e:
         return {
