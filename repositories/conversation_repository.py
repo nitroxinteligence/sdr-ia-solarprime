@@ -121,7 +121,7 @@ class ConversationRepository(BaseRepository[Conversation]):
             filters={"current_stage": stage}
         )
     
-    async def create_or_resume(self, lead_id: UUID, session_id: str) -> Conversation:
+    async def create_or_resume(self, lead_id: UUID, session_id: str) -> Optional[Conversation]:
         """Cria nova conversa ou retoma a existente"""
         try:
             # Verificar se já existe conversa ativa
@@ -130,10 +130,11 @@ class ConversationRepository(BaseRepository[Conversation]):
             if active:
                 # Atualizar session_id se mudou
                 if active.session_id != session_id:
-                    return await self.update(
+                    updated = await self.update(
                         active.id,
                         {"session_id": session_id}
                     )
+                    return updated if updated else active
                 return active
             
             # Criar nova conversa
@@ -147,11 +148,30 @@ class ConversationRepository(BaseRepository[Conversation]):
             data_dict = conversation_data.dict()
             data_dict['lead_id'] = str(data_dict['lead_id'])
             
-            return await self.create(data_dict)
+            # Garantir que o ID seja gerado se não existir
+            if 'id' not in data_dict:
+                from uuid import uuid4
+                data_dict['id'] = str(uuid4())
+            
+            created = await self.create(data_dict)
+            if not created:
+                logger.error(f"Failed to create conversation for lead {lead_id}")
+                return None
+                
+            logger.info(f"Created new conversation {created.id} for lead {lead_id}")
+            return created
             
         except Exception as e:
-            logger.error(f"Error in create_or_resume conversation: {e}")
-            raise
+            logger.error(f"Error in create_or_resume conversation: {e}", exc_info=True)
+            # Tentar buscar conversa existente em caso de erro na criação
+            try:
+                existing = await self.get_active_by_lead(lead_id)
+                if existing:
+                    logger.info(f"Returning existing conversation {existing.id} after create error")
+                    return existing
+            except:
+                pass
+            return None
     
     async def reset_conversation(self, conversation_id: UUID) -> Optional[Conversation]:
         """Reseta uma conversa para o estado inicial"""

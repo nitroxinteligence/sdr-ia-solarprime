@@ -296,10 +296,32 @@ class SDRAgent:
             session_hash = hashlib.md5(f"{phone_number}_{date_str}".encode()).hexdigest()[:16]
             session_id = f"s_{session_hash}"
             
-            conversation = await conversation_repository.create_or_resume(
-                lead_id=lead.id,
-                session_id=session_id
-            )
+            try:
+                conversation = await conversation_repository.create_or_resume(
+                    lead_id=lead.id,
+                    session_id=session_id
+                )
+                
+                # Verificar se a conversa foi criada com sucesso
+                if not conversation or not conversation.id:
+                    logger.error(f"Falha ao criar/retomar conversa para lead {lead.id}")
+                    return get_error_message("ERRO_TECNICO"), {"error": "conversation_creation_failed"}
+                    
+            except Exception as conv_error:
+                logger.error(f"Erro ao criar/retomar conversa: {conv_error}")
+                # Tentar novamente com um novo session_id
+                import time
+                session_id = f"s_{session_hash}_{int(time.time())}"
+                try:
+                    conversation = await conversation_repository.create_or_resume(
+                        lead_id=lead.id,
+                        session_id=session_id
+                    )
+                    if not conversation:
+                        return get_error_message("ERRO_TECNICO"), {"error": "conversation_creation_failed"}
+                except Exception as retry_error:
+                    logger.error(f"Falha na segunda tentativa de criar conversa: {retry_error}")
+                    return get_error_message("ERRO_TECNICO"), {"error": "conversation_creation_failed"}
             
             # Buscar histórico completo de mensagens do Supabase
             messages_history = await message_repository.get_conversation_messages(
