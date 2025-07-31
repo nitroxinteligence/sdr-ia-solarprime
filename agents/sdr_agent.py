@@ -2224,9 +2224,9 @@ Se alguma informação não estiver disponível, use null."""
             stage_to_status = {
                 "INITIAL_CONTACT": LeadStatus.NEW,
                 "IDENTIFICATION": LeadStatus.NEW,
-                "DISCOVERY": LeadStatus.IN_PROGRESS,
+                "DISCOVERY": LeadStatus.IN_QUALIFICATION,
                 "QUALIFICATION": LeadStatus.QUALIFIED,
-                "OBJECTION_HANDLING": LeadStatus.IN_PROGRESS,
+                "OBJECTION_HANDLING": LeadStatus.IN_QUALIFICATION,
                 "SCHEDULING": LeadStatus.MEETING_SCHEDULED
             }
             
@@ -2291,6 +2291,106 @@ Se alguma informação não estiver disponível, use null."""
             "instalação comercial": SolutionType.INSTALACAO_COMERCIAL
         }
         return mapping.get(solution_type.lower(), SolutionType.USINA_PROPRIA)
+    
+    async def _get_available_meeting_times(self, date: datetime = None) -> List[Dict[str, Any]]:
+        """Busca horários disponíveis no Google Calendar"""
+        try:
+            if not self.calendar_service:
+                logger.warning("Google Calendar não disponível")
+                return []
+            
+            # Se não foi fornecida data, usar próximo dia útil
+            if not date:
+                date = datetime.now()
+                # Avançar para próximo dia útil se for fim de semana
+                while date.weekday() >= 5:  # Sábado = 5, Domingo = 6
+                    date += timedelta(days=1)
+                # Se já passou das 17h, usar próximo dia útil
+                if date.hour >= 17:
+                    date += timedelta(days=1)
+                    while date.weekday() >= 5:
+                        date += timedelta(days=1)
+            
+            # Buscar horários disponíveis (9h às 18h)
+            available_slots = await self.calendar_service.check_availability(
+                date=date,
+                duration_minutes=30,  # Reuniões de 30 minutos
+                work_hours=(9, 18)    # Horário comercial
+            )
+            
+            return available_slots
+            
+        except Exception as e:
+            logger.error(f"Erro ao buscar horários disponíveis: {e}")
+            return []
+    
+    async def _suggest_available_times(self, date: datetime = None) -> str:
+        """Formata e sugere horários disponíveis para o usuário"""
+        try:
+            available_slots = await self._get_available_meeting_times(date)
+            
+            if not available_slots:
+                return "No momento não encontrei horários disponíveis. Que tal tentarmos outro dia?"
+            
+            # Formatar mensagem com horários disponíveis
+            message = "🗓️ *Horários disponíveis para nossa reunião:*\n\n"
+            
+            # Agrupar por dia
+            slots_by_day = {}
+            for slot in available_slots[:10]:  # Limitar a 10 opções
+                day = slot['datetime'][:10]
+                if day not in slots_by_day:
+                    slots_by_day[day] = []
+                slots_by_day[day].append(slot)
+            
+            # Formatar por dia
+            for day, day_slots in slots_by_day.items():
+                date_obj = datetime.fromisoformat(day)
+                day_name = date_obj.strftime('%A, %d/%m')
+                message += f"*{day_name}:*\n"
+                
+                for slot in day_slots:
+                    message += f"• {slot['start']} às {slot['end']}\n"
+                
+                message += "\n"
+            
+            message += "Por favor, escolha o horário que melhor se adequa à sua agenda! 😊"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Erro ao sugerir horários: {e}")
+            return "Desculpe, tive um problema ao buscar os horários. Vamos marcar manualmente?"
+    
+    async def _reschedule_meeting(self, event_id: str, new_datetime: datetime, session_state: Dict[str, Any]) -> bool:
+        """Reagenda uma reunião existente"""
+        try:
+            if not self.calendar_service or not event_id:
+                return False
+            
+            # Calcular novo fim
+            new_end = new_datetime + timedelta(minutes=30)
+            
+            # Atualizar evento
+            result = await self.calendar_service.update_event(
+                event_id=event_id,
+                updates={
+                    'start_datetime': new_datetime,
+                    'end_datetime': new_end
+                }
+            )
+            
+            if result:
+                # Atualizar session_state
+                session_state["meeting_datetime"] = new_datetime.isoformat()
+                logger.info(f"✅ Reunião reagendada para {new_datetime}")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Erro ao reagendar reunião: {e}")
+            return False
     
     async def _try_schedule_meeting(self, lead_info: Dict[str, Any], session_state: Dict[str, Any], message: str):
         """Tenta agendar reunião no Google Calendar quando houver horário escolhido"""
@@ -2389,14 +2489,27 @@ Se alguma informação não estiver disponível, use null."""
             
             # Criar evento no Google Calendar se disponível
             if self.calendar_service:
-                result = await self.calendar_service.create_event(event_data)
+                # Calcular duração
+                end_datetime = meeting_datetime + timedelta(minutes=event_data.get('duration', 30))
                 
-                if result and result.get('htmlLink'):
-                    logger.info(f"✅ Reunião criada no Google Calendar: {result['htmlLink']}")
+                # Chamar create_event com argumentos corretos
+                result = await self.calendar_service.create_event(
+                    title=event_data['title'],
+                    start_datetime=event_data['start'],
+                    end_datetime=end_datetime,
+                    description=event_data.get('description'),
+                    location=event_data.get('location'),
+                    attendees=event_data.get('attendees', []),
+                    lead_data=lead_info
+                )
+                
+                if result and result.get('link'):
+                    logger.info(f"✅ Reunião criada no Google Calendar: {result['link']}")
                     
                     # Salvar link no session_state
-                    session_state["meeting_link"] = result['htmlLink']
+                    session_state["meeting_link"] = result['link']
                     session_state["meeting_datetime"] = meeting_datetime.isoformat()
+                    session_state["meeting_event_id"] = result.get('id')  # Para futuro reagendamento
             else:
                 logger.info("ℹ️ Google Calendar não disponível - reunião será gerenciada manualmente")
                 # Salvar informações básicas da reunião
@@ -2404,19 +2517,19 @@ Se alguma informação não estiver disponível, use null."""
                 session_state["meeting_scheduled"] = True
                 
                 # Atualizar Kommo com link da reunião
-                if self.kommo_service and session_state.get("kommo_lead_id"):
+                if self.kommo_service and session_state.get("kommo_lead_id") and result:
                     await self.kommo_service.add_note(
                         session_state["kommo_lead_id"],
                         f"Reunião agendada para {meeting_datetime.strftime('%d/%m/%Y às %H:%M')}\n"
-                        f"Link do Calendar: {result['htmlLink']}"
+                        f"Link do Calendar: {result.get('link', 'Link não disponível')}"
                     )
                     
                     # Adicionar link como campo customizado se disponível
-                    if hasattr(self.kommo_service, 'update_custom_field'):
+                    if hasattr(self.kommo_service, 'update_custom_field') and result.get('link'):
                         await self.kommo_service.update_custom_field(
                             session_state["kommo_lead_id"],
                             "google_calendar_link",
-                            result['htmlLink']
+                            result['link']
                         )
                 
         except Exception as e:
