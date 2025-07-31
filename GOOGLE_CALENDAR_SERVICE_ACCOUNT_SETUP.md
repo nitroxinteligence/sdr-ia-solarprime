@@ -62,7 +62,7 @@ Abra o arquivo JSON baixado e extraia as informações:
 GOOGLE_USE_SERVICE_ACCOUNT=true
 GOOGLE_SERVICE_ACCOUNT_EMAIL=sdr-calendar@projeto.iam.gserviceaccount.com
 GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-GOOGLE_PROJECT_ID=seu-projeto-id
+GOOGLE_PROJECT_ID=solarprime-ia-sdr
 GOOGLE_PRIVATE_KEY_ID=chave-id-aqui
 GOOGLE_CLIENT_ID=123456789
 
