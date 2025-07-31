@@ -14,6 +14,7 @@ from pathlib import Path
 from loguru import logger
 
 # Google Calendar API
+from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -26,6 +27,51 @@ from agno.tools.googlecalendar import GoogleCalendarTools
 
 # Configurações locais
 from config.config import Config
+
+
+def create_service_account_from_env() -> bool:
+    """Cria arquivo JSON de service account a partir de variáveis de ambiente"""
+    try:
+        # Verificar se todas as variáveis necessárias estão definidas
+        required_vars = [
+            'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+            'GOOGLE_PRIVATE_KEY',
+            'GOOGLE_PROJECT_ID'
+        ]
+        
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        if missing_vars:
+            logger.warning(f"⚠️ Variáveis de ambiente faltando: {', '.join(missing_vars)}")
+            return False
+        
+        # Criar estrutura do service account
+        service_account_info = {
+            "type": "service_account",
+            "project_id": os.getenv('GOOGLE_PROJECT_ID'),
+            "private_key_id": os.getenv('GOOGLE_PRIVATE_KEY_ID', ''),
+            "private_key": os.getenv('GOOGLE_PRIVATE_KEY', '').replace('\\n', '\n'),
+            "client_email": os.getenv('GOOGLE_SERVICE_ACCOUNT_EMAIL'),
+            "client_id": os.getenv('GOOGLE_CLIENT_ID', ''),
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": os.getenv('GOOGLE_CERT_URL', '')
+        }
+        
+        # Criar diretório se não existir
+        os.makedirs('credentials', exist_ok=True)
+        
+        # Salvar arquivo
+        service_account_path = 'credentials/google_service_account.json'
+        with open(service_account_path, 'w') as f:
+            json.dump(service_account_info, f, indent=2)
+        
+        logger.info(f"✅ Arquivo de service account criado em: {service_account_path}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar arquivo de service account: {e}")
+        return False
 
 
 class GoogleCalendarService:
@@ -41,11 +87,20 @@ class GoogleCalendarService:
         self.config = config
         self.service = None
         self.credentials = None
-        self.calendar_id = 'primary'  # Usar calendário principal
+        
+        # Determinar qual método de autenticação usar
+        self.use_service_account = os.getenv('GOOGLE_USE_SERVICE_ACCOUNT', 'true').lower() == 'true'
         
         # Paths para credenciais
-        self.credentials_path = os.getenv('GOOGLE_CALENDAR_CREDENTIALS_PATH', 'credentials/google_calendar_credentials.json')
-        self.token_path = os.getenv('GOOGLE_CALENDAR_TOKEN_PATH', 'credentials/google_calendar_token.pickle')
+        if self.use_service_account:
+            self.service_account_path = os.getenv('GOOGLE_SERVICE_ACCOUNT_PATH', 'credentials/google_service_account.json')
+        else:
+            # Fallback para OAuth (mantém compatibilidade)
+            self.credentials_path = os.getenv('GOOGLE_CALENDAR_CREDENTIALS_PATH', 'credentials/google_calendar_credentials.json')
+            self.token_path = os.getenv('GOOGLE_CALENDAR_TOKEN_PATH', 'credentials/google_calendar_token.pickle')
+        
+        # ID do calendário - pode ser email do usuário ou ID específico
+        self.calendar_id = os.getenv('GOOGLE_CALENDAR_ID', 'primary')
         
         # Configurações de negócio
         self.default_duration_minutes = 60
@@ -56,6 +111,57 @@ class GoogleCalendarService:
         
     def _initialize_service(self):
         """Inicializa o serviço do Google Calendar com autenticação"""
+        try:
+            if self.use_service_account:
+                # Usar Service Account (recomendado para servidores)
+                self._initialize_with_service_account()
+            else:
+                # Usar OAuth (para desenvolvimento local)
+                self._initialize_with_oauth()
+                
+        except Exception as e:
+            logger.error(f"❌ Erro ao inicializar Google Calendar service: {e}")
+            self.service = None
+    
+    def _initialize_with_service_account(self):
+        """Inicializa usando Service Account - ideal para servidores"""
+        try:
+            # Verificar se arquivo de service account existe
+            if not os.path.exists(self.service_account_path):
+                logger.info("📝 Arquivo de service account não encontrado, tentando criar a partir de variáveis de ambiente...")
+                if not create_service_account_from_env():
+                    logger.error("❌ Não foi possível criar arquivo de service account")
+                    logger.info("💡 Configure as variáveis de ambiente:")
+                    logger.info("   - GOOGLE_SERVICE_ACCOUNT_EMAIL")
+                    logger.info("   - GOOGLE_PRIVATE_KEY")
+                    logger.info("   - GOOGLE_PROJECT_ID")
+                    return
+            
+            # Carregar credenciais do service account
+            self.credentials = service_account.Credentials.from_service_account_file(
+                self.service_account_path,
+                scopes=self.SCOPES
+            )
+            
+            # Se houver um email para impersonar (útil para Google Workspace)
+            impersonate_email = os.getenv('GOOGLE_CALENDAR_OWNER_EMAIL')
+            if impersonate_email:
+                logger.info(f"👤 Impersonando usuário: {impersonate_email}")
+                self.credentials = self.credentials.with_subject(impersonate_email)
+            
+            # Criar serviço
+            self.service = build('calendar', 'v3', credentials=self.credentials)
+            logger.success("✅ Google Calendar service inicializado com Service Account")
+            
+            # Log do calendário que será usado
+            logger.info(f"📅 Usando calendário: {self.calendar_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao inicializar com Service Account: {e}")
+            raise
+    
+    def _initialize_with_oauth(self):
+        """Inicializa usando OAuth - para desenvolvimento local"""
         try:
             # Verificar se existe token salvo
             if os.path.exists(self.token_path):
@@ -71,47 +177,18 @@ class GoogleCalendarService:
                     # Fazer novo fluxo de autenticação
                     if not os.path.exists(self.credentials_path):
                         logger.error(f"Arquivo de credenciais não encontrado: {self.credentials_path}")
-                        logger.info("Por favor, baixe as credenciais do Google Cloud Console")
                         return
                     
                     flow = InstalledAppFlow.from_client_secrets_file(
                         self.credentials_path, self.SCOPES
                     )
                     
-                    # Detectar se estamos em ambiente sem interface gráfica
-                    import os
-                    headless = os.getenv('DISPLAY') is None or os.getenv('ENVIRONMENT') == 'production'
-                    
-                    if headless:
-                        # Usar fluxo de autenticação para ambientes headless
-                        logger.info("🔐 Ambiente headless detectado - usando autenticação sem navegador")
-                        logger.info("Por favor, visite esta URL para autorizar a aplicação:")
-                        auth_url, _ = flow.authorization_url(prompt='consent')
-                        logger.info(f"🔗 {auth_url}")
-                        logger.info("Após autorizar, copie o código e defina a variável GOOGLE_AUTH_CODE")
-                        
-                        # Tentar obter código de autorização da variável de ambiente
-                        auth_code = os.getenv('GOOGLE_AUTH_CODE')
-                        if auth_code:
-                            flow.fetch_token(code=auth_code)
-                            self.credentials = flow.credentials
-                            logger.info("✅ Autenticação realizada com sucesso via código")
-                        else:
-                            logger.warning("⚠️ GOOGLE_AUTH_CODE não encontrado - Calendar desabilitado")
-                            logger.info("💡 Para autenticar:")
-                            logger.info("1. Visite a URL acima")
-                            logger.info("2. Autorize a aplicação")
-                            logger.info("3. Copie o código")
-                            logger.info("4. Defina GOOGLE_AUTH_CODE=<código> no .env")
-                            logger.info("5. Reinicie a aplicação")
-                            return
-                    else:
-                        # Ambiente com interface gráfica - usar navegador
-                        self.credentials = flow.run_local_server(
-                            port=0,  # Porta dinâmica
-                            success_message='A autenticação foi concluída! Você pode fechar esta janela.',
-                            open_browser=True
-                        )
+                    # Para desenvolvimento local
+                    self.credentials = flow.run_local_server(
+                        port=0,
+                        success_message='A autenticação foi concluída! Você pode fechar esta janela.',
+                        open_browser=True
+                    )
                 
                 # Salvar token para próximas execuções
                 os.makedirs(os.path.dirname(self.token_path), exist_ok=True)
@@ -120,11 +197,11 @@ class GoogleCalendarService:
             
             # Criar serviço
             self.service = build('calendar', 'v3', credentials=self.credentials)
-            logger.success("✅ Google Calendar service inicializado com sucesso")
+            logger.success("✅ Google Calendar service inicializado com OAuth")
             
         except Exception as e:
-            logger.error(f"❌ Erro ao inicializar Google Calendar service: {e}")
-            self.service = None
+            logger.error(f"❌ Erro ao inicializar com OAuth: {e}")
+            raise
     
     async def create_event(
         self,
