@@ -54,7 +54,7 @@ class KommoLead(BaseModel):
     phone: str = Field(..., description="Telefone principal")
     whatsapp: str = Field(..., description="WhatsApp do lead")
     email: Optional[str] = Field(None, description="Email do lead")
-    energy_bill_value: float = Field(..., description="Valor da conta de luz")
+    energy_bill_value: Optional[float] = Field(None, description="Valor da conta de luz")
     solution_type: Optional[SolutionType] = Field(None, description="Tipo de solução identificada")
     current_discount: Optional[str] = Field(None, description="Desconto atual do concorrente")
     competitor: Optional[str] = Field(None, description="Nome do concorrente")

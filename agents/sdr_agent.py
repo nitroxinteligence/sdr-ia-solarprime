@@ -2236,11 +2236,9 @@ Se alguma informação não estiver disponível, use null."""
                 phone=phone_number,
                 whatsapp=phone_number,
                 email=lead_info.get("email"),
-                source="WhatsApp AI",
-                stage=stage_to_status.get(new_stage, LeadStatus.NEW),
                 qualification_score=self._calculate_qualification_score(lead_info, session_state),
                 ai_notes=f"Estágio: {new_stage}\n{analysis.get('summary', '')}",
-                tags=["WhatsApp Lead", f"Estágio: {new_stage}"]
+                tags=["WhatsApp Lead", f"Estágio: {new_stage}", "WhatsApp AI"]
             )
             
             # Adicionar informações específicas por estágio
@@ -2248,9 +2246,10 @@ Se alguma informação não estiver disponível, use null."""
                 kommo_lead.solution_type = self._map_solution_type(lead_info["solution_type"])
                 kommo_lead.tags.append(f"Solução: {lead_info['solution_type']}")
             
-            if new_stage == "QUALIFICATION" and lead_info.get("bill_value"):
+            # Sempre adicionar valor da conta se disponível
+            if lead_info.get("bill_value"):
                 kommo_lead.energy_bill_value = lead_info["bill_value"]
-                kommo_lead.tags.append(f"Conta: {lead_info['bill_value']}")
+                kommo_lead.tags.append(f"Conta: R$ {lead_info['bill_value']}")
             
             # Verificar se já existe lead
             existing_lead = await self.kommo_service.find_lead_by_whatsapp(phone_number)
