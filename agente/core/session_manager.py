@@ -335,9 +335,11 @@ class SessionManager:
         """Create new session."""
         # Create new conversation (using correct method name)
         if lead:
+            # Usar UUID único para evitar conflitos de session_id
+            unique_session_id = f"session_{phone}_{str(uuid.uuid4())[:8]}"
             conversation = await self.conversation_repo.start_conversation(
                 lead.id, 
-                f"session_{phone}_{datetime.now(timezone.utc).timestamp()}"
+                unique_session_id
             )
         else:
             # Create a basic conversation structure if no lead exists

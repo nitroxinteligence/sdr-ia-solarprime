@@ -465,11 +465,12 @@ async def process_message_async(message: WhatsAppMessage):
             # CRÍTICO: Enviar resposta de volta para o WhatsApp
             if response.message:
                 try:
-                    # Import da tool de envio
-                    from agente.tools.whatsapp.send_text_message import send_text_message
+                    # Import do serviço Evolution para envio direto
+                    from agente.services import get_evolution_service
                     
-                    # Enviar resposta
-                    send_result = await send_text_message(
+                    # Enviar resposta via Evolution API
+                    evolution_service = get_evolution_service()
+                    send_result = await evolution_service.send_text_message(
                         phone=message.phone,
                         text=response.message
                     )
