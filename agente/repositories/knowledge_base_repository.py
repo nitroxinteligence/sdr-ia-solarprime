@@ -62,7 +62,6 @@ class KnowledgeBaseRepository:
             base_query = base_query.text_search(
                 "question,answer", 
                 sanitized_query,
-                type="websearch",
                 config="portuguese"
             )
             

@@ -782,7 +782,7 @@ class ContextManager:
             )
             
             # Buscar conhecimento recente
-            recent_knowledge = await knowledge_repo.get_recent_knowledge(
+            recent_knowledge = knowledge_repo.get_recent_knowledge(
                 limit=2  # Top 2 mais recentes
             )
             
