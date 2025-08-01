@@ -1,13 +1,16 @@
 """
 Tool Context Provider - Fornece contexto global para tools AGnO
+CORREÇÃO ASYNC: Usar contextvars em vez de threading.local para suporte async/await
 """
 
 from typing import Dict, Any, Optional
-from threading import local
+from contextvars import ContextVar
 from loguru import logger
 
-# Thread-local storage para contexto atual
-_context_storage = local()
+# Context variables para contexto atual (suporte async/await)
+_current_phone: ContextVar[Optional[str]] = ContextVar('current_phone', default=None)
+_current_context: ContextVar[Optional[Dict[str, Any]]] = ContextVar('current_context', default=None)
+_context_active: ContextVar[bool] = ContextVar('context_active', default=False)
 
 class ToolContextProvider:
     """
@@ -27,9 +30,9 @@ class ToolContextProvider:
             context: Dados completos do contexto
         """
         try:
-            _context_storage.phone = phone
-            _context_storage.context = context
-            _context_storage.active = True
+            _current_phone.set(phone)
+            _current_context.set(context)
+            _context_active.set(True)
             
             logger.debug(f"Contexto definido para tools: phone={phone[:4]}****")
             
@@ -45,8 +48,8 @@ class ToolContextProvider:
             str: Número de telefone ou None se não disponível
         """
         try:
-            if hasattr(_context_storage, 'active') and _context_storage.active:
-                return getattr(_context_storage, 'phone', None)
+            if _context_active.get():
+                return _current_phone.get()
             return None
             
         except Exception as e:
@@ -62,8 +65,8 @@ class ToolContextProvider:
             Dict: Contexto completo ou None se não disponível
         """
         try:
-            if hasattr(_context_storage, 'active') and _context_storage.active:
-                return getattr(_context_storage, 'context', None)
+            if _context_active.get():
+                return _current_context.get()
             return None
             
         except Exception as e:
@@ -74,10 +77,9 @@ class ToolContextProvider:
     def clear_context() -> None:
         """Limpa o contexto atual."""
         try:
-            if hasattr(_context_storage, 'active'):
-                _context_storage.active = False
-                _context_storage.phone = None
-                _context_storage.context = None
+            _context_active.set(False)
+            _current_phone.set(None)
+            _current_context.set(None)
                 
             logger.debug("Contexto limpo para tools")
             
@@ -93,7 +95,7 @@ class ToolContextProvider:
             bool: True se há contexto ativo
         """
         try:
-            return hasattr(_context_storage, 'active') and _context_storage.active
+            return _context_active.get()
         except:
             return False
 
