@@ -462,6 +462,26 @@ async def process_message_async(message: WhatsAppMessage):
         if response.success:
             logger.info(f"✅ Message processed successfully for {message.phone}")
             
+            # CRÍTICO: Enviar resposta de volta para o WhatsApp
+            if response.message:
+                try:
+                    # Import da tool de envio
+                    from agente.tools.whatsapp.send_text_message import send_text_message
+                    
+                    # Enviar resposta
+                    send_result = await send_text_message(
+                        phone=message.phone,
+                        text=response.message
+                    )
+                    
+                    if send_result.get("success"):
+                        logger.info(f"📤 Response sent to WhatsApp for {message.phone}")
+                    else:
+                        logger.error(f"❌ Failed to send WhatsApp response: {send_result.get('error')}")
+                        
+                except Exception as send_error:
+                    logger.error(f"❌ Error sending WhatsApp response: {send_error}")
+            
             # Log successful processing
             capture_agent_event(
                 "Message Processed Successfully",
