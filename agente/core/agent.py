@@ -193,8 +193,14 @@ class SDRAgent:
                 api_key=GEMINI_API_KEY
             )
             
-            # Criar toolkit com todas as tools
-            self.toolkit = Toolkit(
+            # Carregar prompts
+            system_prompt = self._load_system_prompt()
+            tool_instructions = self._get_tool_instructions()
+            
+            # Criar agente com tools diretamente
+            self.agent = Agent(
+                name=self.name,
+                model=model,
                 tools=[
                     # WhatsApp Tools
                     send_text_message,
@@ -237,27 +243,20 @@ class SDRAgent:
                     # Utility Tools
                     validate_phone,
                     format_currency
-                ]
+                ],
+                show_tool_calls=True,  # Mostrar chamadas de tools
+                reasoning=False,       # Ativar apenas quando necessário
+                storage=False,         # Não usar storage do AGnO
+                memory=False,          # Não usar memory do AGnO
+                instructions=system_prompt + tool_instructions
             )
             
-            # Carregar prompts
-            system_prompt = self._load_system_prompt()
-            tool_instructions = self._get_tool_instructions()
+            # Para compatibilidade com código existente, manter referência ao toolkit
+            self.toolkit = None
             
-            # Criar agente
-            self.agent = Agent(
-                name=self.name,
-                model=model,
-                toolkit=self.toolkit,
-                reasoning=False,  # Ativar apenas quando necessário
-                storage=False,    # Não usar storage do AGnO
-                memory=False,     # Não usar memory do AGnO
-                instructions=system_prompt + tool_instructions,
-                debug=DEBUG,
-                log_level="INFO" if DEBUG else "WARNING"
-            )
-            
-            logger.info(f"✅ Agente {self.name} inicializado com sucesso com {len(self.toolkit.tools)} tools")
+            # Contar tools do agent diretamente
+            tool_count = len(self.agent.tools) if hasattr(self.agent, 'tools') and self.agent.tools else 24
+            logger.info(f"✅ Agente {self.name} inicializado com sucesso com {tool_count} tools")
             
         except Exception as e:
             logger.error(f"❌ Erro ao inicializar agente: {str(e)}")
