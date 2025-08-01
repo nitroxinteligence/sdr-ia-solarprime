@@ -9,6 +9,7 @@ import base64
 from typing import Optional, Dict, Any, Union
 from datetime import datetime
 import random
+import time
 
 from agente.core.config import (
     EVOLUTION_API_URL,
@@ -22,6 +23,11 @@ from agente.utils.formatters import format_phone_number
 
 # Logger específico para o módulo
 module_logger = setup_module_logger("evolution_service")
+
+# Request Queue - Controle inteligente para múltiplas conversas simultâneas
+_request_queue = asyncio.Queue(maxsize=1000)  # Fila para 1000 mensagens
+_queue_processor_task = None
+_processing = False
 
 
 class EvolutionAPIService:
@@ -52,7 +58,12 @@ class EvolutionAPIService:
         module_logger.info(
             "Evolution API Service initialized",
             instance=self.instance,
-            base_url=self.base_url
+            base_url=self.base_url,
+            queue_info={
+                "max_queue_size": _request_queue.maxsize,
+                "current_queue_size": _request_queue.qsize(),
+                "processor_running": _processing
+            }
         )
     
     def _calculate_typing_delay(self, text: str) -> int:
@@ -550,6 +561,21 @@ class EvolutionAPIService:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit"""
         await self.close()
+    
+    @staticmethod
+    def get_queue_stats() -> Dict[str, Any]:
+        """
+        Retorna estatísticas da fila de requisições
+        
+        Returns:
+            Dict com estatísticas da fila
+        """
+        return {
+            "max_queue_size": _request_queue.maxsize,
+            "current_queue_size": _request_queue.qsize(),
+            "queue_available_slots": _request_queue.maxsize - _request_queue.qsize(),
+            "queue_processor_running": _processing
+        }
 
 
 # Singleton instance

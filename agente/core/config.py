@@ -48,6 +48,7 @@ CALENDAR_BUSINESS_HOURS = {
 }
 CALENDAR_SLOT_DURATION = 60  # minutos
 CALENDAR_MIN_INTERVAL = 10   # minutos entre agendamentos
+
 CALENDAR_DEFAULT_SLOTS = ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00", "17:00"]
 
 # ===========================
