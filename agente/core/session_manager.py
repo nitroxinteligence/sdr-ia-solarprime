@@ -6,6 +6,7 @@ and maintains session state across multiple interactions.
 """
 
 import asyncio
+import uuid
 from typing import Dict, Optional, Any, List
 from datetime import datetime, timezone, timedelta
 from enum import Enum
@@ -341,7 +342,7 @@ class SessionManager:
         else:
             # Create a basic conversation structure if no lead exists
             conversation = type('Conversation', (), {
-                'id': f"temp_{phone}_{datetime.now(timezone.utc).timestamp()}",
+                'id': str(uuid.uuid4()),  # UUID válido para PostgreSQL
                 'phone': phone,
                 'lead_id': None,
                 'started_at': datetime.now(timezone.utc),
