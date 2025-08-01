@@ -515,6 +515,51 @@ class ConversationRepository:
             raise
 
 
+    async def get_or_create(self, phone: str) -> Conversation:
+        """
+        Alias for get_or_create_conversation for compatibility.
+        
+        Args:
+            phone: Phone number
+            
+        Returns:
+            Conversation object
+        """
+        conversation_data = await self.get_or_create_conversation(phone, f"session_{phone}")
+        return conversation_data[0] if isinstance(conversation_data, tuple) else conversation_data
+    
+    async def update_last_message_at(self, conversation_id: UUID, timestamp: datetime) -> bool:
+        """
+        Updates the last_message_at timestamp for a conversation.
+        
+        Args:
+            conversation_id: ID of the conversation
+            timestamp: Timestamp of the last message
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            result = await self.supabase.client.table("conversations") \
+                .update({
+                    "last_message_at": timestamp.isoformat(),
+                    "updated_at": datetime.now().isoformat()
+                }) \
+                .eq("id", str(conversation_id)) \
+                .execute()
+            
+            if result.data:
+                logger.debug(f"Updated last_message_at for conversation {conversation_id}")
+                return True
+            else:
+                logger.warning(f"No conversation found with ID {conversation_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error updating last_message_at for conversation {conversation_id}: {e}")
+            return False
+
+
 def get_conversation_repository() -> ConversationRepository:
     """
     Retorna instância singleton do ConversationRepository

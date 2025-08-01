@@ -35,7 +35,6 @@ from agente.core.humanizer import HelenHumanizer
 from agente.core.context_manager import ContextManager
 from agente.core.qualification_flow import QualificationFlow
 from agente.core.message_processor import MessageProcessor
-from agente.core.session_manager import SessionManager
 
 # Import all tools
 from agente.tools.whatsapp import (
@@ -103,6 +102,8 @@ class SDRAgent:
             context_manager=self.context_manager,
             qualification_flow=self.qualification_flow
         )
+        # Import SessionManager here to avoid circular import
+        from agente.core.session_manager import SessionManager
         self.session_manager = SessionManager(
             context_manager=self.context_manager
         )
@@ -187,15 +188,27 @@ class SDRAgent:
     def _initialize_agent(self):
         """Inicializa o agente AGnO com todas as configurações"""
         try:
-            # Configurar modelo Gemini
+            # Validar configurações críticas
+            if not GEMINI_API_KEY:
+                raise ValueError("GEMINI_API_KEY not configured")
+            
+            # Configurar modelo Gemini com configurações mais específicas
             model = Gemini(
                 id="gemini-2.0-flash-exp",
-                api_key=GEMINI_API_KEY
+                api_key=GEMINI_API_KEY,
+                temperature=0.7,  # Mais criativo para conversas naturais
+                max_tokens=2048,  # Limite adequado para respostas
+                top_p=0.9
             )
             
             # Carregar prompts
             system_prompt = self._load_system_prompt()
             tool_instructions = self._get_tool_instructions()
+            full_instructions = system_prompt + "\n\n" + tool_instructions
+            
+            # Log das configurações para debug
+            logger.debug(f"Initializing AGnO Agent with model: {model.id}")
+            logger.debug(f"Instructions length: {len(full_instructions)} chars")
             
             # Criar agente com tools diretamente
             self.agent = Agent(
@@ -248,7 +261,8 @@ class SDRAgent:
                 reasoning=False,       # Ativar apenas quando necessário
                 storage=False,         # Não usar storage do AGnO
                 memory=False,          # Não usar memory do AGnO
-                instructions=system_prompt + tool_instructions
+                instructions=full_instructions,
+                debug=DEBUG           # Enable debug mode if DEBUG is True
             )
             
             # Para compatibilidade com código existente, manter referência ao toolkit
@@ -256,10 +270,21 @@ class SDRAgent:
             
             # Contar tools do agent diretamente
             tool_count = len(self.agent.tools) if hasattr(self.agent, 'tools') and self.agent.tools else 24
-            logger.info(f"✅ Agente {self.name} inicializado com sucesso com {tool_count} tools")
+            
+            # Verificar se o agente foi inicializado corretamente
+            if not hasattr(self.agent, 'run'):
+                raise AttributeError("AGnO Agent missing 'run' method")
+            
+            logger.info(f"✅ Agente {self.name} inicializado com sucesso")
+            logger.info(f"   - Modelo: {model.id}")
+            logger.info(f"   - Tools: {tool_count}")
+            logger.info(f"   - Reasoning: {self.agent.reasoning}")
+            logger.info(f"   - Debug: {DEBUG}")
             
         except Exception as e:
-            logger.error(f"❌ Erro ao inicializar agente: {str(e)}")
+            logger.error(f"❌ Erro ao inicializar agente AGnO: {str(e)}")
+            import traceback
+            logger.debug(f"Full traceback: {traceback.format_exc()}")
             raise
     
     async def process_message(self, message: WhatsAppMessage) -> AgentResponse:
@@ -334,8 +359,48 @@ class SDRAgent:
                 # Run agent with full context
                 import time
                 start_time = time.time()
-                response = await self.agent.run(agent_input)
-                execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+                
+                try:
+                    # Check if agent.run is async
+                    if hasattr(self.agent.run, '__call__'):
+                        import inspect
+                        if inspect.iscoroutinefunction(self.agent.run):
+                            response = await self.agent.run(agent_input)
+                        else:
+                            # AGnO run method is synchronous
+                            response = self.agent.run(agent_input)
+                    else:
+                        logger.error("AGnO Agent run method is not callable")
+                        response = None
+                    
+                    execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+                    
+                    # Log response type for debugging
+                    logger.debug(f"AGnO Agent response type: {type(response)}")
+                    if hasattr(response, '__dict__'):
+                        logger.debug(f"AGnO Agent response attributes: {list(response.__dict__.keys())}")
+                    
+                except Exception as agno_error:
+                    execution_time = (time.time() - start_time) * 1000
+                    logger.error(f"AGnO Agent execution failed: {agno_error}")
+                    logger.debug(f"Agent input was: {agent_input}")
+                    import traceback
+                    logger.debug(f"Full traceback: {traceback.format_exc()}")
+                    
+                    # Return fallback response instead of crashing
+                    response = None
+                    
+                    # Add breadcrumb for AGnO error
+                    add_breadcrumb(
+                        message="AGnO Agent execution failed",
+                        category="agent_error",
+                        level="error",
+                        data={
+                            "error": str(agno_error),
+                            "error_type": type(agno_error).__name__,
+                            "execution_time_ms": execution_time
+                        }
+                    )
                 
                 # Add breadcrumb for agent execution
                 add_breadcrumb(
@@ -486,32 +551,71 @@ class SDRAgent:
     
     def _extract_response_text(self, agent_response: Any) -> str:
         """
-        Extrai o texto de resposta do resultado do agente
+        Extrai o texto de resposta do resultado do agente AGnO
         
         Args:
-            agent_response: Resposta do agente AGnO
+            agent_response: Resposta do agente AGnO (RunResponse, bool, str, etc.)
             
         Returns:
             Texto da resposta
         """
         try:
-            # AGnO agent response structure may vary
-            # This is a generic extraction method
+            logger.debug(f"Extracting response from: {type(agent_response)} - {agent_response}")
             
+            # Handle AGnO RunResponse object
+            if hasattr(agent_response, 'content'):
+                content = agent_response.content
+                if content is not None:
+                    return str(content)
+                else:
+                    logger.warning("RunResponse.content is None")
+                    # Try to get content from messages
+                    if hasattr(agent_response, 'messages') and agent_response.messages:
+                        last_message = agent_response.messages[-1]
+                        if hasattr(last_message, 'content'):
+                            return str(last_message.content)
+            
+            # Handle string response
             if isinstance(agent_response, str):
                 return agent_response
             
-            if isinstance(agent_response, dict):
-                # Try common response fields
-                for field in ["response", "message", "text", "content"]:
-                    if field in agent_response:
-                        return str(agent_response[field])
+            # Handle boolean response (indicates an error in AGnO execution)
+            if isinstance(agent_response, bool):
+                logger.error(f"AGnO Agent returned boolean: {agent_response}")
+                if agent_response:
+                    return "Recebi sua mensagem, mas tive um problema ao processar. Pode me contar novamente o que precisa?"
+                else:
+                    return "Ops! Algo deu errado no meu processamento. Pode repetir sua mensagem?"
             
-            # Fallback to string representation
-            return str(agent_response)
+            # Handle dict response
+            if isinstance(agent_response, dict):
+                # Try common AGnO response fields in priority order
+                for field in ["content", "response", "message", "text"]:
+                    if field in agent_response and agent_response[field] is not None:
+                        return str(agent_response[field])
+                
+                # Try to extract from nested structures
+                if "data" in agent_response and isinstance(agent_response["data"], dict):
+                    for field in ["content", "response", "message", "text"]:
+                        if field in agent_response["data"]:
+                            return str(agent_response["data"][field])
+            
+            # Handle None response
+            if agent_response is None:
+                logger.error("AGnO Agent returned None")
+                return "Desculpe, não consegui processar sua mensagem. Pode tentar novamente?"
+            
+            # Log the unexpected response type for debugging
+            logger.warning(f"Unexpected agent response type: {type(agent_response)}")
+            logger.debug(f"Agent response content: {agent_response}")
+            
+            # Fallback to string representation for any other type
+            return str(agent_response) if agent_response else "Desculpe, não consegui processar sua mensagem."
             
         except Exception as e:
-            logger.error(f"Erro ao extrair resposta: {e}")
+            logger.error(f"Erro ao extrair resposta do agente: {e}")
+            logger.debug(f"Agent response type: {type(agent_response)}")
+            logger.debug(f"Agent response: {agent_response}")
             return "Desculpe, tive um problema ao processar sua mensagem. Pode repetir?"
     
     async def start(self):

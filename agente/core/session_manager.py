@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from enum import Enum
 from loguru import logger
 
-from agente.types import Conversation, Lead
+from agente.core.types import Conversation, Lead
 from agente.repositories import (
     ConversationRepository,
     LeadRepository,
@@ -110,11 +110,12 @@ class SessionManager:
                     # Session expired, remove from cache
                     del self.active_sessions[phone]
             
-            # Get or create conversation
-            conversation = await self.conversation_repo.get_or_create(phone)
+            # Get or create conversation (using correct method name)
+            conversation_data = await self.conversation_repo.get_or_create_conversation(phone, f"session_{phone}")
+            conversation = conversation_data[0] if isinstance(conversation_data, tuple) else conversation_data
             
-            # Get lead data
-            lead = await self.lead_repo.get_by_phone(phone)
+            # Get lead data (using correct method name)
+            lead = await self.lead_repo.get_lead_by_phone(phone)
             
             # Check if we should resume previous session
             if conversation and self._should_resume_session(conversation):
@@ -210,11 +211,11 @@ class SessionManager:
             
             session["ended_at"] = datetime.now(timezone.utc)
             
-            # Get conversation and lead
-            conversation = await self.conversation_repo.get_by_id(
-                session["conversation_id"]
+            # Get conversation and lead (using correct method names)  
+            conversation = await self.conversation_repo.get_active_conversation(
+                session.get("lead_id") if session.get("lead_id") else None
             )
-            lead = await self.lead_repo.get_by_phone(phone)
+            lead = await self.lead_repo.get_lead_by_phone(phone)
             
             # Schedule follow-ups if needed
             if lead and session["state"] != SessionState.COMPLETED.value:
@@ -331,16 +332,21 @@ class SessionManager:
         lead: Optional[Lead]
     ) -> Dict[str, Any]:
         """Create new session."""
-        # Create new conversation
-        conversation = await self.conversation_repo.create(
-            phone=phone,
-            lead_id=lead.id if lead else None,
-            platform="whatsapp",
-            metadata={
-                "session_started": datetime.now(timezone.utc).isoformat(),
-                "initial_stage": QualificationStage.INITIAL_CONTACT.value
-            }
-        )
+        # Create new conversation (using correct method name)
+        if lead:
+            conversation = await self.conversation_repo.start_conversation(
+                lead.id, 
+                f"session_{phone}_{datetime.now(timezone.utc).timestamp()}"
+            )
+        else:
+            # Create a basic conversation structure if no lead exists
+            conversation = type('Conversation', (), {
+                'id': f"temp_{phone}_{datetime.now(timezone.utc).timestamp()}",
+                'phone': phone,
+                'lead_id': None,
+                'started_at': datetime.now(timezone.utc),
+                'is_active': True
+            })()
         
         session = {
             "phone": phone,
@@ -485,8 +491,8 @@ class SessionManager:
             List of session summaries
         """
         try:
-            # Get lead
-            lead = await self.lead_repo.get_by_phone(phone)
+            # Get lead (using correct method name)
+            lead = await self.lead_repo.get_lead_by_phone(phone)
             if not lead:
                 return []
             

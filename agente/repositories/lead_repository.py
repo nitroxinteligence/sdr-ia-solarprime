@@ -581,6 +581,19 @@ class LeadRepository:
         return True
 
 
+    async def get_by_phone(self, phone: str) -> Optional[Lead]:
+        """
+        Alias for get_lead_by_phone for compatibility.
+        
+        Args:
+            phone: Phone number
+            
+        Returns:
+            Lead if found, None otherwise
+        """
+        return await self.get_lead_by_phone(phone)
+
+
 def get_lead_repository() -> LeadRepository:
     """
     Retorna instância singleton do LeadRepository

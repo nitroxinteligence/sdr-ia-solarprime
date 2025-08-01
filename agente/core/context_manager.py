@@ -17,7 +17,7 @@ if TYPE_CHECKING:
         ConversationRepository,
         LeadRepository
     )
-    from agente.types import Message, Lead, Conversation
+    from agente.core.types import Message, Lead, Conversation
 
 
 class ContextManager:
@@ -76,13 +76,13 @@ class ContextManager:
         """Initialize ContextManager with repositories."""
         # Lazy import to avoid circular dependencies
         if message_repo is None:
-            from agente.repositories import MessageRepository
+            from agente.repositories.message_repository import MessageRepository
             message_repo = MessageRepository()
         if conversation_repo is None:
-            from agente.repositories import ConversationRepository
+            from agente.repositories.conversation_repository import ConversationRepository
             conversation_repo = ConversationRepository()
         if lead_repo is None:
-            from agente.repositories import LeadRepository
+            from agente.repositories.lead_repository import LeadRepository
             lead_repo = LeadRepository()
             
         self.message_repo = message_repo
@@ -103,7 +103,12 @@ class ContextManager:
         """
         try:
             # Get conversation
-            conversation = await self.conversation_repo.get_by_phone(phone)
+            # Get active conversation for the phone
+            # First, get lead to get conversation
+            lead = await self.lead_repo.get_lead_by_phone(phone)
+            conversation = None
+            if lead:
+                conversation = await self.conversation_repo.get_active_conversation(lead.id)
             if not conversation:
                 return []
             
@@ -135,7 +140,7 @@ class ContextManager:
         """
         try:
             # Get lead
-            lead = await self.lead_repo.get_by_phone(phone)
+            lead = await self.lead_repo.get_lead_by_phone(phone)
             if not lead:
                 return {}
             
@@ -565,7 +570,7 @@ class ContextManager:
         """
         try:
             # Get lead data
-            lead = await self.lead_repo.get_by_phone(phone)
+            lead = await self.lead_repo.get_lead_by_phone(phone)
             if not lead:
                 logger.warning(f"No lead found for {phone}")
                 return {

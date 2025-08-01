@@ -121,6 +121,13 @@ class Lead(BaseModel):
     kommo_lead_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    
+    # Backward compatibility fields
+    phone: Optional[str] = None  # Alias for phone_number
+    stage: Optional[str] = None  # Alias for current_stage
+    status: Optional[str] = None
+    score: Optional[int] = None  # Alias for qualification_score
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class Conversation(BaseModel):
@@ -130,12 +137,15 @@ class Conversation(BaseModel):
     session_id: str
     started_at: datetime = Field(default_factory=datetime.now)
     ended_at: Optional[datetime] = None
+    last_message_at: Optional[datetime] = None
     total_messages: int = 0
     current_stage: Optional[str] = None
     sentiment: Optional[Literal["positivo", "neutro", "negativo"]] = None
     is_active: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    phone: Optional[str] = None  # For backward compatibility
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class Message(BaseModel):
@@ -149,6 +159,10 @@ class Message(BaseModel):
     media_url: Optional[str] = None
     media_data: Optional[Dict[str, Any]] = None
     created_at: datetime = Field(default_factory=datetime.now)
+    
+    # Backward compatibility fields
+    timestamp: Optional[datetime] = None  # Alias for created_at
+    direction: Optional[str] = None  # "incoming" or "outgoing"
 
 
 class LeadQualification(BaseModel):
