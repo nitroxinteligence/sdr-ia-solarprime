@@ -209,7 +209,8 @@ class SupabaseService:
                 .execute()
             )
             
-            if result.data:
+            # Verificação robusta para maybe_single() que pode retornar None
+            if result and hasattr(result, 'data') and result.data:
                 return Lead(**result.data)
             return None
             

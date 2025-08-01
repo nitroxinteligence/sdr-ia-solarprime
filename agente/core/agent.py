@@ -360,13 +360,17 @@ class SDRAgent:
                 start_time = time.time()
                 
                 try:
-                    # Check if agent.run is async
-                    if hasattr(self.agent.run, '__call__'):
+                    # AGnO Agent deve usar arun() para tools async
+                    if hasattr(self.agent, 'arun'):
+                        logger.debug("Using AGnO agent.arun() for async tools")
+                        response = await self.agent.arun(agent_input)
+                    elif hasattr(self.agent.run, '__call__'):
                         import inspect
                         if inspect.iscoroutinefunction(self.agent.run):
                             response = await self.agent.run(agent_input)
                         else:
-                            # AGnO run method is synchronous
+                            # AGnO run method is synchronous but tools are async - this will fail
+                            logger.warning("Using synchronous agent.run() with async tools - may cause errors")
                             response = self.agent.run(agent_input)
                     else:
                         logger.error("AGnO Agent run method is not callable")
