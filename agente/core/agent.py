@@ -195,8 +195,6 @@ class SDRAgent:
             
             # Criar toolkit com todas as tools
             self.toolkit = Toolkit(
-                show_tool_results=True,
-                tools_to_stop_on=["create_meeting", "create_lead"],
                 tools=[
                     # WhatsApp Tools
                     send_text_message,
