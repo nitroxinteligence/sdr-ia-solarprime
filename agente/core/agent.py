@@ -116,13 +116,20 @@ class SDRAgent:
         
     def _load_system_prompt(self) -> str:
         """Carrega o prompt do sistema do arquivo"""
-        prompt_file = AGENTE_DIR / "prompts" / "system_prompt.md"
+        # PRIORIDADE: Usar prompt master completo primeiro
+        prompt_master_file = AGENTE_DIR / "prompts" / "prompt_master_completo.md"
+        prompt_basic_file = AGENTE_DIR / "prompts" / "system_prompt.md"
         
-        if prompt_file.exists():
-            with open(prompt_file, 'r', encoding='utf-8') as f:
+        if prompt_master_file.exists():
+            logger.info("🚀 Carregando PROMPT MASTER COMPLETO - Helen Vieira Ultra-Humanizada")
+            with open(prompt_master_file, 'r', encoding='utf-8') as f:
+                return f.read()
+        elif prompt_basic_file.exists():
+            logger.warning("⚠️ Usando prompt básico - prompt master não encontrado")
+            with open(prompt_basic_file, 'r', encoding='utf-8') as f:
                 return f.read()
         else:
-            logger.warning("Arquivo de prompt não encontrado, usando prompt básico")
+            logger.error("❌ Nenhum arquivo de prompt encontrado, usando prompt básico")
             return self._get_basic_prompt()
     
     def _get_basic_prompt(self) -> str:
