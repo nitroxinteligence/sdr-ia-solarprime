@@ -534,7 +534,10 @@ class ConversationRepository:
         Returns:
             Conversation object
         """
-        conversation_data = await self.get_or_create_conversation(phone, f"session_{phone}")
+        # Generate unique session_id to avoid duplicate key constraint
+        import uuid
+        unique_session_id = f"session_{phone}_{str(uuid.uuid4())[:8]}"
+        conversation_data = await self.get_or_create_conversation(phone, unique_session_id)
         return conversation_data[0] if isinstance(conversation_data, tuple) else conversation_data
     
     async def update_last_message_at(self, conversation_id: UUID, timestamp: datetime) -> bool:

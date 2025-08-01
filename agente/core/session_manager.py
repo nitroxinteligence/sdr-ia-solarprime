@@ -111,8 +111,9 @@ class SessionManager:
                     # Session expired, remove from cache
                     del self.active_sessions[phone]
             
-            # Get or create conversation (using correct method name)
-            conversation_data = await self.conversation_repo.get_or_create_conversation(phone, f"session_{phone}")
+            # Get or create conversation (using correct method name) with unique session_id
+            unique_session_id = f"session_{phone}_{str(uuid.uuid4())[:8]}"
+            conversation_data = await self.conversation_repo.get_or_create_conversation(phone, unique_session_id)
             conversation = conversation_data[0] if isinstance(conversation_data, tuple) else conversation_data
             
             # Get lead data (using correct method name)
