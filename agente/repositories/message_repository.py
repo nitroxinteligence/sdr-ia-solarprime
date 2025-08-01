@@ -166,7 +166,7 @@ class MessageRepository:
             logger.error(f"Erro ao salvar mensagem através do método genérico: {e}")
             raise
 
-    def get_conversation_messages(
+    async def get_conversation_messages(
         self, conversation_id: UUID, limit: int = 100
     ) -> List[Message]:
         """
@@ -193,9 +193,10 @@ class MessageRepository:
                     )
                     return cached_data["messages"]
 
-            # Busca no banco
-            result = (
-                self.supabase.client.table("messages")
+            # Busca no banco - uso assíncrono para não bloquear
+            import asyncio
+            result = await asyncio.to_thread(
+                lambda: self.supabase.client.table("messages")
                 .select("*")
                 .eq("conversation_id", str(conversation_id))
                 .order("created_at", desc=True)
@@ -228,7 +229,7 @@ class MessageRepository:
             logger.error(f"Erro ao buscar mensagens da conversa: {e}")
             raise
 
-    def get_last_messages_by_phone(self, phone: str, limit: int = 100) -> List[Message]:
+    async def get_last_messages_by_phone(self, phone: str, limit: int = 100) -> List[Message]:
         """
         Busca últimas mensagens de um telefone (join com conversations)
 
@@ -240,9 +241,11 @@ class MessageRepository:
             List[Message]: Lista de mensagens ordenadas por data (mais recentes primeiro)
         """
         try:
-            # Primeiro busca as conversas do telefone
-            conversations_result = (
-                self.supabase.client.table("conversations")
+            import asyncio
+            
+            # Primeiro busca as conversas do telefone - uso assíncrono
+            conversations_result = await asyncio.to_thread(
+                lambda: self.supabase.client.table("conversations")
                 .select("id")
                 .eq("phone", phone)
                 .execute()
@@ -255,9 +258,9 @@ class MessageRepository:
             # Extrai IDs das conversas
             conversation_ids = [conv["id"] for conv in conversations_result.data]
 
-            # Busca mensagens de todas as conversas
-            result = (
-                self.supabase.client.table("messages")
+            # Busca mensagens de todas as conversas - uso assíncrono
+            result = await asyncio.to_thread(
+                lambda: self.supabase.client.table("messages")
                 .select("*")
                 .in_("conversation_id", conversation_ids)
                 .order("created_at", desc=True)

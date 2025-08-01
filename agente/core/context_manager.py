@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Any, TYPE_CHECKING
 from datetime import datetime, timedelta
 from loguru import logger
 
-# Avoid circular imports
+# Avoid circular imports  
 if TYPE_CHECKING:
     from agente.repositories import (
         MessageRepository,
@@ -18,6 +18,9 @@ if TYPE_CHECKING:
         LeadRepository
     )
     from agente.core.types import Message, Lead, Conversation
+
+# Import MessageRole para uso geral
+from agente.core.types import MessageRole
 
 
 class ContextManager:
@@ -269,7 +272,7 @@ class ContextManager:
             # Get last 10 lead messages
             lead_messages = [
                 m for m in messages[-20:] 
-                if m.direction == "incoming" and m.content
+                if m.role == MessageRole.USER and m.content
             ][-10:]
             
             if not lead_messages:
@@ -469,7 +472,7 @@ class ContextManager:
             
             # Analyze all messages
             for msg in messages:
-                if msg.direction != "incoming" or not msg.content:
+                if msg.role != MessageRole.USER or not msg.content:
                     continue
                 
                 content = msg.content
@@ -659,7 +662,7 @@ class ContextManager:
             messages = context.get("messages", [])
             recent_lead_messages = [
                 m for m in messages[-10:]
-                if m.direction == "incoming" and m.content
+                if m.role == MessageRole.USER and m.content
             ]
             
             question_count = 0
@@ -726,9 +729,9 @@ class ContextManager:
             last_outgoing = None
             
             for msg in messages:
-                if msg.direction == "outgoing":
+                if msg.role == MessageRole.ASSISTANT:
                     last_outgoing = msg.timestamp
-                elif msg.direction == "incoming" and last_outgoing:
+                elif msg.role == MessageRole.USER and last_outgoing:
                     response_time = msg.timestamp - last_outgoing
                     if timedelta(0) < response_time < timedelta(days=1):
                         response_times.append(response_time)
@@ -789,7 +792,7 @@ class ContextManager:
             # 4. Preparar contexto de mensagens para o agente
             messages_context = []
             for msg in messages[-10:]:  # Últimas 10 mensagens para contexto
-                role = "user" if msg.role == "user" else "assistant"
+                role = "user" if msg.role == MessageRole.USER else "assistant"
                 messages_context.append(f"{role}: {msg.content}")
             
             # 5. Preparar contexto de conhecimento

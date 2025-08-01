@@ -203,13 +203,15 @@ class SDRAgent:
             if not GEMINI_API_KEY:
                 raise ValueError("GEMINI_API_KEY not configured")
             
-            # Configurar modelo Gemini com configurações mais específicas
+            # Configurar modelo Gemini 2.5 Pro - Recomendado para reasoning complexo e coding
             model = Gemini(
-                id="gemini-2.0-flash-exp",
+                id="gemini-2.5-pro",
                 api_key=GEMINI_API_KEY,
-                temperature=0.7,  # Mais criativo para conversas naturais
-                max_output_tokens=2048,  # Limite adequado para respostas
-                top_p=0.9
+                temperature=0.7,  # Balanceado para conversas naturais e precisão
+                max_output_tokens=4096,  # Maior limite para respostas mais detalhadas
+                top_p=0.9,
+                # Gemini 2.5 Pro suporta thinking budget mínimo de 128
+                thinking_budget=128  # Habilita capacidade de raciocínio avançado
             )
             
             # Carregar prompts
@@ -287,8 +289,11 @@ class SDRAgent:
                 raise AttributeError("AGnO Agent missing 'run' method")
             
             logger.info(f"✅ Agente {self.name} inicializado com sucesso")
-            logger.info(f"   - Modelo: {model.id}")
+            logger.info(f"   - Modelo: {model.id} (Gemini 2.5 Pro - Advanced Reasoning)")
             logger.info(f"   - Tools: {tool_count}")
+            logger.info(f"   - Thinking Budget: 128 (reasoning avançado habilitado)")
+            logger.info(f"   - Temperature: {model.temperature}")
+            logger.info(f"   - Max Tokens: {model.max_output_tokens}")
             logger.info(f"   - Reasoning: {self.agent.reasoning}")
             logger.info(f"   - Debug: {DEBUG}")
             
