@@ -2,7 +2,7 @@
 Tool para salvar mensagem na conversa (com suporte multimodal)
 """
 
-from agno.tools import tool
+# from agno.tools import tool  # Removido devido ao bug #2296 com async functions
 from typing import Optional, Dict, Any
 from uuid import UUID, uuid4
 from datetime import datetime
@@ -14,7 +14,9 @@ from ...core.logger import setup_module_logger
 logger = setup_module_logger(__name__)
 
 
-@tool(show_result=True)
+# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
+# Removendo @tool decorator conforme documentação oficial AGnO
+# Issue #2296: https://github.com/agno-agi/agno/issues/2296
 async def save_message(
     conversation_id: str,
     content: str,

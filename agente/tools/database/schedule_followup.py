@@ -2,7 +2,6 @@
 Tool para agendar follow-up inteligente
 """
 
-from agno.tools import tool
 from loguru import logger
 from typing import Optional, Dict, Any
 from uuid import UUID
@@ -19,7 +18,9 @@ DEFAULT_FIRST_FOLLOW_UP_MINUTES = 30
 DEFAULT_SECOND_FOLLOW_UP_HOURS = 24
 
 
-@tool(show_result=True, stop_after_tool_call=False)
+# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
+# Removendo @tool decorator conforme documentação oficial AGnO
+# Issue #2296: https://github.com/agno-agi/agno/issues/2296
 async def schedule_followup(
     lead_id: Optional[str] = None,
     phone: Optional[str] = None,

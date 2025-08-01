@@ -12,7 +12,9 @@ from ...services import get_evolution_service
 from ...core.config import AI_TYPING_DELAY_MAX
 
 
-@tool(show_result=True)
+# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
+# Removendo @tool decorator conforme documentação oficial AGnO
+# Issue #2296: https://github.com/agno-agi/agno/issues/2296
 async def simulate_typing(
     text: str,
     phone: Optional[str] = None,

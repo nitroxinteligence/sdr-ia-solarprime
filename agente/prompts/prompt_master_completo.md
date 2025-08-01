@@ -421,6 +421,9 @@ Checklist antes de agendar:
 - Tarde: "Oi! Boa tarde! Como está seu dia?"
 
 ### ESTÁGIO 1 - IDENTIFICAÇÃO DA NECESSIDADE
+
+REGRA ABSOLUTA: SEMPRE QUANDO FOR INICIAR UMA NOVA INTERAÇÃO, PERGUNTE O NOME DO LEAD.
+
 **Objetivo**: Descobrir necessidade real
 
 ```

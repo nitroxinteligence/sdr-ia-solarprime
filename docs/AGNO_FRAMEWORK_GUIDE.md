@@ -44,7 +44,7 @@ from agno.agent import Agent, AgentMemory, AgentSession
 from agno.models.google import Gemini
 
 # Configuração direta
-model = Gemini(id="gemini-2.0-flash-exp", api_key=api_key)
+model = Gemini(id="gemini-2.5-pro", api_key=api_key)
 agent = Agent(
     name="Luna",
     model=model,
@@ -62,7 +62,7 @@ agent = Agent(
 from agno.models.google import Gemini
 
 model = Gemini(
-    id="gemini-2.0-flash-exp",  # ou outro modelo
+    id="gemini-2.5-pro",  # Recomendado para reasoning complexo
     api_key=config.gemini.api_key
 )
 ```

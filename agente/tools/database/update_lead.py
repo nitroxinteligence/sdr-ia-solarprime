@@ -2,7 +2,6 @@
 Tool para atualizar dados do lead existente
 """
 
-from agno.tools import tool
 from loguru import logger
 from typing import Optional, Dict, Any, List
 from uuid import UUID
@@ -14,7 +13,9 @@ from ...core.logger import setup_module_logger
 logger = setup_module_logger(__name__)
 
 
-@tool(show_result=True)
+# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
+# Removendo @tool decorator conforme documentação oficial AGnO
+# Issue #2296: https://github.com/agno-agi/agno/issues/2296
 async def update_lead(
     lead_id: Optional[str] = None,
     phone: Optional[str] = None,

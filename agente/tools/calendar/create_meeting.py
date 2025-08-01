@@ -5,14 +5,15 @@ Tool para criar reuniões no Google Calendar com Google Meet
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from agno.tools import tool
 from loguru import logger
 
 from ...services import get_calendar_service
 from ...core.types import CalendarEvent
 
 
-@tool(show_result=True, stop_after_tool_call=True)
+# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
+# Removendo @tool decorator conforme documentação oficial AGnO
+# Issue #2296: https://github.com/agno-agi/agno/issues/2296
 async def create_meeting(
     title: str,
     date: str,

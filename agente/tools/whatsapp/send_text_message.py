@@ -11,7 +11,9 @@ from ...core.types import MessageRole
 from ...core.tool_monitoring import monitor_tool
 
 
-@tool(show_result=True)
+# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
+# Removendo @tool decorator conforme documentação oficial AGnO
+# Issue #2296: https://github.com/agno-agi/agno/issues/2296
 @monitor_tool("whatsapp.send_text_message")
 async def send_text_message(
     text: str,

@@ -5,13 +5,15 @@ Tool para enviar convite de calendário via WhatsApp
 from typing import Dict, Optional
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from agno.tools import tool
+# from agno.tools import tool  # Removido devido ao bug #2296 com async functions
 from loguru import logger
 
 from ...services import get_calendar_service, get_evolution_service
 
 
-@tool(show_result=True, stop_after_tool_call=True)
+# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
+# Removendo @tool decorator conforme documentação oficial AGnO
+# Issue #2296: https://github.com/agno-agi/agno/issues/2296
 async def send_calendar_invite(
     phone_number: str,
     meeting_id: str,
