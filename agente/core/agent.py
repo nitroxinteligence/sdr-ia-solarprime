@@ -442,23 +442,40 @@ class SDRAgent:
                     
                 except Exception as agno_error:
                     execution_time = (time.time() - start_time) * 1000
-                    logger.error(f"AGnO Agent execution failed: {agno_error}")
-                    logger.debug(f"Agent input was: {agent_input}")
+                    error_str = str(agno_error)
+                    error_type = type(agno_error).__name__
+                    
+                    logger.error(f"AGnO Agent execution failed: {error_type}: {error_str}")
+                    logger.debug(f"Agent input was: {agent_input[:200]}...")
+                    
+                    # Enhanced error handling for specific AGnO issues
+                    if "timeout" in error_str.lower():
+                        logger.warning("AGnO timeout detected - consider increasing timeout or reducing input complexity")
+                    elif "token" in error_str.lower() and "limit" in error_str.lower():
+                        logger.warning("Token limit exceeded - input may be too large")
+                    elif "connection" in error_str.lower():
+                        logger.warning("Connection issue with AGnO/Gemini API")
+                    elif "rate" in error_str.lower() and "limit" in error_str.lower():
+                        logger.warning("Rate limit hit - may need backoff strategy")
+                    
                     import traceback
                     logger.debug(f"Full traceback: {traceback.format_exc()}")
                     
-                    # Return fallback response instead of crashing
+                    # Return fallback response with context instead of crashing
                     response = None
                     
-                    # Add breadcrumb for AGnO error
+                    # Add breadcrumb for AGnO error with enhanced context
                     add_breadcrumb(
                         message="AGnO Agent execution failed",
                         category="agent_error",
                         level="error",
                         data={
-                            "error": str(agno_error),
-                            "error_type": type(agno_error).__name__,
-                            "execution_time_ms": execution_time
+                            "error": error_str[:500],  # Limit error message length
+                            "error_type": error_type,
+                            "execution_time_ms": execution_time,
+                            "input_length": len(agent_input),
+                            "context_sections": len(context_parts) if 'context_parts' in locals() else 0,
+                            "reasoning_enabled": use_reasoning
                         }
                     )
                 
@@ -641,29 +658,40 @@ class SDRAgent:
             
             # Handle boolean response (indicates an error in AGnO execution)
             if isinstance(agent_response, bool):
-                logger.error(f"AGnO Agent returned boolean: {agent_response}")
+                logger.error(f"AGnO Agent returned boolean: {agent_response} - This indicates an execution error")
                 if agent_response:
                     return "Recebi sua mensagem, mas tive um problema ao processar. Pode me contar novamente o que precisa?"
                 else:
                     return "Ops! Algo deu errado no meu processamento. Pode repetir sua mensagem?"
             
-            # Handle dict response
+            # Handle dict response with enhanced extraction
             if isinstance(agent_response, dict):
+                logger.debug(f"AGnO returned dict with keys: {list(agent_response.keys())}")
+                
                 # Try common AGnO response fields in priority order
-                for field in ["content", "response", "message", "text"]:
+                for field in ["content", "response", "message", "text", "answer", "output"]:
                     if field in agent_response and agent_response[field] is not None:
-                        return str(agent_response[field])
+                        response_text = str(agent_response[field]).strip()
+                        if response_text:  # Only return non-empty responses
+                            return response_text
                 
                 # Try to extract from nested structures
                 if "data" in agent_response and isinstance(agent_response["data"], dict):
-                    for field in ["content", "response", "message", "text"]:
-                        if field in agent_response["data"]:
-                            return str(agent_response["data"][field])
+                    for field in ["content", "response", "message", "text", "answer", "output"]:
+                        if field in agent_response["data"] and agent_response["data"][field] is not None:
+                            response_text = str(agent_response["data"][field]).strip()
+                            if response_text:
+                                return response_text
+                
+                # Check for error fields in dict response
+                if "error" in agent_response:
+                    logger.error(f"AGnO returned error in dict: {agent_response['error']}")
+                    return "Desculpe, encontrei um problema ao processar sua mensagem. Pode tentar reformular?"
             
             # Handle None response
             if agent_response is None:
-                logger.error("AGnO Agent returned None")
-                return "Desculpe, não consegui processar sua mensagem. Pode tentar novamente?"
+                logger.error("AGnO Agent returned None - possible timeout or API failure")
+                return "Desculpe, não consegui processar sua mensagem no momento. Pode tentar novamente?"
             
             # Log the unexpected response type for debugging
             logger.warning(f"Unexpected agent response type: {type(agent_response)}")

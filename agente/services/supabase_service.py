@@ -228,7 +228,10 @@ class SupabaseService:
     @retry_on_error(max_attempts=3)
     async def get_or_create_lead(self, phone: str, name: str = None, **kwargs) -> Lead:
         """
-        Busca um lead pelo telefone ou cria um novo se não existir.
+        Busca um lead pelo telefone ou cria um novo se não existir usando UPSERT atômico.
+        
+        Implementa ON CONFLICT DO UPDATE para resolver race conditions quando
+        múltiplas requisições tentam criar leads com o mesmo phone_number.
         
         Args:
             phone: Número de telefone do lead
@@ -239,13 +242,13 @@ class SupabaseService:
             Lead encontrado ou criado
         """
         try:
-            # Tentar buscar lead existente
+            # Primeiro tentar buscar lead existente para otimização
             existing_lead = await self.get_lead_by_phone(phone)
             if existing_lead:
                 logger.info(f"Lead existente encontrado: {phone}")
                 return existing_lead
             
-            # Se não encontrou, criar novo lead
+            # Se não encontrou, usar UPSERT atômico
             from ..core.types import Lead, LeadStage
             
             lead_data = {
@@ -257,11 +260,28 @@ class SupabaseService:
                 **kwargs  # Campos adicionais fornecidos
             }
             
-            new_lead = Lead(**lead_data)
-            created_lead = await self.create_lead(new_lead)
+            # Converter enums para strings
+            if "current_stage" in lead_data:
+                lead_data["current_stage"] = lead_data["current_stage"].value
+            if "property_type" in lead_data and hasattr(lead_data["property_type"], "value"):
+                lead_data["property_type"] = lead_data["property_type"].value
             
-            logger.info(f"✅ Novo lead criado automaticamente: {phone} (ID: {created_lead.id})")
-            return created_lead
+            # Converter datetime para strings ISO
+            lead_data = convert_datetime_to_isostring(lead_data)
+            
+            # Usar UPSERT atômico com ON CONFLICT DO UPDATE
+            result = await asyncio.to_thread(
+                lambda: self.client.table("leads")
+                .upsert(lead_data, on_conflict="phone_number", ignore_duplicates=False)
+                .execute()
+            )
+            
+            if result.data and len(result.data) > 0:
+                created_lead = Lead(**result.data[0])
+                logger.info(f"✅ Lead criado/atualizado atomicamente: {phone} (ID: {created_lead.id})")
+                return created_lead
+            else:
+                raise ValueError("Nenhum dado retornado após criar/atualizar lead")
             
         except Exception as e:
             logger.error(f"❌ Erro ao buscar/criar lead: {str(e)}")
@@ -324,13 +344,16 @@ class SupabaseService:
     @retry_on_error(max_attempts=3)
     async def create_conversation(self, conversation: Conversation) -> Conversation:
         """
-        Cria uma nova conversa no banco de dados.
+        Cria uma nova conversa no banco de dados usando UPSERT atômico.
+        
+        Implementa ON CONFLICT DO UPDATE para resolver race conditions quando
+        múltiplas requisições tentam criar conversas com o mesmo session_id.
         
         Args:
             conversation: Objeto Conversation com os dados da nova conversa
             
         Returns:
-            Conversa criada com ID preenchido
+            Conversa criada ou atualizada com ID preenchido
         """
         try:
             # Converter para dict
@@ -343,19 +366,23 @@ class SupabaseService:
             # Converter datetime para strings ISO
             conv_data = convert_datetime_to_isostring(conv_data)
             
+            # Implementar UPSERT atômico usando ON CONFLICT DO UPDATE
+            # Se session_id já existe, atualizar ao invés de falhar
             result = await asyncio.to_thread(
-                lambda: self.client.table("conversations").insert(conv_data).execute()
+                lambda: self.client.table("conversations")
+                .upsert(conv_data, on_conflict="session_id", ignore_duplicates=False)
+                .execute()
             )
             
             if result.data and len(result.data) > 0:
                 created_conv = Conversation(**result.data[0])
-                logger.info(f"✅ Conversa criada: {created_conv.session_id} (ID: {created_conv.id})")
+                logger.info(f"✅ Conversa criada/atualizada: {created_conv.session_id} (ID: {created_conv.id})")
                 return created_conv
             else:
-                raise ValueError("Nenhum dado retornado após criação da conversa")
+                raise ValueError("Nenhum dado retornado após criar/atualizar conversa")
                 
         except Exception as e:
-            logger.error(f"❌ Erro ao criar conversa: {str(e)}")
+            logger.error(f"❌ Erro ao criar/atualizar conversa: {str(e)}")
             raise
     
     @retry_on_error(max_attempts=3)

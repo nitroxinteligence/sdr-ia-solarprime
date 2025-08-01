@@ -459,17 +459,30 @@ async def process_message_async(message: WhatsAppMessage):
         )
         
         # 🚨 CRÍTICO: Salvar mensagem do usuário ANTES do processamento
+        # Usar context dict para armazenar dados da conversa em vez de modificar Pydantic
+        message_context = {
+            "conversation_id": None,
+            "conversation": None,
+            "is_new_conversation": False,
+            "save_error": None
+        }
+        
         try:
             from agente.repositories import get_conversation_repository, get_message_repository
             
             conv_repo = get_conversation_repository()
             msg_repo = get_message_repository()
             
-            # Obter/criar conversa (com lead automático)
+            # Obter/criar conversa (com lead automático) - agora com UPSERT atômico
             conversation, is_new = await conv_repo.get_or_create_conversation(
                 phone=message.phone,
                 session_id=message.instance_id or "default"
             )
+            
+            # Armazenar no context dict
+            message_context["conversation_id"] = conversation.id
+            message_context["conversation"] = conversation
+            message_context["is_new_conversation"] = is_new
             
             if is_new:
                 logger.info(f"✅ Nova conversa criada para {message.phone}: {conversation.id}")
@@ -494,13 +507,10 @@ async def process_message_async(message: WhatsAppMessage):
             
             logger.info(f"💾 Mensagem do usuário salva: {user_message.id} (conversa: {conversation.id})")
             
-            # Armazenar conversation_id para uso posterior (não podemos adicionar ao Pydantic dinamicamente)
-            conversation_id_for_message = conversation.id
-            
         except Exception as save_error:
             logger.error(f"❌ ERRO ao salvar mensagem do usuário: {save_error}")
+            message_context["save_error"] = str(save_error)
             # Não bloqueamos o processamento por erro de salvamento
-            message.conversation_id = None
         
         # Process reactions FIRST (before agent processing)
         reaction_manager = get_reaction_manager()
@@ -521,19 +531,19 @@ async def process_message_async(message: WhatsAppMessage):
             logger.info(f"✅ Message processed successfully for {message.phone}")
             
             # 🚨 CRÍTICO: Salvar resposta do agente no banco APÓS processamento
-            if response.message and 'conversation_id_for_message' in locals():
+            if response.message and message_context["conversation_id"] is not None:
                 try:
                     from agente.repositories import get_message_repository
                     
                     msg_repo = get_message_repository()
                     
-                    # Salvar resposta do agente
+                    # Salvar resposta do agente usando context dict
                     agent_message = await msg_repo.save_assistant_message(
-                        conversation_id=conversation_id_for_message,
+                        conversation_id=message_context["conversation_id"],
                         content=response.message
                     )
                     
-                    logger.info(f"💾 Resposta do agente salva: {agent_message.id} (conversa: {conversation_id_for_message})")
+                    logger.info(f"💾 Resposta do agente salva: {agent_message.id} (conversa: {message_context['conversation_id']})")
                     
                 except Exception as save_error:
                     logger.error(f"❌ ERRO ao salvar resposta do agente: {save_error}")
@@ -598,15 +608,33 @@ async def process_message_async(message: WhatsAppMessage):
             )
             
     except Exception as e:
-        logger.error(f"Error in async message processing: {e}")
+        error_str = str(e)
+        error_type = type(e).__name__
         
-        # Capture exception
+        # Enhanced error logging with context
+        logger.error(f"Error in async message processing: {error_type}: {error_str}")
+        logger.error(f"Message context: phone={message.phone[:4]}****, id={message.message_id}")
+        logger.error(f"Message save context: {message_context}")
+        
+        # Specific error handling for known issues
+        if "duplicate key value violates unique constraint" in error_str:
+            logger.warning("Database constraint violation detected - likely resolved by UPSERT improvements")
+        elif "WhatsAppMessage" in error_str and "conversation_id" in error_str:
+            logger.warning("Pydantic field access error detected - likely resolved by context dict approach")
+        elif "connection" in error_str.lower() or "timeout" in error_str.lower():
+            logger.error("Network/connection issue detected - may need retry mechanism")
+        
+        # Capture exception with enhanced context
         capture_agent_error(
             e,
             context={
                 "phase": "message_processing",
                 "phone": message.phone[:4] + "****",
-                "message_id": message.message_id
+                "message_id": message.message_id,
+                "error_type": error_type,
+                "message_context": message_context,
+                "has_media": bool(message.media_url),
+                "instance_id": message.instance_id
             }
         )
 

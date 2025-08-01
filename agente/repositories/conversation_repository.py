@@ -3,6 +3,7 @@ Repository para gerenciamento de conversas
 Implementa a lógica de negócio para conversas do sistema
 """
 
+import asyncio
 from typing import List, Optional, Dict, Tuple
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
@@ -88,7 +89,10 @@ class ConversationRepository:
     
     async def get_or_create_conversation(self, phone: str, session_id: str) -> Tuple[Conversation, bool]:
         """
-        Busca conversa ativa ou cria uma nova.
+        Busca conversa ativa ou cria uma nova com tratamento robusto de race conditions.
+        
+        Implementa retry logic especializado para constraint violations e utiliza
+        UPSERT atômico para evitar erros de concorrência.
         
         Args:
             phone: Número de telefone do lead
@@ -100,51 +104,111 @@ class ConversationRepository:
         Note:
             Verifica timeout antes de retornar conversa existente
         """
-        try:
-            # Buscar ou criar lead automaticamente
+        max_retries = 3
+        retry_delay = 0.5
+        
+        for attempt in range(max_retries):
             try:
-                lead = await self.supabase.get_or_create_lead(
-                    phone=phone,
-                    name=f"Lead {phone[-4:]}"  # Nome padrão baseado nos últimos 4 dígitos
-                )
-                logger.info(f"Lead obtido/criado para: {phone} (ID: {lead.id})")
-            except Exception as lead_error:
-                logger.error(f"Erro ao obter/criar lead para {phone}: {lead_error}")
-                # Fallback: tentar apenas buscar
-                lead = await self.supabase.get_lead_by_phone(phone)
-                if not lead or not lead.id:
-                    logger.error(f"Lead não encontrado e não foi possível criar para: {phone}")
-                    raise ValueError(f"Lead não encontrado para telefone: {phone}")
-            
-            # Buscar conversa ativa
-            active_conversation = await self.get_active_conversation(lead.id)
-            
-            if active_conversation:
-                # Verificar timeout
-                is_timed_out = await self.check_conversation_timeout(active_conversation.id)
-                if is_timed_out:
-                    logger.info(f"Conversa {active_conversation.id} expirou por timeout")
-                    await self.end_conversation(
-                        active_conversation.id,
-                        summary="Conversa finalizada por timeout (30 minutos de inatividade)"
+                # Buscar ou criar lead automaticamente (agora com UPSERT atômico)
+                try:
+                    lead = await self.supabase.get_or_create_lead(
+                        phone=phone,
+                        name=f"Lead {phone[-4:]}"  # Nome padrão baseado nos últimos 4 dígitos
                     )
-                    # Criar nova conversa
+                    logger.info(f"Lead obtido/criado para: {phone} (ID: {lead.id})")
+                except Exception as lead_error:
+                    # Tratar erro de constraint violation especificamente
+                    if "duplicate key value violates unique constraint" in str(lead_error):
+                        logger.warning(f"Lead já existe (constraint violation), tentando buscar: {phone}")
+                        lead = await self.supabase.get_lead_by_phone(phone)
+                        if lead:
+                            logger.info(f"Lead encontrado após constraint violation: {phone} (ID: {lead.id})")
+                        else:
+                            raise ValueError(f"Lead não encontrado após constraint violation: {phone}")
+                    else:
+                        logger.error(f"Erro ao obter/criar lead para {phone}: {lead_error}")
+                        # Fallback: tentar apenas buscar
+                        lead = await self.supabase.get_lead_by_phone(phone)
+                        if not lead or not lead.id:
+                            logger.error(f"Lead não encontrado e não foi possível criar para: {phone}")
+                            raise ValueError(f"Lead não encontrado para telefone: {phone}")
+                
+                # Buscar conversa ativa
+                active_conversation = await self.get_active_conversation(lead.id)
+                
+                if active_conversation:
+                    # Verificar timeout
+                    is_timed_out = await self.check_conversation_timeout(active_conversation.id)
+                    if is_timed_out:
+                        logger.info(f"Conversa {active_conversation.id} expirou por timeout")
+                        await self.end_conversation(
+                            active_conversation.id,
+                            summary="Conversa finalizada por timeout (30 minutos de inatividade)"
+                        )
+                        # Criar nova conversa
+                        new_conversation = await self.start_conversation(lead.id, session_id)
+                        return (new_conversation, True)
+                    else:
+                        # Atualizar session_id se mudou
+                        if active_conversation.session_id != session_id:
+                            logger.info(f"Atualizando session_id da conversa {active_conversation.id}")
+                            # Aqui você poderia implementar um update do session_id se necessário
+                        return (active_conversation, False)
+                else:
+                    # Criar nova conversa (agora com UPSERT atômico)
                     new_conversation = await self.start_conversation(lead.id, session_id)
                     return (new_conversation, True)
-                else:
-                    # Atualizar session_id se mudou
-                    if active_conversation.session_id != session_id:
-                        logger.info(f"Atualizando session_id da conversa {active_conversation.id}")
-                        # Aqui você poderia implementar um update do session_id se necessário
-                    return (active_conversation, False)
-            else:
-                # Criar nova conversa
-                new_conversation = await self.start_conversation(lead.id, session_id)
-                return (new_conversation, True)
+                    
+            except Exception as e:
+                error_str = str(e)
                 
-        except Exception as e:
-            logger.error(f"❌ Erro ao buscar/criar conversa: {str(e)}")
-            raise
+                # Tratar constraint violations especificamente
+                if "duplicate key value violates unique constraint" in error_str and "session_id" in error_str:
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            f"Constraint violation na tentativa {attempt + 1}/{max_retries} "
+                            f"para session_id {session_id}. Tentando novamente em {retry_delay}s..."
+                        )
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    else:
+                        # Última tentativa - tentar buscar conversa existente pelo session_id
+                        logger.error(f"Todas as tentativas falharam por constraint violation. Tentando buscar conversa existente...")
+                        try:
+                            # Buscar conversa pelo session_id diretamente
+                            result = await asyncio.to_thread(
+                                lambda: self.supabase.client.table("conversations")
+                                .select("*")
+                                .eq("session_id", session_id)
+                                .eq("is_active", True)
+                                .limit(1)
+                                .execute()
+                            )
+                            
+                            if result.data and len(result.data) > 0:
+                                from ..core.types import Conversation
+                                existing_conv = Conversation(**result.data[0])
+                                logger.info(f"Conversa existente encontrada pelo session_id: {existing_conv.id}")
+                                return (existing_conv, False)
+                        except Exception as search_error:
+                            logger.error(f"Erro ao buscar conversa existente: {search_error}")
+                
+                # Para outros erros ou se não conseguiu resolver constraint violation
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Erro na tentativa {attempt + 1}/{max_retries}: {error_str}. "
+                        f"Tentando novamente em {retry_delay}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                else:
+                    logger.error(f"❌ Erro final ao buscar/criar conversa após {max_retries} tentativas: {error_str}")
+                    raise
+        
+        # Este ponto nunca deve ser alcançado, mas é necessário para o type checker
+        raise RuntimeError(f"Falha inesperada após {max_retries} tentativas")
     
     async def get_active_conversation(self, lead_id: UUID) -> Optional[Conversation]:
         """
