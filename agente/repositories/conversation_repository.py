@@ -101,11 +101,20 @@ class ConversationRepository:
             Verifica timeout antes de retornar conversa existente
         """
         try:
-            # Buscar lead pelo telefone
-            lead = await self.supabase.get_lead_by_phone(phone)
-            if not lead or not lead.id:
-                logger.warning(f"Lead não encontrado para telefone: {phone}")
-                raise ValueError(f"Lead não encontrado para telefone: {phone}")
+            # Buscar ou criar lead automaticamente
+            try:
+                lead = await self.supabase.get_or_create_lead(
+                    phone=phone,
+                    name=f"Lead {phone[-4:]}"  # Nome padrão baseado nos últimos 4 dígitos
+                )
+                logger.info(f"Lead obtido/criado para: {phone} (ID: {lead.id})")
+            except Exception as lead_error:
+                logger.error(f"Erro ao obter/criar lead para {phone}: {lead_error}")
+                # Fallback: tentar apenas buscar
+                lead = await self.supabase.get_lead_by_phone(phone)
+                if not lead or not lead.id:
+                    logger.error(f"Lead não encontrado e não foi possível criar para: {phone}")
+                    raise ValueError(f"Lead não encontrado para telefone: {phone}")
             
             # Buscar conversa ativa
             active_conversation = await self.get_active_conversation(lead.id)

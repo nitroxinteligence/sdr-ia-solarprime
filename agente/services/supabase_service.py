@@ -205,7 +205,7 @@ class SupabaseService:
                 lambda: self.client.table("leads")
                 .select("*")
                 .eq("phone_number", phone)
-                .single()
+                .maybe_single()  # Corrigido: maybe_single() em vez de single()
                 .execute()
             )
             
@@ -214,10 +214,56 @@ class SupabaseService:
             return None
             
         except APIError as e:
-            if "No rows found" in str(e):
+            # Tratamento específico para erro PGRST116
+            if "PGRST116" in str(e) or "JSON object requested, multiple (or no) rows returned" in str(e):
+                logger.info(f"Lead não encontrado para telefone: {phone} (PGRST116)")
+                return None
+            elif "No rows found" in str(e):
                 logger.info(f"Lead não encontrado para telefone: {phone}")
                 return None
             logger.error(f"❌ Erro ao buscar lead por telefone: {str(e)}")
+            raise
+    
+    @retry_on_error(max_attempts=3)
+    async def get_or_create_lead(self, phone: str, name: str = None, **kwargs) -> Lead:
+        """
+        Busca um lead pelo telefone ou cria um novo se não existir.
+        
+        Args:
+            phone: Número de telefone do lead
+            name: Nome do lead (opcional)
+            **kwargs: Outros campos do lead
+            
+        Returns:
+            Lead encontrado ou criado
+        """
+        try:
+            # Tentar buscar lead existente
+            existing_lead = await self.get_lead_by_phone(phone)
+            if existing_lead:
+                logger.info(f"Lead existente encontrado: {phone}")
+                return existing_lead
+            
+            # Se não encontrou, criar novo lead
+            from ..core.types import Lead, LeadStage
+            
+            lead_data = {
+                "phone_number": phone,
+                "name": name or f"Lead {phone[-4:]}",  # Nome padrão se não fornecido
+                "current_stage": LeadStage.INITIAL_CONTACT,
+                "qualification_score": 0,
+                "interested": True,
+                **kwargs  # Campos adicionais fornecidos
+            }
+            
+            new_lead = Lead(**lead_data)
+            created_lead = await self.create_lead(new_lead)
+            
+            logger.info(f"✅ Novo lead criado automaticamente: {phone} (ID: {created_lead.id})")
+            return created_lead
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao buscar/criar lead: {str(e)}")
             raise
     
     @retry_on_error(max_attempts=3)

@@ -259,9 +259,9 @@ class SDRAgent:
                 ],
                 show_tool_calls=True,  # Mostrar chamadas de tools
                 reasoning=False,       # Ativar apenas quando necessário
-                storage=False,         # Não usar storage do AGnO
                 memory=False,          # Não usar memory do AGnO
                 instructions=full_instructions
+                # Removido parâmetro storage - AGnO Framework não aceita bool para storage
             )
             
             # Para compatibilidade com código existente, manter referência ao toolkit

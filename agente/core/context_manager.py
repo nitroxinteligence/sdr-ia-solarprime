@@ -569,10 +569,21 @@ class ContextManager:
             Complete context dictionary
         """
         try:
-            # Get lead data
-            lead = await self.lead_repo.get_lead_by_phone(phone)
-            if not lead:
-                logger.warning(f"No lead found for {phone}")
+            # Get or create lead data automatically
+            try:
+                # First try to get existing lead
+                lead = await self.lead_repo.get_lead_by_phone(phone)
+                if not lead:
+                    # If not found, create automatically via supabase service
+                    from ..services import get_supabase_service
+                    supabase_service = get_supabase_service()
+                    lead = await supabase_service.get_or_create_lead(
+                        phone=phone,
+                        name=f"Lead {phone[-4:]}"
+                    )
+                    logger.info(f"Lead auto-created in context manager for {phone}")
+            except Exception as lead_error:
+                logger.warning(f"Failed to get/create lead for {phone}: {lead_error}")
                 return {
                     "error": "Lead not found",
                     "phone": phone
