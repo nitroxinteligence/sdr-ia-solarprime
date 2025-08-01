@@ -781,9 +781,9 @@ class ContextManager:
                 limit=3  # Top 3 mais relevantes
             )
             
-            # Buscar conhecimento de alta prioridade
-            priority_knowledge = await knowledge_repo.get_high_priority_knowledge(
-                limit=2  # Top 2 prioridades
+            # Buscar conhecimento recente
+            recent_knowledge = await knowledge_repo.get_recent_knowledge(
+                limit=2  # Top 2 mais recentes
             )
             
             # 4. Preparar contexto de mensagens para o agente
@@ -797,13 +797,13 @@ class ContextManager:
             
             # Adicionar conhecimento relevante
             for knowledge in relevant_knowledge:
-                knowledge_context.append(f"📚 {knowledge['title']}: {knowledge['content'][:200]}...")
+                knowledge_context.append(f"📚 {knowledge['question']}: {knowledge['answer'][:200]}...")
             
-            # Adicionar conhecimento prioritário se não duplicar
-            for knowledge in priority_knowledge:
-                title = knowledge['title']
-                if not any(title in kc for kc in knowledge_context):
-                    knowledge_context.append(f"⭐ {title}: {knowledge['content'][:200]}...")
+            # Adicionar conhecimento recente se não duplicar
+            for knowledge in recent_knowledge:
+                question = knowledge['question']
+                if not any(question in kc for kc in knowledge_context):
+                    knowledge_context.append(f"⭐ {question}: {knowledge['answer'][:200]}...")
             
             # 6. Construir contexto enhanced
             enhanced_context = {
@@ -816,9 +816,9 @@ class ContextManager:
                 },
                 "knowledge_base": {
                     "relevant_knowledge": relevant_knowledge,
-                    "priority_knowledge": priority_knowledge,
+                    "recent_knowledge": recent_knowledge,
                     "knowledge_context": knowledge_context,
-                    "total_knowledge_items": len(relevant_knowledge) + len(priority_knowledge)
+                    "total_knowledge_items": len(relevant_knowledge) + len(recent_knowledge)
                 },
                 "context_metadata": {
                     "generated_at": datetime.now().isoformat(),
@@ -850,5 +850,5 @@ class ContextManager:
                     "phone": phone,
                     "messages": [],
                     "lead": None,
-                    "knowledge_base": {"relevant_knowledge": [], "priority_knowledge": []}
+                    "knowledge_base": {"relevant_knowledge": [], "recent_knowledge": []}
                 }

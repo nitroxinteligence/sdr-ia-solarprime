@@ -9,7 +9,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from agente.core.logger import logger, setup_module_logger
-from agente.tools.whatsapp.send_reaction import send_reaction
+from agente.tools.whatsapp.send_reaction import send_reaction, SendReactionTool
 from agente.core.types import WhatsAppMessage
 
 # Logger específico para o módulo
