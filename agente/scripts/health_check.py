@@ -294,7 +294,7 @@ class HealthChecker:
             supabase_service = SupabaseService()
             
             # Tentar uma query simples
-            result = await supabase_service.client.table("profiles").select("id").limit(1).execute()
+            result = supabase_service.client.table("profiles").select("id").limit(1).execute()
             
             # Verificar métricas do banco
             metrics = await self._get_database_metrics(supabase_service)
@@ -318,7 +318,7 @@ class HealthChecker:
             metrics = {}
             
             for table in tables:
-                result = await supabase_service.client.table(table).select("id", count="exact").execute()
+                result = supabase_service.client.table(table).select("id", count="exact").execute()
                 metrics[f"{table}_count"] = result.count or 0
             
             return metrics
@@ -405,7 +405,7 @@ class HealthChecker:
             # Buscar conversas ativas (últimas 24h)
             since = datetime.now(timezone.utc) - timedelta(hours=24)
             
-            result = await supabase_service.client.table("conversations")\
+            result = supabase_service.client.table("conversations")\
                 .select("*")\
                 .gte("updated_at", since.isoformat())\
                 .execute()
@@ -415,7 +415,7 @@ class HealthChecker:
             # Buscar mensagens recentes (última hora)
             recent_since = datetime.now(timezone.utc) - timedelta(hours=1)
             
-            messages_result = await supabase_service.client.table("messages")\
+            messages_result = supabase_service.client.table("messages")\
                 .select("id")\
                 .gte("created_at", recent_since.isoformat())\
                 .execute()

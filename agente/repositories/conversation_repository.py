@@ -293,7 +293,7 @@ class ConversationRepository:
         try:
             # Por enquanto, vamos usar o método genérico do Supabase
             # Em uma implementação completa, poderíamos ter um método específico
-            result = await self.supabase.client.table("conversations") \
+            result = self.supabase.client.table("conversations") \
                 .update({"current_stage": stage, "updated_at": datetime.now().isoformat()}) \
                 .eq("id", str(conversation_id)) \
                 .execute()
@@ -325,7 +325,7 @@ class ConversationRepository:
             Lista de conversas ativas ordenadas por última atualização
         """
         try:
-            result = await self.supabase.client.table("conversations") \
+            result = self.supabase.client.table("conversations") \
                 .select("*") \
                 .eq("is_active", True) \
                 .order("updated_at", desc=True) \
@@ -355,7 +355,7 @@ class ConversationRepository:
         """
         try:
             # Buscar última mensagem da conversa
-            result = await self.supabase.client.table("messages") \
+            result = self.supabase.client.table("messages") \
                 .select("created_at") \
                 .eq("conversation_id", str(conversation_id)) \
                 .order("created_at", desc=True) \
@@ -364,7 +364,7 @@ class ConversationRepository:
             
             if not result.data:
                 # Se não há mensagens, verificar tempo de criação da conversa
-                conv_result = await self.supabase.client.table("conversations") \
+                conv_result = self.supabase.client.table("conversations") \
                     .select("started_at") \
                     .eq("id", str(conversation_id)) \
                     .single() \
@@ -424,7 +424,7 @@ class ConversationRepository:
                     sentiment = "neutro"
                 update_data["sentiment"] = sentiment
             
-            result = await self.supabase.client.table("conversations") \
+            result = self.supabase.client.table("conversations") \
                 .update(update_data) \
                 .eq("id", str(conversation_id)) \
                 .execute()
@@ -464,7 +464,7 @@ class ConversationRepository:
         """
         try:
             # Buscar conversa
-            conv_result = await self.supabase.client.table("conversations") \
+            conv_result = self.supabase.client.table("conversations") \
                 .select("*") \
                 .eq("id", str(conversation_id)) \
                 .single() \
@@ -493,7 +493,7 @@ class ConversationRepository:
             is_timed_out = await self.check_conversation_timeout(conversation_id)
             
             # Buscar última mensagem
-            last_msg_result = await self.supabase.client.table("messages") \
+            last_msg_result = self.supabase.client.table("messages") \
                 .select("created_at") \
                 .eq("conversation_id", str(conversation_id)) \
                 .order("created_at", desc=True) \
@@ -550,7 +550,7 @@ class ConversationRepository:
         """
         try:
             # Usar apenas updated_at que existe na tabela conversations
-            result = await self.supabase.client.table("conversations") \
+            result = self.supabase.client.table("conversations") \
                 .update({
                     "updated_at": timestamp.isoformat()  # Campo que existe na tabela
                 }) \
