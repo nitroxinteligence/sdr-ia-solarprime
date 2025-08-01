@@ -93,6 +93,9 @@ class SDRAgent:
         self.agent = None
         self.toolkit = None
         
+        # Context storage for tools access
+        self._current_context = {}
+        
         # Initialize core components
         self.humanizer = HelenHumanizer()
         self.context_manager = ContextManager()
@@ -345,12 +348,25 @@ class SDRAgent:
                     self.agent.reasoning = use_reasoning
                     logger.info(f"Reasoning mode {'ativado' if use_reasoning else 'desativado'} para {message.phone}")
                 
-                # Process with agent
-                agent_input = {
+                # Process with agent - AGnO format correto
+                # AGnO arun() espera string simples ou messages array, não dict complexo
+                user_message = message.message
+                
+                # Adicionar context como system message se necessário
+                if context.get("lead") and context.get("stage"):
+                    stage_info = f"Estágio atual: {context.get('stage_name', 'Inicial')}"
+                    if context.get("qualification_progress", {}).get("next_question"):
+                        next_q = context["qualification_progress"]["next_question"]
+                        stage_info += f"\nPróxima pergunta sugerida: {next_q}"
+                    
+                    # Preparar input no formato correto para AGnO
+                    agent_input = f"[CONTEXT: {stage_info}]\n\nMensagem do cliente: {user_message}"
+                else:
+                    agent_input = user_message
+                
+                # Store context for tools if needed
+                self._current_context = {
                     "phone": message.phone,
-                    "message": message.message,
-                    "media_url": message.media_url,
-                    "media_type": message.media_type,
                     "context": context,
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 }
@@ -362,7 +378,7 @@ class SDRAgent:
                 try:
                     # AGnO Agent deve usar arun() para tools async
                     if hasattr(self.agent, 'arun'):
-                        logger.debug("Using AGnO agent.arun() for async tools")
+                        logger.debug(f"Using AGnO agent.arun() with message: {agent_input[:100]}...")
                         response = await self.agent.arun(agent_input)
                     elif hasattr(self.agent.run, '__call__'):
                         import inspect
