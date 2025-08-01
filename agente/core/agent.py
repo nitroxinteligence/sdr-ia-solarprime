@@ -197,7 +197,7 @@ class SDRAgent:
                 id="gemini-2.0-flash-exp",
                 api_key=GEMINI_API_KEY,
                 temperature=0.7,  # Mais criativo para conversas naturais
-                max_tokens=2048,  # Limite adequado para respostas
+                max_output_tokens=2048,  # Limite adequado para respostas
                 top_p=0.9
             )
             
