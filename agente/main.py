@@ -32,6 +32,44 @@ from agente.core.monitoring import (
 # Initialize the agent globally
 agent: SDRAgent = None
 
+# DEDUPLICATED MESSAGE CACHE - Previne mensagens duplicadas por message_id
+# Cache simples em memória para IDs de mensagens processadas
+_processed_message_ids = set()
+_max_cache_size = 10000  # Máximo de IDs na cache
+
+
+def is_message_already_processed(message_id: str) -> bool:
+    """
+    Verifica se uma mensagem já foi processada
+    
+    Args:
+        message_id: ID da mensagem do WhatsApp
+        
+    Returns:
+        True se já foi processada, False caso contrário
+    """
+    return message_id in _processed_message_ids
+
+
+def mark_message_as_processed(message_id: str) -> None:
+    """
+    Marca uma mensagem como processada na cache de deduplicação
+    
+    Args:
+        message_id: ID da mensagem do WhatsApp
+    """
+    global _processed_message_ids
+    
+    # Limitar tamanho da cache
+    if len(_processed_message_ids) >= _max_cache_size:
+        # Remove 20% dos IDs mais antigos (FIFO simples)
+        remove_count = _max_cache_size // 5
+        for _ in range(remove_count):
+            _processed_message_ids.pop()
+    
+    _processed_message_ids.add(message_id)
+    logger.debug(f"Message ID marked as processed: {message_id}")
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -170,7 +208,12 @@ async def health_check():
             "status": "healthy",
             "agent": "online",
             "active_sessions": session_count,
-            "environment": ENVIRONMENT
+            "environment": ENVIRONMENT,
+            "deduplication_cache": {
+                "total_processed_messages": len(_processed_message_ids),
+                "cache_limit": _max_cache_size,
+                "cache_utilization": f"{(len(_processed_message_ids) / _max_cache_size) * 100:.1f}%"
+            }
         }
         
     except HTTPException:
@@ -257,6 +300,17 @@ async def whatsapp_webhook(
             
             phone = remote_jid.replace("@s.whatsapp.net", "") if "@s.whatsapp.net" in remote_jid else remote_jid
             
+            # Get message ID for deduplication
+            message_id = key.get("id", "")
+            if not message_id:
+                logger.warning(f"🚨 MESSAGES_UPSERT: Missing message ID in key structure")
+                return {"status": "ignored", "reason": "missing_message_id"}
+            
+            # DEDUPLICATION: Check if message already processed
+            if is_message_already_processed(message_id):
+                logger.info(f"🔄 Skipping duplicate message {message_id} from {phone} (already processed)")
+                return {"status": "ignored", "reason": "duplicate_message", "message_id": message_id, "phone": phone}
+            
             # Skip if message is from us (fromMe = true) - Evolution API v2 behavior
             from_me = key.get("fromMe", False)
             if from_me:
@@ -319,19 +373,26 @@ async def whatsapp_webhook(
                 phone=phone,
                 name=push_name,
                 message=text_message or "",
-                message_id=key.get("id", ""),
+                message_id=message_id,
                 timestamp=str(message_data.get("messageTimestamp", "")),
                 media_url=media_url,
                 media_type=media_type
             )
             
-            # Process message in background
+            # DEDUPLICATION: Mark message as processed BEFORE background task
+            # Isso previne duplicações mesmo se o background task falhar
+            mark_message_as_processed(message_id)
+            
+            # Process message in background (webhook retorna 200 imediatamente)
             background_tasks.add_task(process_message_async, whatsapp_msg)
+            
+            logger.info(f"📥 Message accepted for background processing: {message_id} from {phone}")
             
             return {
                 "status": "accepted",
                 "message_id": whatsapp_msg.message_id,
-                "phone": phone
+                "phone": phone,
+                "deduplication": "enabled"
             }
         
         # Handle other events
