@@ -58,11 +58,8 @@ class KnowledgeBaseRepository:
             if category:
                 base_query = base_query.eq("category", category)
             
-            # Busca full-text usando text_search nos campos question,answer
-            base_query = base_query.text_search(
-                "question,answer", 
-                sanitized_query
-            )
+            # Busca usando ilike (funciona com chain completo)
+            base_query = base_query.or_(f"question.ilike.%{sanitized_query}%,answer.ilike.%{sanitized_query}%")
             
             # Ordenar por created_at (mais recentes primeiro)
             base_query = base_query.order("created_at", desc=True)
