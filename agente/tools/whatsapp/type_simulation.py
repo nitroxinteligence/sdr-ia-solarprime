@@ -14,8 +14,8 @@ from ...core.config import AI_TYPING_DELAY_MAX
 
 @tool(show_result=True)
 async def simulate_typing(
-    phone: str,
     text: str,
+    phone: Optional[str] = None,
     send_after: bool = True,
     custom_delay: Optional[float] = None
 ) -> Dict[str, Any]:
@@ -27,8 +27,8 @@ async def simulate_typing(
     uma experiência mais natural na conversa.
     
     Args:
-        phone: Número de telefone do destinatário (formato: 5511999999999)
         text: Texto base para calcular tempo de digitação
+        phone: Número de telefone do destinatário (opcional, obtido do contexto se não fornecido)
         send_after: Se deve enviar a mensagem após simular digitação (padrão: True)
         custom_delay: Tempo customizado em segundos (opcional, calculado se não fornecido)
     
@@ -50,13 +50,30 @@ async def simulate_typing(
         {"success": True, "typing_duration": 5.7, "words_count": 2, "chars_count": 16, "message_sent": False}
     """
     try:
+        # Obter phone do contexto se não fornecido
+        if phone is None:
+            from ...core.tool_context import get_current_phone
+            phone = get_current_phone()
+            
+            if phone is None:
+                logger.error("Phone não fornecido e não encontrado no contexto")
+                return {
+                    "success": False,
+                    "error": "Número de telefone não disponível - forneça phone ou configure contexto",
+                    "typing_duration": 0,
+                    "words_count": len(text.split()),
+                    "chars_count": len(text),
+                    "message_sent": False,
+                    "message_id": None
+                }
+        
         # Análise do texto
         words_count = len(text.split())
         chars_count = len(text)
         
         logger.info(
             "Iniciando simulação de digitação",
-            phone=phone,
+            phone=phone[:4] + "****",
             words_count=words_count,
             chars_count=chars_count,
             send_after=send_after

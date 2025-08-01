@@ -12,16 +12,16 @@ from ...core.types import MediaType
 
 @tool(show_result=True)
 async def send_audio_message(
-    phone: str,
     audio_url: str,
+    phone: Optional[str] = None,
     caption: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Envia mensagem de áudio via WhatsApp.
     
     Args:
-        phone: Número de telefone do destinatário (formato: 5511999999999)
         audio_url: URL do arquivo de áudio (mp3, ogg, opus, etc)
+        phone: Número de telefone do destinatário (opcional, obtido do contexto se não fornecido)
         caption: Legenda/texto opcional para acompanhar o áudio
     
     Returns:
@@ -41,10 +41,25 @@ async def send_audio_message(
         {"success": True, "message_id": "3EB0C767D097E9ECFE8D", "phone": "5511999999999", "media_type": "audio", "has_caption": True}
     """
     try:
+        # Obter phone do contexto se não fornecido
+        if phone is None:
+            from ...core.tool_context import get_current_phone
+            phone = get_current_phone()
+            
+            if phone is None:
+                logger.error("Phone não fornecido e não encontrado no contexto")
+                return {
+                    "success": False,
+                    "error": "Número de telefone não disponível - forneça phone ou configure contexto",
+                    "phone": None,
+                    "media_type": "audio",
+                    "has_caption": bool(caption)
+                }
+        
         # Log da operação
         logger.info(
             "Enviando mensagem de áudio via WhatsApp",
-            phone=phone,
+            phone=phone[:4] + "****",
             audio_url=audio_url,
             has_caption=bool(caption)
         )

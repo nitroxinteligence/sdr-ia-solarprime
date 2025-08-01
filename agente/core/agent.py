@@ -417,6 +417,10 @@ class SDRAgent:
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 
+                # Set global tool context for AGnO tools
+                from agente.core.tool_context import set_tool_context
+                set_tool_context(message.phone, context)
+                
                 # Run agent with full context
                 import time
                 start_time = time.time()
@@ -501,6 +505,10 @@ class SDRAgent:
                     "last_response": response
                 })
                 
+                # Clear tool context after processing
+                from agente.core.tool_context import clear_tool_context
+                clear_tool_context()
+                
                 # Extract response text from agent response
                 response_text = self._extract_response_text(response)
                 
@@ -540,6 +548,10 @@ class SDRAgent:
                 
             except Exception as e:
                 logger.error(f"❌ Erro ao processar mensagem: {str(e)}")
+                
+                # Clear tool context on error
+                from agente.core.tool_context import clear_tool_context
+                clear_tool_context()
                 
                 # Capture error with context
                 capture_agent_error(

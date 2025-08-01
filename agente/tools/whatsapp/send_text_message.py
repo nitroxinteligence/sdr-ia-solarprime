@@ -14,16 +14,16 @@ from ...core.tool_monitoring import monitor_tool
 @tool(show_result=True)
 @monitor_tool("whatsapp.send_text_message")
 async def send_text_message(
-    phone: str,
     text: str,
+    phone: Optional[str] = None,
     delay: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Envia mensagem de texto via WhatsApp com simulação de digitação natural.
     
     Args:
-        phone: Número de telefone do destinatário (formato: 5511999999999)
         text: Texto da mensagem a ser enviada
+        phone: Número de telefone do destinatário (opcional, obtido do contexto se não fornecido)
         delay: Delay customizado em segundos (opcional, calculado automaticamente se não fornecido)
     
     Returns:
@@ -35,17 +35,33 @@ async def send_text_message(
         - delay_applied: int - Delay aplicado em segundos
     
     Examples:
-        >>> await send_text_message("5511999999999", "Olá! Como posso ajudar?")
+        >>> await send_text_message("Olá! Como posso ajudar?")  # Phone do contexto
         {"success": True, "message_id": "3EB0C767D097E9ECFE8A", "phone": "5511999999999", "delay_applied": 3}
         
-        >>> await send_text_message("5511999999999", "Mensagem com delay específico", delay=5)
+        >>> await send_text_message("Mensagem específica", phone="5511999999999", delay=5)
         {"success": True, "message_id": "3EB0C767D097E9ECFE8B", "phone": "5511999999999", "delay_applied": 5}
     """
     try:
+        # Obter phone do contexto se não fornecido
+        if phone is None:
+            from ...core.tool_context import get_current_phone
+            phone = get_current_phone()
+            
+            if phone is None:
+                logger.error("Phone não fornecido e não encontrado no contexto")
+                return {
+                    "success": False,
+                    "error": "Número de telefone não disponível - forneça phone ou configure contexto",
+                    "phone": None,
+                    "delay_applied": 0
+                }
+            
+            logger.debug(f"Phone obtido do contexto: {phone[:4]}****")
+        
         # Log da operação
         logger.info(
             "Enviando mensagem de texto via WhatsApp",
-            phone=phone,
+            phone=phone[:4] + "****",  # Mascarar para segurança
             text_length=len(text),
             custom_delay=delay
         )
