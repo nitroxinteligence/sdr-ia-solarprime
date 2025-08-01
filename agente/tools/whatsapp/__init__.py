@@ -10,6 +10,7 @@ from .send_location_message import SendLocationMessageTool
 from .type_simulation import TypeSimulationTool
 from .message_chunking import MessageChunkingTool
 from .message_buffer import MessageBufferTool, ClearBufferTool, GetBufferStatusTool
+from .send_reaction import SendReactionTool
 
 # Import function names for backward compatibility
 from .send_text_message import send_text_message
@@ -20,6 +21,7 @@ from .send_location_message import send_location_message
 from .type_simulation import type_simulation
 from .message_chunking import message_chunking
 from .message_buffer import message_buffer
+from .send_reaction import send_reaction
 
 __all__ = [
     # Function names
@@ -31,6 +33,7 @@ __all__ = [
     'type_simulation',
     'message_chunking',
     'message_buffer',
+    'send_reaction',
     # Tool classes
     'SendTextMessageTool',
     'SendAudioMessageTool',
@@ -41,5 +44,6 @@ __all__ = [
     'MessageChunkingTool',
     'MessageBufferTool',
     'ClearBufferTool',
-    'GetBufferStatusTool'
+    'GetBufferStatusTool',
+    'SendReactionTool'
 ]

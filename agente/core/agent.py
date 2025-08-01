@@ -45,7 +45,8 @@ from agente.tools.whatsapp import (
     send_location_message,
     type_simulation,
     message_chunking,
-    message_buffer
+    message_buffer,
+    send_reaction
 )
 from agente.tools.kommo import (
     search_kommo_lead,
@@ -227,6 +228,7 @@ class SDRAgent:
                     type_simulation,
                     message_chunking,
                     message_buffer,
+                    send_reaction,
                     
                     # Kommo Tools
                     search_kommo_lead,
@@ -271,7 +273,7 @@ class SDRAgent:
             self.toolkit = None
             
             # Contar tools do agent diretamente
-            tool_count = len(self.agent.tools) if hasattr(self.agent, 'tools') and self.agent.tools else 24
+            tool_count = len(self.agent.tools) if hasattr(self.agent, 'tools') and self.agent.tools else 25
             
             # Verificar se o agente foi inicializado corretamente
             if not hasattr(self.agent, 'run'):
@@ -324,8 +326,11 @@ class SDRAgent:
                 # Get or create session
                 session = await self.session_manager.get_or_create_session(message.phone)
                 
-                # Build conversation context
-                context = await self.context_manager.build_conversation_context(message.phone)
+                # Build enhanced conversation context (inclui 100 mensagens + knowledge base)
+                context = await self.context_manager.build_enhanced_context(
+                    phone=message.phone,
+                    current_message=message.message
+                )
                 
                 # Add current message to context
                 context["current_message"] = message.model_dump()
@@ -352,17 +357,46 @@ class SDRAgent:
                 # AGnO arun() espera string simples ou messages array, não dict complexo
                 user_message = message.message
                 
-                # Adicionar context como system message se necessário
-                if context.get("lead") and context.get("stage"):
-                    stage_info = f"Estágio atual: {context.get('stage_name', 'Inicial')}"
+                # Preparar contexto completo para o AGnO
+                context_parts = []
+                
+                # 1. Informações do lead e estágio
+                if context.get("lead"):
+                    lead_info = context["lead"]
+                    stage_name = context.get('stage_name', 'Inicial')
+                    context_parts.append(f"🎯 Lead: {lead_info.get('name', 'Sem nome')} | Estágio: {stage_name}")
+                    
                     if context.get("qualification_progress", {}).get("next_question"):
                         next_q = context["qualification_progress"]["next_question"]
-                        stage_info += f"\nPróxima pergunta sugerida: {next_q}"
+                        context_parts.append(f"❓ Próxima pergunta: {next_q}")
+                
+                # 2. Histórico de mensagens recentes
+                if context.get("messages_history", {}).get("recent_messages"):
+                    recent_msgs = context["messages_history"]["recent_messages"]
+                    if recent_msgs:
+                        context_parts.append(f"💬 Últimas mensagens:\n" + "\n".join(recent_msgs[-5:]))
+                
+                # 3. Conhecimento relevante da SolarPrime (RAG)
+                if context.get("knowledge_base", {}).get("knowledge_context"):
+                    knowledge_items = context["knowledge_base"]["knowledge_context"]
+                    if knowledge_items:
+                        context_parts.append(f"📚 Conhecimento SolarPrime:\n" + "\n".join(knowledge_items))
+                
+                # Construir input final para AGnO
+                if context_parts:
+                    context_text = "\n\n".join(context_parts)
+                    agent_input = f"[CONTEXTO COMPLETO]\n{context_text}\n\n[MENSAGEM ATUAL]\n{user_message}"
                     
-                    # Preparar input no formato correto para AGnO
-                    agent_input = f"[CONTEXT: {stage_info}]\n\nMensagem do cliente: {user_message}"
+                    # Log do contexto enhanced
+                    logger.info(
+                        f"🧠 Contexto enhanced para {message.phone[:4]}****: "
+                        f"{len(context_parts)} seções, "
+                        f"{context.get('messages_history', {}).get('total_messages', 0)} mensagens, "
+                        f"{context.get('knowledge_base', {}).get('total_knowledge_items', 0)} itens conhecimento"
+                    )
                 else:
                     agent_input = user_message
+                    logger.info(f"Contexto básico para {message.phone[:4]}****")
                 
                 # Store context for tools if needed
                 self._current_context = {

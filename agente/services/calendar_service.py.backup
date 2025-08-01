@@ -93,9 +93,9 @@ class GoogleCalendarService:
                 self._test_connectivity()
                 logger.info("Google Calendar service initialized successfully")
                 
-            except Exception as e:
-                logger.error(f"Failed to initialize Google Calendar service: {str(e)}")
-                self.service = None
+        except Exception as e:
+            logger.error(f"Failed to initialize Google Calendar service: {str(e)}")
+            self.service = None
     
     async def get_calendar_info(self) -> Optional[Dict[str, Any]]:
         """

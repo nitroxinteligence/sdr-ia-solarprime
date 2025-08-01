@@ -6,6 +6,7 @@ from .lead_repository import LeadRepository, get_lead_repository
 from .conversation_repository import ConversationRepository, get_conversation_repository
 from .message_repository import MessageRepository, get_message_repository
 from .followup_repository import FollowUpRepository, get_followup_repository
+from .knowledge_base_repository import KnowledgeBaseRepository, get_knowledge_base_repository
 
 __all__ = [
     'LeadRepository',
@@ -15,5 +16,7 @@ __all__ = [
     'MessageRepository',
     'get_message_repository',
     'FollowUpRepository',
-    'get_followup_repository'
+    'get_followup_repository',
+    'KnowledgeBaseRepository',
+    'get_knowledge_base_repository'
 ]

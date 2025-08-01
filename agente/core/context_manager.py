@@ -743,3 +743,112 @@ class ContextManager:
         except Exception as e:
             logger.error(f"Error calculating response time: {e}")
             return timedelta(hours=1)
+    
+    async def build_enhanced_context(
+        self, 
+        phone: str, 
+        current_message: str
+    ) -> Dict[str, Any]:
+        """
+        Constrói contexto enhanced completo incluindo:
+        - Últimas 100 mensagens
+        - Dados do lead atualizados  
+        - Conhecimento relevante da SolarPrime (RAG)
+        
+        Args:
+            phone: Número de telefone
+            current_message: Mensagem atual do usuário
+            
+        Returns:
+            Contexto completo para o agente
+        """
+        try:
+            logger.info(f"Building enhanced context for {phone[:4]}****")
+            
+            # 1. Contexto base existente
+            base_context = await self.build_conversation_context(phone)
+            
+            # 2. Últimas 100 mensagens (já incluído no contexto base)
+            messages = base_context.get("messages", [])
+            
+            # 3. Buscar conhecimento relevante na knowledge_base
+            from agente.repositories.knowledge_base_repository import get_knowledge_base_repository
+            knowledge_repo = get_knowledge_base_repository()
+            
+            # Buscar conhecimento baseado na mensagem atual
+            relevant_knowledge = await knowledge_repo.search_knowledge(
+                query=current_message,
+                limit=3  # Top 3 mais relevantes
+            )
+            
+            # Buscar conhecimento de alta prioridade
+            priority_knowledge = await knowledge_repo.get_high_priority_knowledge(
+                limit=2  # Top 2 prioridades
+            )
+            
+            # 4. Preparar contexto de mensagens para o agente
+            messages_context = []
+            for msg in messages[-10:]:  # Últimas 10 mensagens para contexto
+                role = "user" if msg.role == "user" else "assistant"
+                messages_context.append(f"{role}: {msg.content}")
+            
+            # 5. Preparar contexto de conhecimento
+            knowledge_context = []
+            
+            # Adicionar conhecimento relevante
+            for knowledge in relevant_knowledge:
+                knowledge_context.append(f"📚 {knowledge['title']}: {knowledge['content'][:200]}...")
+            
+            # Adicionar conhecimento prioritário se não duplicar
+            for knowledge in priority_knowledge:
+                title = knowledge['title']
+                if not any(title in kc for kc in knowledge_context):
+                    knowledge_context.append(f"⭐ {title}: {knowledge['content'][:200]}...")
+            
+            # 6. Construir contexto enhanced
+            enhanced_context = {
+                **base_context,  # Inclui tudo do contexto base
+                "enhanced": True,
+                "messages_history": {
+                    "total_messages": len(messages),
+                    "recent_messages": messages_context,
+                    "context_depth": "100_messages"
+                },
+                "knowledge_base": {
+                    "relevant_knowledge": relevant_knowledge,
+                    "priority_knowledge": priority_knowledge,
+                    "knowledge_context": knowledge_context,
+                    "total_knowledge_items": len(relevant_knowledge) + len(priority_knowledge)
+                },
+                "context_metadata": {
+                    "generated_at": datetime.now().isoformat(),
+                    "phone": phone,
+                    "current_message_length": len(current_message),
+                    "has_lead_data": bool(base_context.get("lead")),
+                    "has_conversation_data": bool(base_context.get("conversation")),
+                    "knowledge_sources": len(knowledge_context)
+                }
+            }
+            
+            logger.info(
+                f"Enhanced context built for {phone[:4]}****: "
+                f"{len(messages)} msgs, {len(knowledge_context)} knowledge items"
+            )
+            
+            return enhanced_context
+            
+        except Exception as e:
+            logger.error(f"Error building enhanced context for {phone}: {str(e)}")
+            
+            # Fallback para contexto base
+            try:
+                return await self.build_conversation_context(phone)
+            except Exception as fallback_error:
+                logger.error(f"Fallback context also failed: {str(fallback_error)}")
+                return {
+                    "error": "Context building failed",
+                    "phone": phone,
+                    "messages": [],
+                    "lead": None,
+                    "knowledge_base": {"relevant_knowledge": [], "priority_knowledge": []}
+                }

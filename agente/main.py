@@ -19,6 +19,8 @@ from agente.core.config import (
 )
 from agente.core.types import WhatsAppMessage
 from agente.core.agent import SDRAgent
+from agente.core.reaction_manager import get_reaction_manager
+from agente.core.auto_chunking import get_auto_chunking_manager
 from agente.core.monitoring import (
     setup_sentry,
     capture_agent_error,
@@ -456,39 +458,117 @@ async def process_message_async(message: WhatsAppMessage):
             }
         )
         
+        # 🚨 CRÍTICO: Salvar mensagem do usuário ANTES do processamento
+        try:
+            from agente.repositories import get_conversation_repository, get_message_repository
+            
+            conv_repo = get_conversation_repository()
+            msg_repo = get_message_repository()
+            
+            # Obter/criar conversa (com lead automático)
+            conversation, is_new = await conv_repo.get_or_create_conversation(
+                phone=message.phone,
+                session_id=message.instance_id or "default"
+            )
+            
+            if is_new:
+                logger.info(f"✅ Nova conversa criada para {message.phone}: {conversation.id}")
+            else:
+                logger.info(f"✅ Conversa existente encontrada para {message.phone}: {conversation.id}")
+            
+            # Preparar dados de mídia se houver
+            media_data = None
+            if message.media_url or message.media_type:
+                media_data = {
+                    "type": message.media_type or "text",
+                    "url": message.media_url
+                }
+            
+            # Salvar mensagem do usuário no banco ANTES de processar
+            user_message = await msg_repo.save_user_message(
+                conversation_id=conversation.id,
+                content=message.message or "[mensagem vazia]",
+                whatsapp_id=message.message_id,
+                media=media_data
+            )
+            
+            logger.info(f"💾 Mensagem do usuário salva: {user_message.id} (conversa: {conversation.id})")
+            
+            # Adicionar conversation_id na mensagem para uso posterior
+            message.conversation_id = conversation.id
+            
+        except Exception as save_error:
+            logger.error(f"❌ ERRO ao salvar mensagem do usuário: {save_error}")
+            # Não bloqueamos o processamento por erro de salvamento
+            message.conversation_id = None
+        
+        # Process reactions FIRST (before agent processing)
+        reaction_manager = get_reaction_manager()
+        reaction_results = await reaction_manager.process_message_reactions(message)
+        
+        # Log reaction results
+        if reaction_results["total_reactions_sent"] > 0:
+            logger.info(
+                f"✨ Sent {reaction_results['total_reactions_sent']} reaction(s) to {message.phone}",
+                media_reaction=bool(reaction_results["media_reaction"]),
+                spontaneous_reaction=bool(reaction_results["spontaneous_reaction"])
+            )
+        
         # Process with agent
         response = await agent.process_message(message)
         
         if response.success:
             logger.info(f"✅ Message processed successfully for {message.phone}")
             
-            # CRÍTICO: Enviar resposta de volta para o WhatsApp
+            # 🚨 CRÍTICO: Salvar resposta do agente no banco APÓS processamento
+            if response.message and hasattr(message, 'conversation_id') and message.conversation_id:
+                try:
+                    from agente.repositories import get_message_repository
+                    
+                    msg_repo = get_message_repository()
+                    
+                    # Salvar resposta do agente
+                    agent_message = await msg_repo.save_assistant_message(
+                        conversation_id=message.conversation_id,
+                        content=response.message
+                    )
+                    
+                    logger.info(f"💾 Resposta do agente salva: {agent_message.id} (conversa: {message.conversation_id})")
+                    
+                except Exception as save_error:
+                    logger.error(f"❌ ERRO ao salvar resposta do agente: {save_error}")
+                    # Não bloqueamos o envio por erro de salvamento
+            
+            # CRÍTICO: Enviar resposta de volta para o WhatsApp (com auto-chunking)
             if response.message:
                 try:
-                    # Import do serviço Evolution para envio direto
-                    from agente.services import get_evolution_service
+                    # Usar auto-chunking manager para envio inteligente
+                    auto_chunking = get_auto_chunking_manager()
                     
-                    # Enviar resposta via Evolution API
-                    evolution_service = get_evolution_service()
-                    send_result = await evolution_service.send_text_message(
+                    # Processar e enviar com chunking automático se necessário
+                    send_result = await auto_chunking.process_and_send_chunks(
                         phone=message.phone,
                         text=response.message
                     )
                     
-                    if send_result is None:
-                        logger.error(f"❌ Evolution API failed to respond - check API connectivity and configuration")
-                        logger.error(f"   - API URL: {evolution_service.base_url}")
-                        logger.error(f"   - Instance: {evolution_service.instance}")
-                        logger.error(f"   - Phone: {message.phone}")
-                    elif send_result.get("key", {}).get("id"):
-                        # Evolution API retorna message_id no campo "key.id" quando bem-sucedido
-                        message_id = send_result.get("key", {}).get("id")
-                        logger.info(f"📤 Response sent to WhatsApp for {message.phone} (msg_id: {message_id})")
+                    if send_result.get("success"):
+                        if send_result.get("chunked"):
+                            # Mensagem foi dividida em chunks
+                            total_chunks = send_result.get("total_chunks", 1)
+                            successful_chunks = send_result.get("successful_chunks", 0)
+                            logger.info(
+                                f"📤 Response sent to WhatsApp for {message.phone} in {total_chunks} chunk(s) "
+                                f"({successful_chunks} successful)"
+                            )
+                        else:
+                            # Mensagem enviada normalmente
+                            logger.info(f"📤 Response sent to WhatsApp for {message.phone} (single message)")
                     else:
-                        # Evolution API respondeu mas com erro
-                        error_msg = send_result.get('error', send_result.get('message', 'Unknown error'))
+                        # Falha no envio
+                        error_msg = send_result.get("error", "Unknown error")
                         logger.error(f"❌ Failed to send WhatsApp response: {error_msg}")
-                        logger.error(f"   - Full response: {send_result}")
+                        logger.error(f"   - Phone: {message.phone}")
+                        logger.error(f"   - Response length: {len(response.message)} chars")
                         
                 except Exception as send_error:
                     logger.error(f"❌ Error sending WhatsApp response: {send_error}")
