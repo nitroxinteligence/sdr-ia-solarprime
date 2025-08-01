@@ -191,16 +191,28 @@ async def whatsapp_webhook(
     Compatible with Evolution API v2.
     """
     try:
-        # Parse webhook data
+        # Parse webhook data with validation
         data = await request.json()
         
-        # Log webhook for debugging
-        if DEBUG:
-            logger.debug(f"Webhook received: {data}")
+        # Validate data structure
+        if not isinstance(data, dict):
+            logger.warning(f"Invalid webhook data type: {type(data)}")
+            return {"status": "ignored", "reason": "invalid_data_type"}
         
-        # Extract message data based on Evolution API v2 structure
-        event = data.get("event")
+        # Extract and normalize event name (handle both formats: "PRESENCE_UPDATE" and "presence.update")
+        event = data.get("event", "")
+        if isinstance(event, str):
+            # Normalize event name: PRESENCE_UPDATE -> presence.update
+            event = event.lower().replace("_", ".")
+        
+        # Extract instance data
         instance = data.get("instance", {})
+        
+        # Log webhook for debugging (detailed in debug mode, summary in info mode)
+        if DEBUG:
+            logger.debug(f"Webhook received - Event: {event}, Full Data: {data}")
+        else:
+            logger.info(f"Webhook received - Event: {event}")
         
         # Handle different event types
         if event == "messages.upsert":
@@ -288,14 +300,59 @@ async def whatsapp_webhook(
             # Message status update (delivered, read, etc.)
             return {"status": "ok", "event": event}
         
+        elif event == "presence.update":
+            # User presence status update (online, typing, etc.)
+            presence_data = data.get("data", {})
+            
+            if isinstance(presence_data, dict):
+                user_id = presence_data.get("id", "")
+                presences = presence_data.get("presences", {})
+                
+                # Extract presence status for logging
+                if presences and isinstance(presences, dict):
+                    for jid, presence_info in presences.items():
+                        if isinstance(presence_info, dict):
+                            status = presence_info.get("lastKnownPresence", "unknown")
+                            logger.debug(f"Presence update - User: {jid}, Status: {status}")
+                        else:
+                            logger.debug(f"Presence update - User: {jid}, Raw info: {presence_info}")
+                else:
+                    logger.debug(f"Presence update - User: {user_id}, No detailed presence data")
+            else:
+                logger.debug(f"Presence update - Invalid data structure: {type(presence_data)}")
+            
+            return {"status": "ok", "event": event}
+        
+        elif event == "qrcode.updated":
+            # QR Code update event
+            qr_data = data.get("data", {})
+            logger.info(f"QR Code updated for instance: {instance.get('instanceName', 'unknown')}")
+            return {"status": "ok", "event": event}
+        
         else:
             # Unknown event
             logger.debug(f"Unknown webhook event: {event}")
             return {"status": "ignored", "event": event}
         
+    except ValueError as e:
+        # JSON parsing error
+        logger.error(f"Error parsing webhook JSON: {e}")
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    
     except Exception as e:
+        # Log detailed error information for debugging
         logger.error(f"Error processing webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error type: {type(e).__name__}")
+        
+        # In debug mode, log the full request data
+        if DEBUG:
+            try:
+                body = await request.body()
+                logger.error(f"Request body: {body.decode('utf-8', errors='ignore')}")
+            except Exception as body_error:
+                logger.error(f"Could not read request body: {body_error}")
+        
+        raise HTTPException(status_code=500, detail=f"Webhook processing error: {str(e)}")
 
 
 async def process_message_async(message: WhatsAppMessage):
