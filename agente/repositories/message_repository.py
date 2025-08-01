@@ -555,11 +555,23 @@ class MessageRepository:
 
             if conv_result.data:
                 lead_id = conv_result.data["lead_id"]
-
-                # Incrementa no profile usando UPDATE direto (função RPC não existe)
-                self.supabase.client.table("profiles").update({
-                    "total_messages": "total_messages + 1"  # PostgreSQL expression
-                }).eq("lead_id", lead_id).execute()
+                
+                # Buscar phone do lead para atualizar profile (profiles usa phone_number, não lead_id)
+                lead_result = (
+                    self.supabase.client.table("leads")
+                    .select("phone_number")
+                    .eq("id", lead_id)
+                    .single()
+                    .execute()
+                )
+                
+                if lead_result.data:
+                    phone_number = lead_result.data["phone_number"]
+                    
+                    # Incrementa no profile usando phone_number (campo correto da tabela)
+                    self.supabase.client.table("profiles").update({
+                        "total_messages": "total_messages + 1"  # PostgreSQL expression
+                    }).eq("phone_number", phone_number).execute()
 
         except Exception as e:
             logger.warning(f"Erro ao incrementar contador de mensagens: {e}")

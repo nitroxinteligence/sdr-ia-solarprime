@@ -68,8 +68,8 @@ class KnowledgeBaseRepository:
                 ts_rank(to_tsvector('portuguese', title || ' ' || content), plainto_tsquery('portuguese', %s)) as relevance
             """
             
-            # Base da query
-            base_query = self.supabase.table("knowledge_base").select(select_query)
+            # Base da query - usar client.table() não supabase.table()
+            base_query = self.supabase.client.table("knowledge_base").select(select_query)
             
             # Adicionar filtros
             if category:
@@ -136,7 +136,7 @@ class KnowledgeBaseRepository:
             logger.info(f"Searching knowledge by tags: {tags}")
             
             # Query por tags usando operador de array
-            base_query = self.supabase.table("knowledge_base").select(
+            base_query = self.supabase.client.table("knowledge_base").select(
                 "id, title, content, category, tags, priority"
             )
             
@@ -185,7 +185,7 @@ class KnowledgeBaseRepository:
             logger.info(f"Getting knowledge by category: {category}")
             
             # Query por categoria
-            result = await self.supabase.table("knowledge_base").select(
+            result = await self.supabase.client.table("knowledge_base").select(
                 "id, title, content, category, tags, priority"
             ).eq("category", category).eq("is_active", True).order(
                 "priority", desc=True
@@ -219,7 +219,7 @@ class KnowledgeBaseRepository:
             logger.info("Getting high priority knowledge")
             
             # Query por prioridade alta (>= 7)
-            result = await self.supabase.table("knowledge_base").select(
+            result = await self.supabase.client.table("knowledge_base").select(
                 "id, title, content, category, tags, priority"
             ).gte("priority", 7).eq("is_active", True).order(
                 "priority", desc=True
@@ -277,7 +277,7 @@ class KnowledgeBaseRepository:
             }
             
             # Inserir no Supabase
-            result = await self.supabase.table("knowledge_base").insert(knowledge_data).execute()
+            result = await self.supabase.client.table("knowledge_base").insert(knowledge_data).execute()
             
             if result.data:
                 # Limpar cache
