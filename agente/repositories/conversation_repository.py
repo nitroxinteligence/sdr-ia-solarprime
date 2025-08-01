@@ -549,23 +549,23 @@ class ConversationRepository:
             True if successful, False otherwise
         """
         try:
+            # Usar apenas updated_at que existe na tabela conversations
             result = await self.supabase.client.table("conversations") \
                 .update({
-                    "last_message_at": timestamp.isoformat(),
-                    "updated_at": datetime.now().isoformat()
+                    "updated_at": timestamp.isoformat()  # Campo que existe na tabela
                 }) \
                 .eq("id", str(conversation_id)) \
                 .execute()
             
             if result.data:
-                logger.debug(f"Updated last_message_at for conversation {conversation_id}")
+                logger.debug(f"Updated conversation timestamp for {conversation_id}")
                 return True
             else:
                 logger.warning(f"No conversation found with ID {conversation_id}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error updating last_message_at for conversation {conversation_id}: {e}")
+            logger.error(f"Error updating conversation timestamp for {conversation_id}: {e}")
             return False
 
 
