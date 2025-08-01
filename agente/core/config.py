@@ -18,6 +18,8 @@ CREDENTIALS_DIR = BASE_DIR / "credentials"
 # CONFIGURAÇÕES BÁSICAS
 # ===========================
 API_PORT = int(os.getenv("API_PORT", "8000"))
+PORT = API_PORT  # Alias para compatibilidade com agente/main.py
+HOST = os.getenv("HOST", "0.0.0.0")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 TZ = os.getenv("TZ", "America/Sao_Paulo")

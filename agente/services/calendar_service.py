@@ -7,6 +7,7 @@ import asyncio
 import threading
 import time
 import random
+import uuid
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from zoneinfo import ZoneInfo
@@ -322,7 +323,8 @@ class GoogleCalendarService:
         start_time: datetime,
         duration_minutes: int = 60,
         attendees: Optional[List[str]] = None,
-        timezone: Optional[str] = None
+        timezone: Optional[str] = None,
+        create_meet_link: bool = True
     ) -> Optional[CalendarEvent]:
         """
         Create a meeting with Google Meet link
@@ -334,6 +336,7 @@ class GoogleCalendarService:
             duration_minutes: Meeting duration in minutes (default: 60)
             attendees: List of attendee email addresses
             timezone: Timezone for the meeting (default: America/Sao_Paulo)
+            create_meet_link: Whether to create Google Meet link (default: True)
             
         Returns:
             CalendarEvent object if successful, None otherwise
@@ -352,7 +355,7 @@ class GoogleCalendarService:
             
             end_time = start_time + timedelta(minutes=duration_minutes)
             
-            # Build basic event body (following Google API Python Client documentation)
+            # Build event body with Google Meet integration (2025 specification)
             event = {
                 'summary': title,
                 'description': description,
@@ -373,23 +376,69 @@ class GoogleCalendarService:
                 }
             }
             
-            # Add attendees only if provided (to avoid Domain-Wide Delegation issues)
+            # Add attendees if provided
             if attendees and len(attendees) > 0:
                 event['attendees'] = [{'email': email} for email in attendees]
             
-            # No conference data for now - basic calendar events only
+            # Add Google Meet conference data (Google Calendar API v3 2025 specification)
             conference_data_version = 0
+            if create_meet_link:
+                # Generate unique request ID for Google Meet conference creation
+                request_id = str(uuid.uuid4())
+                
+                event['conferenceData'] = {
+                    'createRequest': {
+                        'requestId': request_id,
+                        'conferenceSolutionKey': {
+                            'type': 'hangoutsMeet'
+                        }
+                    }
+                }
+                conference_data_version = 1  # Required for conference creation
+                logger.info(f"Requesting Google Meet creation with requestId: {request_id}")
             
-            # Create event using rate limiting (simplified approach from documentation)
-            created_event = await self._rate_limited_execute(
-                self.service.events().insert,
-                calendarId=self.calendar_id,
-                body=event,
-                sendUpdates='none'  # Don't send notifications to avoid permission issues
-            )
+            # Create event using rate limiting with proper conference data version
+            if conference_data_version > 0:
+                created_event = await self._rate_limited_execute(
+                    self.service.events().insert,
+                    calendarId=self.calendar_id,
+                    body=event,
+                    conferenceDataVersion=conference_data_version,  # Critical parameter for Google Meet
+                    sendUpdates='none'  # Don't send notifications during creation
+                )
+            else:
+                created_event = await self._rate_limited_execute(
+                    self.service.events().insert,
+                    calendarId=self.calendar_id,
+                    body=event,
+                    sendUpdates='none'
+                )
             
-            # No Google Meet link for basic events
+            # Extract Google Meet link from response
             meet_link = None
+            conference_data = created_event.get('conferenceData', {})
+            
+            if conference_data:
+                # Check conference creation status
+                conference_status = conference_data.get('status', {}).get('statusCode', 'unknown')
+                logger.info(f"Conference creation status: {conference_status}")
+                
+                # Extract Google Meet link from entry points
+                entry_points = conference_data.get('entryPoints', [])
+                for entry_point in entry_points:
+                    if entry_point.get('entryPointType') == 'video':
+                        meet_link = entry_point.get('uri')
+                        logger.info(f"Google Meet link created: {meet_link}")
+                        break
+                
+                # If no video entry point found, try conference ID
+                if not meet_link and 'conferenceId' in conference_data:
+                    conference_id = conference_data['conferenceId']
+                    meet_link = f"https://meet.google.com/{conference_id}"
+                    logger.info(f"Generated Google Meet link from conference ID: {meet_link}")
+            
+            # Set location based on Google Meet availability
+            location = "Online via Google Meet" if meet_link else "Presencial ou Online"
             
             # Convert to CalendarEvent
             calendar_event = CalendarEvent(
@@ -399,17 +448,29 @@ class GoogleCalendarService:
                 start=datetime.fromisoformat(created_event['start']['dateTime'].replace('Z', '+00:00')),
                 end=datetime.fromisoformat(created_event['end']['dateTime'].replace('Z', '+00:00')),
                 attendees=attendees or [],
-                location="Presencial ou Online",
+                location=location,
                 meet_link=meet_link,
                 status=created_event.get('status', 'confirmed'),
                 event_id=created_event['id']  # Add event_id for compatibility
             )
             
-            logger.info(f"Created meeting '{title}' at {start_time} with ID: {calendar_event.id}")
+            if meet_link:
+                logger.info(f"Created meeting '{title}' at {start_time} with Google Meet link: {meet_link}")
+            else:
+                logger.info(f"Created meeting '{title}' at {start_time} (Google Meet creation failed/disabled)")
+            
             return calendar_event
             
         except (ValueError, HttpError, Exception) as e:
             logger.error(f"Error creating meeting: {str(e)}")
+            if "Invalid conference type" in str(e):
+                logger.error("Invalid conference type error - Google Meet may not be enabled for this account")
+                # Fallback: create event without Google Meet
+                logger.info("Attempting to create event without Google Meet as fallback...")
+                return await self.create_meeting(
+                    title, description, start_time, duration_minutes, 
+                    attendees, timezone, create_meet_link=False
+                )
             return None
     
     async def update_event(
@@ -467,14 +528,23 @@ class GoogleCalendarService:
                 sendUpdates='all'  # 2025 best practice
             )
             
-            # Convert to CalendarEvent
+            # Extract Google Meet link from updated event
             meet_link = None
             conference_data = updated_event.get('conferenceData', {})
-            entry_points = conference_data.get('entryPoints', [])
-            for entry_point in entry_points:
-                if entry_point.get('entryPointType') == 'video':
-                    meet_link = entry_point.get('uri')
-                    break
+            if conference_data:
+                # Extract Google Meet link from entry points
+                entry_points = conference_data.get('entryPoints', [])
+                for entry_point in entry_points:
+                    if entry_point.get('entryPointType') == 'video':
+                        meet_link = entry_point.get('uri')
+                        logger.info(f"Google Meet link found in updated event: {meet_link}")
+                        break
+                
+                # If no video entry point found, try conference ID
+                if not meet_link and 'conferenceId' in conference_data:
+                    conference_id = conference_data['conferenceId']
+                    meet_link = f"https://meet.google.com/{conference_id}"
+                    logger.info(f"Generated Google Meet link from conference ID: {meet_link}")
             
             calendar_event = CalendarEvent(
                 id=updated_event['id'],
@@ -483,7 +553,7 @@ class GoogleCalendarService:
                 start=datetime.fromisoformat(updated_event['start']['dateTime'].replace('Z', '+00:00')),
                 end=datetime.fromisoformat(updated_event['end']['dateTime'].replace('Z', '+00:00')),
                 attendees=[att['email'] for att in updated_event.get('attendees', [])],
-                location="Online via Google Meet",
+                location="Online via Google Meet" if meet_link else "Presencial ou Online",
                 meet_link=meet_link,
                 status=updated_event.get('status', 'confirmed')
             )
@@ -581,11 +651,18 @@ class GoogleCalendarService:
                 # Extract Google Meet link
                 meet_link = None
                 conference_data = event.get('conferenceData', {})
-                entry_points = conference_data.get('entryPoints', [])
-                for entry_point in entry_points:
-                    if entry_point.get('entryPointType') == 'video':
-                        meet_link = entry_point.get('uri')
-                        break
+                if conference_data:
+                    # Extract Google Meet link from entry points
+                    entry_points = conference_data.get('entryPoints', [])
+                    for entry_point in entry_points:
+                        if entry_point.get('entryPointType') == 'video':
+                            meet_link = entry_point.get('uri')
+                            break
+                    
+                    # If no video entry point found, try conference ID
+                    if not meet_link and 'conferenceId' in conference_data:
+                        conference_id = conference_data['conferenceId']
+                        meet_link = f"https://meet.google.com/{conference_id}"
                 
                 calendar_event = CalendarEvent(
                     id=event['id'],
@@ -594,7 +671,7 @@ class GoogleCalendarService:
                     start=datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00')),
                     end=datetime.fromisoformat(event['end']['dateTime'].replace('Z', '+00:00')),
                     attendees=[att['email'] for att in event.get('attendees', [])],
-                    location=event.get('location', 'Online via Google Meet'),
+                    location=event.get('location', 'Online via Google Meet' if meet_link else 'Presencial ou Online'),
                     meet_link=meet_link,
                     status=event.get('status', 'confirmed')
                 )
@@ -629,14 +706,21 @@ class GoogleCalendarService:
                 text=text
             )
             
-            # Convert to CalendarEvent
+            # Extract Google Meet link from response
             meet_link = None
             conference_data = created_event.get('conferenceData', {})
-            entry_points = conference_data.get('entryPoints', [])
-            for entry_point in entry_points:
-                if entry_point.get('entryPointType') == 'video':
-                    meet_link = entry_point.get('uri')
-                    break
+            if conference_data:
+                # Extract Google Meet link from entry points
+                entry_points = conference_data.get('entryPoints', [])
+                for entry_point in entry_points:
+                    if entry_point.get('entryPointType') == 'video':
+                        meet_link = entry_point.get('uri')
+                        break
+                
+                # If no video entry point found, try conference ID
+                if not meet_link and 'conferenceId' in conference_data:
+                    conference_id = conference_data['conferenceId']
+                    meet_link = f"https://meet.google.com/{conference_id}"
             
             # Handle both all-day and timed events
             if 'dateTime' in created_event['start']:
@@ -654,7 +738,7 @@ class GoogleCalendarService:
                 start=start,
                 end=end,
                 attendees=[att['email'] for att in created_event.get('attendees', [])],
-                location=created_event.get('location', 'Online via Google Meet'),
+                location=created_event.get('location', 'Online via Google Meet' if meet_link else 'Presencial ou Online'),
                 meet_link=meet_link,
                 status=created_event.get('status', 'confirmed')
             )
