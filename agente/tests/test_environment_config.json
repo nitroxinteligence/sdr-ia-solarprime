@@ -1,0 +1,43 @@
+{
+  "config": {
+    "ENVIRONMENT": "test",
+    "TESTING": "true",
+    "PYTEST_RUNNING": "true",
+    "GOOGLE_CALENDAR_ID": "primary",
+    "GOOGLE_PROJECT_ID": null,
+    "GOOGLE_PRIVATE_KEY": null,
+    "GOOGLE_SERVICE_ACCOUNT_EMAIL": null,
+    "GOOGLE_CLIENT_ID": null,
+    "GOOGLE_PRIVATE_KEY_ID": null,
+    "KOMMO_SUBDOMAIN": null,
+    "KOMMO_LONG_LIVED_TOKEN": null,
+    "EVOLUTION_API_URL": null,
+    "EVOLUTION_API_KEY": null,
+    "EVOLUTION_INSTANCE": null,
+    "SUPABASE_URL": null,
+    "SUPABASE_SERVICE_KEY": null,
+    "DISABLE_GOOGLE_CALENDAR": "false",
+    "TEST_TIMEOUT": "300",
+    "TEST_MAX_RETRIES": "3",
+    "LOG_LEVEL": "INFO"
+  },
+  "validation_results": {
+    "google_calendar": {
+      "status": "error",
+      "error": "Missing required environment variables: GOOGLE_PROJECT_ID, GOOGLE_PRIVATE_KEY, GOOGLE_SERVICE_ACCOUNT_EMAIL"
+    },
+    "kommo_crm": {
+      "status": "pending",
+      "message": "Valida\u00e7\u00e3o n\u00e3o implementada"
+    },
+    "evolution_api": {
+      "status": "pending",
+      "message": "Valida\u00e7\u00e3o n\u00e3o implementada"
+    },
+    "supabase_db": {
+      "status": "pending",
+      "message": "Valida\u00e7\u00e3o n\u00e3o implementada"
+    }
+  },
+  "timestamp": "783122.557185666"
+}

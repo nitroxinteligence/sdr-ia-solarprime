@@ -84,4 +84,4 @@ EXPOSE 8000
 
 # Comando de inicialização otimizado
 # Usando 1 worker por padrão para evitar problemas de concorrência no buffer de mensagens
-CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1} --access-log"]
+CMD ["sh", "-c", "uvicorn agente.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1} --access-log"]

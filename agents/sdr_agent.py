@@ -2515,7 +2515,7 @@ Se alguma informação não estiver disponível, use null."""
                 
                 # Chamar create_event com argumentos corretos
                 result = await self.calendar_service.create_event(
-                    title=event_data['title'],
+                    title=event_data['summary'],
                     start_datetime=event_data['start'],
                     end_datetime=end_datetime,
                     description=event_data.get('description'),
