@@ -494,8 +494,8 @@ async def process_message_async(message: WhatsAppMessage):
             
             logger.info(f"💾 Mensagem do usuário salva: {user_message.id} (conversa: {conversation.id})")
             
-            # Adicionar conversation_id na mensagem para uso posterior
-            message.conversation_id = conversation.id
+            # Armazenar conversation_id para uso posterior (não podemos adicionar ao Pydantic dinamicamente)
+            conversation_id_for_message = conversation.id
             
         except Exception as save_error:
             logger.error(f"❌ ERRO ao salvar mensagem do usuário: {save_error}")
@@ -521,7 +521,7 @@ async def process_message_async(message: WhatsAppMessage):
             logger.info(f"✅ Message processed successfully for {message.phone}")
             
             # 🚨 CRÍTICO: Salvar resposta do agente no banco APÓS processamento
-            if response.message and hasattr(message, 'conversation_id') and message.conversation_id:
+            if response.message and 'conversation_id_for_message' in locals():
                 try:
                     from agente.repositories import get_message_repository
                     
@@ -529,11 +529,11 @@ async def process_message_async(message: WhatsAppMessage):
                     
                     # Salvar resposta do agente
                     agent_message = await msg_repo.save_assistant_message(
-                        conversation_id=message.conversation_id,
+                        conversation_id=conversation_id_for_message,
                         content=response.message
                     )
                     
-                    logger.info(f"💾 Resposta do agente salva: {agent_message.id} (conversa: {message.conversation_id})")
+                    logger.info(f"💾 Resposta do agente salva: {agent_message.id} (conversa: {conversation_id_for_message})")
                     
                 except Exception as save_error:
                     logger.error(f"❌ ERRO ao salvar resposta do agente: {save_error}")

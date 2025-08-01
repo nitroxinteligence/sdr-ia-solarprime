@@ -538,10 +538,10 @@ class MessageRepository:
             conversation_id: ID da conversa
         """
         try:
-            # Incrementa na conversa
+            # Incrementa na conversa - usar conv_id baseado na mensagem de erro
             self.supabase.client.rpc(
                 "increment_conversation_messages",
-                {"conversation_id": str(conversation_id)},
+                {"conv_id": str(conversation_id)},
             ).execute()
 
             # Busca lead_id da conversa para incrementar no profile
