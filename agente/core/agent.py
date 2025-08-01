@@ -261,8 +261,7 @@ class SDRAgent:
                 reasoning=False,       # Ativar apenas quando necessário
                 storage=False,         # Não usar storage do AGnO
                 memory=False,          # Não usar memory do AGnO
-                instructions=full_instructions,
-                debug=DEBUG           # Enable debug mode if DEBUG is True
+                instructions=full_instructions
             )
             
             # Para compatibilidade com código existente, manter referência ao toolkit
