@@ -1,21 +1,22 @@
 """
 SendTextMessageTool - Envia mensagem de texto via WhatsApp usando Evolution API
+CORREÇÃO CAMADA 1: Wrapper síncrono para resolver RuntimeWarning AGnO Framework
 """
 
 from typing import Dict, Any, Optional
-from agno.tools import tool
+# from agno.tools import tool  # Removido - causa RuntimeWarning
 from loguru import logger
 
 from ...services import get_evolution_service
 from ...core.types import MessageRole
 from ...core.tool_monitoring import monitor_tool
+from ..core.agno_async_executor import AGnOAsyncExecutor
 
 
-# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
-# Removendo @tool decorator conforme documentação oficial AGnO
-# Issue #2296: https://github.com/agno-agi/agno/issues/2296
+# CAMADA 1: Correção RuntimeWarning AGnO Framework agno/models/base.py:467
+# Wrapper síncrono resolve: RuntimeWarning: coroutine 'send_text_message' was never awaited
 @monitor_tool("whatsapp.send_text_message")
-async def send_text_message(
+async def _send_text_message_async(
     text: str,
     phone: Optional[str] = None,
     delay: Optional[float] = None
@@ -126,5 +127,11 @@ async def send_text_message(
         }
 
 
-# Export da tool
-SendTextMessageTool = send_text_message
+# CAMADA 1: Criar wrapper síncrono com nome curto (evita truncamento)
+# Resolve RuntimeWarning AGnO Framework
+send_msg = AGnOAsyncExecutor.wrap_async_tool(_send_text_message_async)
+send_msg.__name__ = "send_msg"  # Nome curto para evitar truncamento AGnO
+
+# Export da tool - mantém compatibilidade
+SendTextMessageTool = send_msg
+send_text_message = send_msg  # Alias para compatibilidade

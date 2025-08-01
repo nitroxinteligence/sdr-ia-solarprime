@@ -1,17 +1,20 @@
 """
 SendDocumentMessageTool - Envia documento PDF via WhatsApp usando Evolution API
+CORREÇÃO CAMADA 2: Nome curto para resolver truncamento AGnO Framework
 """
 
 from typing import Dict, Any, Optional
-from agno.tools import tool
+# from agno.tools import tool  # Removido - causa RuntimeWarning + truncamento
 from loguru import logger
 
 from ...services import get_evolution_service
 from ...core.types import MediaType
+from ..core.agno_async_executor import AGnOAsyncExecutor
 
 
-@tool(show_result=True)
-async def send_document_message(
+# CAMADA 2: Correção truncamento AGnO Framework
+# send_document_message (20 chars) → send_doc (8 chars)
+async def _send_document_message_async(
     phone: str,
     document_url: str,
     caption: Optional[str] = None,
@@ -170,5 +173,11 @@ async def send_document_message(
         }
 
 
-# Export da tool
-SendDocumentMessageTool = send_document_message
+# CAMADA 2: Wrapper síncrono com nome curto (evita truncamento)
+# Resolve: send_document_message (20 chars) → send_doc (8 chars)
+send_doc = AGnOAsyncExecutor.wrap_async_tool(_send_document_message_async)
+send_doc.__name__ = "send_doc"  # Nome curto para evitar truncamento AGnO
+
+# Export da tool - mantém compatibilidade
+SendDocumentMessageTool = send_doc
+send_document_message = send_doc  # Alias para compatibilidade

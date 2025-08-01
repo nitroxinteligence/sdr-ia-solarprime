@@ -1,21 +1,22 @@
 """
 TypeSimulationTool - Simula digitação humana no WhatsApp
+CORREÇÃO CAMADA 1: Wrapper síncrono para resolver RuntimeWarning AGnO Framework
 """
 
 import asyncio
 import random
 from typing import Dict, Any, Optional
-from agno.tools import tool
+# from agno.tools import tool  # Removido - causa RuntimeWarning
 from loguru import logger
 
 from ...services import get_evolution_service
 from ...core.config import AI_TYPING_DELAY_MAX
+from ..core.agno_async_executor import AGnOAsyncExecutor
 
 
-# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
-# Removendo @tool decorator conforme documentação oficial AGnO
-# Issue #2296: https://github.com/agno-agi/agno/issues/2296
-async def simulate_typing(
+# CAMADA 1: Correção RuntimeWarning AGnO Framework agno/models/base.py:467  
+# Wrapper síncrono resolve: RuntimeWarning: coroutine 'simulate_typing' was never awaited
+async def _simulate_typing_async(
     text: str,
     phone: Optional[str] = None,
     send_after: bool = True,
@@ -182,6 +183,12 @@ async def simulate_typing(
         }
 
 
-# Export da tool
-TypeSimulationTool = simulate_typing
-type_simulation = simulate_typing  # Alias para compatibilidade
+# CAMADA 1: Criar wrapper síncrono com nome curto (evita truncamento)
+# Resolve RuntimeWarning AGnO Framework
+type_sim = AGnOAsyncExecutor.wrap_async_tool(_simulate_typing_async)
+type_sim.__name__ = "type_sim"  # Nome curto para evitar truncamento AGnO
+
+# Export da tool - mantém compatibilidade
+TypeSimulationTool = type_sim
+simulate_typing = type_sim  # Alias para compatibilidade
+type_simulation = type_sim  # Alias para compatibilidade

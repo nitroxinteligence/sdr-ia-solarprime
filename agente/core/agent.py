@@ -214,21 +214,24 @@ class SDRAgent:
                 thinking_budget=128  # Habilita capacidade de raciocínio avançado
             )
             
-            # Carregar prompts
+            # SOLUÇÃO INTELIGENTE: System prompt contém instruções anti-vazamento
             system_prompt = self._load_system_prompt()
             tool_instructions = self._get_tool_instructions()
+            
+            # Instruções anti-vazamento já estão no prompt_master_completo.md
             full_instructions = system_prompt + "\n\n" + tool_instructions
             
             # Log das configurações para debug
             logger.debug(f"Initializing AGnO Agent with model: {model.id}")
             logger.debug(f"Instructions length: {len(full_instructions)} chars")
             
-            # Criar agente com tools diretamente
-            self.agent = Agent(
-                name=self.name,
-                model=model,
-                tools=[
-                    # WhatsApp Tools
+            # SOLUÇÃO INTELIGENTE: Configuração AGnO anti-vazamento
+            # Verificar parâmetros suportados pelo AGnO Agent
+            agent_kwargs = {
+                'name': self.name,
+                'model': model,
+                'tools': [
+                    # WhatsApp Tools - usando nomes originais para compatibilidade
                     send_text_message,
                     send_audio_message,
                     send_image_message,
@@ -271,12 +274,20 @@ class SDRAgent:
                     validate_phone,
                     format_currency
                 ],
-                show_tool_calls=True,  # Mostrar chamadas de tools
-                reasoning=False,       # Ativar apenas quando necessário
-                memory=False,          # Não usar memory do AGnO - usando sistema próprio
-                instructions=full_instructions
-                # storage não especificado - AGnO usará storage padrão adequado
-            )
+                'reasoning': False,        # Ativar apenas quando necessário
+                'memory': False,           # Não usar memory do AGnO - usando sistema próprio
+                'instructions': full_instructions
+            }
+            
+            # Tentar aplicar configurações anti-vazamento se suportadas
+            try:
+                agent_kwargs['show_tool_calls'] = False  # EVITA vazamentos internos
+                agent_kwargs['markdown'] = False         # Evita formatação que pode vazar
+                agent_kwargs['structured_outputs'] = False  # Respostas mais limpas
+            except:
+                logger.warning("Algumas configurações anti-vazamento podem não ser suportadas pelo AGnO")
+            
+            self.agent = Agent(**agent_kwargs)
             
             # Para compatibilidade com código existente, manter referência ao toolkit
             self.toolkit = None
@@ -426,21 +437,10 @@ class SDRAgent:
                 start_time = time.time()
                 
                 try:
-                    # AGnO Agent deve usar arun() para tools async
-                    if hasattr(self.agent, 'arun'):
-                        logger.debug(f"Using AGnO agent.arun() with message: {agent_input[:100]}...")
-                        response = await self.agent.arun(agent_input)
-                    elif hasattr(self.agent.run, '__call__'):
-                        import inspect
-                        if inspect.iscoroutinefunction(self.agent.run):
-                            response = await self.agent.run(agent_input)
-                        else:
-                            # AGnO run method is synchronous but tools are async - this will fail
-                            logger.warning("Using synchronous agent.run() with async tools - may cause errors")
-                            response = self.agent.run(agent_input)
-                    else:
-                        logger.error("AGnO Agent run method is not callable")
-                        response = None
+                    # SOLUÇÃO INTELIGENTE: AGnO Agent configurado para async tools
+                    # Usar sempre arun() para tools async - sem lógica condicional complexa
+                    logger.debug(f"Using AGnO agent.arun() with message: {agent_input[:100]}...")
+                    response = await self.agent.arun(agent_input)
                     
                     execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
                     

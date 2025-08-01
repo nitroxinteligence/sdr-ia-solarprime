@@ -9,12 +9,12 @@ from loguru import logger
 
 from ...services import get_calendar_service
 from ...core.types import CalendarEvent
+from ..core.agno_async_executor import AGnOAsyncExecutor
 
 
-# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
-# Removendo @tool decorator conforme documentação oficial AGnO
-# Issue #2296: https://github.com/agno-agi/agno/issues/2296
-async def create_meeting(
+# CAMADA 2: Correção truncamento AGnO Framework
+# create_meeting (14 chars) → create_meet (11 chars)
+async def _create_meeting_async(
     title: str,
     date: str,
     start_time: str,
@@ -193,5 +193,11 @@ async def create_meeting(
         }
 
 
-# Exportar tool
-CreateMeetingTool = create_meeting
+# CAMADA 2: Wrapper síncrono com nome curto (evita truncamento)
+# Resolve: create_meeting (14 chars) → create_meet (11 chars)
+create_meet = AGnOAsyncExecutor.wrap_async_tool(_create_meeting_async)
+create_meet.__name__ = "create_meet"  # Nome curto para evitar truncamento AGnO
+
+# Export da tool - mantém compatibilidade
+CreateMeetingTool = create_meet
+create_meeting = create_meet  # Alias para compatibilidade

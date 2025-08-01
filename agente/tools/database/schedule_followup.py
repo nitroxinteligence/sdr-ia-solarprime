@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from ...repositories import get_followup_repository, get_lead_repository
 from ...core.types import FollowUpType, LeadStage
 from ...core.logger import setup_module_logger
+from ..core.agno_async_executor import AGnOAsyncExecutor
 
 logger = setup_module_logger(__name__)
 
@@ -18,10 +19,9 @@ DEFAULT_FIRST_FOLLOW_UP_MINUTES = 30
 DEFAULT_SECOND_FOLLOW_UP_HOURS = 24
 
 
-# CRÍTICO: AGnO Framework bug com @tool decorator em async functions
-# Removendo @tool decorator conforme documentação oficial AGnO
-# Issue #2296: https://github.com/agno-agi/agno/issues/2296
-async def schedule_followup(
+# CAMADA 2: Correção truncamento AGnO Framework
+# schedule_followup (17 chars) → schedule_fu (11 chars)
+async def _schedule_followup_async(
     lead_id: Optional[str] = None,
     phone: Optional[str] = None,
     follow_up_type: Optional[str] = None,
@@ -198,5 +198,11 @@ async def schedule_followup(
         }
 
 
-# Exporta a tool
-ScheduleFollowUpTool = schedule_followup
+# CAMADA 2: Wrapper síncrono com nome curto (evita truncamento)
+# Resolve: schedule_followup (17 chars) → schedule_fu (11 chars)
+schedule_fu = AGnOAsyncExecutor.wrap_async_tool(_schedule_followup_async)
+schedule_fu.__name__ = "schedule_fu"  # Nome curto para evitar truncamento AGnO
+
+# Export da tool - mantém compatibilidade
+ScheduleFollowUpTool = schedule_fu
+schedule_followup = schedule_fu  # Alias para compatibilidade
