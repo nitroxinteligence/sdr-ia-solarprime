@@ -9,7 +9,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from agente.core.logger import logger, setup_module_logger
-from agente.tools.whatsapp.send_reaction import SendReactionTool
+from agente.tools.whatsapp.send_reaction import send_reaction
 from agente.core.types import WhatsAppMessage
 
 # Logger específico para o módulo
@@ -24,12 +24,12 @@ class ReactionManager:
     - Reações automáticas a mídia (✅ 👍🏻)
     - Reações espontâneas baseadas em probabilidade (❤️)
     - Contexto inteligente baseado na conversa
-    - Integração com Evolution API via SendReactionTool
+    - Integração com Evolution API via send_reaction tool
     """
     
     def __init__(self):
         """Inicializa o gerenciador de reações"""
-        self.send_reaction_tool = SendReactionTool()
+        # send_reaction é uma função, não precisa de instanciação
         
         # Configurações de probabilidade
         self.spontaneous_probability = 0.15  # 15% chance de reação espontânea
@@ -159,7 +159,7 @@ class ReactionManager:
             )
             
             # Enviar reação espontânea
-            result = await self.send_reaction_tool.run(
+            result = await send_reaction(
                 phone=message.phone,
                 message_key=message.message_id,
                 context=message.message,
@@ -203,7 +203,7 @@ class ReactionManager:
             context = message.message if message.message else f"media_{message.media_type}"
             
             # Enviar reação à mídia
-            result = await self.send_reaction_tool.run(
+            result = await send_reaction(
                 phone=message.phone,
                 message_key=message.message_id,
                 context=context,
