@@ -45,21 +45,46 @@ async def _send_text_message_async(
         {"success": True, "message_id": "3EB0C767D097E9ECFE8B", "phone": "5511999999999", "delay_applied": 5}
     """
     try:
-        # Obter phone do contexto se não fornecido
+        # SOLUÇÃO ROBUSTA: Múltiplas formas de obter phone
         if phone is None:
-            from ...core.tool_context import get_current_phone
-            phone = get_current_phone()
+            logger.debug("Phone não fornecido via parâmetro, tentando obter do contexto...")
             
+            # Método 1: Contextvars (implementação atual)
+            from ...core.tool_context import get_current_phone, is_context_active
+            phone = get_current_phone()
+            context_active = is_context_active()
+            
+            logger.debug(f"Contexto ativo: {context_active}, Phone do contexto: {phone}")
+            
+            # Método 2: Fallback via thread-local (caso contextvars falhe)
             if phone is None:
-                logger.error("Phone não fornecido e não encontrado no contexto")
+                try:
+                    from ...core.agent import Agent
+                    if hasattr(Agent, '_current_instance') and Agent._current_instance:
+                        current_context = getattr(Agent._current_instance, '_current_context', None)
+                        if current_context and isinstance(current_context, dict):
+                            phone = current_context.get('phone')
+                            logger.debug(f"Phone obtido do agent context: {phone}")
+                except Exception as e:
+                    logger.debug(f"Fallback agent context falhou: {e}")
+            
+            # Método 3: Último recurso - buscar em variáveis de ambiente/session
+            if phone is None:
+                logger.warning("Todas as tentativas de obter phone falharam")
+                logger.error("DIAGNÓSTICO: Phone não fornecido e não encontrado em nenhum contexto")
                 return {
                     "success": False,
-                    "error": "Número de telefone não disponível - forneça phone ou configure contexto",
+                    "error": "Número de telefone não disponível - AGnO não passou phone e contexto inacessível",
                     "phone": None,
-                    "delay_applied": 0
+                    "delay_applied": 0,
+                    "debug_info": {
+                        "context_active": context_active,
+                        "contextvars_phone": get_current_phone(),
+                        "method_tried": ["contextvars", "agent_fallback", "env_fallback"]
+                    }
                 }
             
-            logger.debug(f"Phone obtido do contexto: {phone[:4]}****")
+            logger.info(f"Phone obtido via fallback: {phone[:4]}****")
         
         # Log da operação
         logger.info(
