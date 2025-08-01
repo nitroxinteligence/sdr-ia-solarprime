@@ -304,14 +304,21 @@ async def whatsapp_webhook(
                 logger.debug(f"No valid message content from {phone}")
                 return {"status": "ignored", "reason": "no_content"}
             
-            # Create WhatsApp message object
+            # Create WhatsApp message object - Evolution API v2 real structure
+            # Handle both instance formats: string or dict
+            if isinstance(instance, dict):
+                instance_id = instance.get("instanceId", instance.get("instanceName", ""))
+            else:
+                # Evolution API sends instance as string, instanceId is in data
+                instance_id = message_data.get("instanceId", str(instance))
+            
             whatsapp_msg = WhatsAppMessage(
-                instance_id=instance.get("instanceId", ""),
+                instance_id=instance_id,
                 phone=phone,
                 name=push_name,
                 message=text_message or "",
                 message_id=key.get("id", ""),
-                timestamp=message_data.get("messageTimestamp", ""),
+                timestamp=str(message_data.get("messageTimestamp", "")),
                 media_url=media_url,
                 media_type=media_type
             )
