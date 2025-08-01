@@ -91,13 +91,14 @@ class BaseMessage(BaseModel):
 
 class WhatsAppMessage(BaseModel):
     """Mensagem recebida do WhatsApp via Evolution API"""
-    instance: str
+    instance_id: str  # Ajustado para corresponder ao código do webhook
     phone: str
+    name: Optional[str] = None  # pushName da Evolution API
     message: str
     message_id: str
-    timestamp: datetime
+    timestamp: Union[str, datetime]  # Evolution API envia como string ou int
     from_me: bool = False
-    media_type: Optional[MediaType] = None
+    media_type: Optional[str] = None  # Pode ser string ou MediaType
     media_url: Optional[str] = None
     media_caption: Optional[str] = None
     quoted_message: Optional[Dict[str, Any]] = None
