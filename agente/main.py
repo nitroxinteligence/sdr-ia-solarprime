@@ -475,10 +475,20 @@ async def process_message_async(message: WhatsAppMessage):
                         text=response.message
                     )
                     
-                    if send_result.get("success"):
-                        logger.info(f"📤 Response sent to WhatsApp for {message.phone}")
+                    if send_result is None:
+                        logger.error(f"❌ Evolution API failed to respond - check API connectivity and configuration")
+                        logger.error(f"   - API URL: {evolution_service.base_url}")
+                        logger.error(f"   - Instance: {evolution_service.instance}")
+                        logger.error(f"   - Phone: {message.phone}")
+                    elif send_result.get("key", {}).get("id"):
+                        # Evolution API retorna message_id no campo "key.id" quando bem-sucedido
+                        message_id = send_result.get("key", {}).get("id")
+                        logger.info(f"📤 Response sent to WhatsApp for {message.phone} (msg_id: {message_id})")
                     else:
-                        logger.error(f"❌ Failed to send WhatsApp response: {send_result.get('error')}")
+                        # Evolution API respondeu mas com erro
+                        error_msg = send_result.get('error', send_result.get('message', 'Unknown error'))
+                        logger.error(f"❌ Failed to send WhatsApp response: {error_msg}")
+                        logger.error(f"   - Full response: {send_result}")
                         
                 except Exception as send_error:
                     logger.error(f"❌ Error sending WhatsApp response: {send_error}")
