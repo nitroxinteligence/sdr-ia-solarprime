@@ -16,7 +16,7 @@ from ...core.tool_monitoring import monitor_tool
 async def send_text_message(
     text: str,
     phone: Optional[str] = None,
-    delay: Optional[int] = None
+    delay: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Envia mensagem de texto via WhatsApp com simulação de digitação natural.
