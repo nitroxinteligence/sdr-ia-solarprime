@@ -5,7 +5,7 @@ Implementa a lógica de negócio para conversas do sistema
 
 from typing import List, Optional, Dict, Tuple
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from loguru import logger
 
 from ..core.types import Conversation, Message, MessageRole, MediaType
@@ -67,7 +67,7 @@ class ConversationRepository:
             conversation = Conversation(
                 lead_id=lead_id,
                 session_id=session_id,
-                started_at=datetime.now(),
+                started_at=datetime.now(timezone.utc),
                 is_active=True,
                 total_messages=0,
                 sentiment="neutro"
@@ -294,7 +294,7 @@ class ConversationRepository:
             # Por enquanto, vamos usar o método genérico do Supabase
             # Em uma implementação completa, poderíamos ter um método específico
             result = self.supabase.client.table("conversations") \
-                .update({"current_stage": stage, "updated_at": datetime.now().isoformat()}) \
+                .update({"current_stage": stage, "updated_at": datetime.now(timezone.utc).isoformat()}) \
                 .eq("id", str(conversation_id)) \
                 .execute()
             
@@ -372,13 +372,13 @@ class ConversationRepository:
                 
                 if conv_result.data:
                     started_at = datetime.fromisoformat(conv_result.data["started_at"].replace("Z", "+00:00"))
-                    time_since_start = datetime.now() - started_at
+                    time_since_start = datetime.now(timezone.utc) - started_at
                     return time_since_start > timedelta(minutes=CONVERSATION_TIMEOUT_MINUTES)
                 return True
             
             # Verificar tempo desde última mensagem
             last_message_time = datetime.fromisoformat(result.data[0]["created_at"].replace("Z", "+00:00"))
-            time_since_last_message = datetime.now() - last_message_time
+            time_since_last_message = datetime.now(timezone.utc) - last_message_time
             
             is_timed_out = time_since_last_message > timedelta(minutes=CONVERSATION_TIMEOUT_MINUTES)
             
@@ -413,7 +413,7 @@ class ConversationRepository:
             Conversa atualizada
         """
         try:
-            update_data = {"updated_at": datetime.now().isoformat()}
+            update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
             
             if total_messages is not None:
                 update_data["total_messages"] = total_messages
@@ -479,7 +479,7 @@ class ConversationRepository:
             if conversation.ended_at:
                 duration = conversation.ended_at - conversation.started_at
             else:
-                duration = datetime.now() - conversation.started_at
+                duration = datetime.now(timezone.utc) - conversation.started_at
             
             duration_minutes = duration.total_seconds() / 60
             
