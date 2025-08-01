@@ -216,33 +216,69 @@ async def whatsapp_webhook(
         
         # Handle different event types
         if event == "messages.upsert":
-            # New message received
+            # New message received - based on Evolution API v2 official documentation
             message_data = data.get("data", {})
             
-            # Extract key information
-            key = message_data.get("key", {})
-            message = message_data.get("message", {})
-            push_name = message_data.get("pushName", "")
+            # Robust validation for message data structure
+            if not isinstance(message_data, dict):
+                logger.error(f"🚨 MESSAGES_UPSERT: Invalid data structure - Expected dict, got {type(message_data)}")
+                if DEBUG:
+                    logger.debug(f"Raw webhook data: {data}")
+                    logger.debug(f"Raw message_data: {message_data}")
+                return {
+                    "status": "error", 
+                    "reason": "invalid_message_data_structure", 
+                    "expected": "dict", 
+                    "received": str(type(message_data)),
+                    "debug_info": str(message_data) if DEBUG else None
+                }
             
-            # Get phone number (remove @s.whatsapp.net suffix)
-            remote_jid = key.get("remoteJid", "")
-            phone = remote_jid.replace("@s.whatsapp.net", "")
+            # Extract key information with additional validation
+            key = message_data.get("key", {}) if isinstance(message_data.get("key"), dict) else {}
+            message = message_data.get("message", {}) if isinstance(message_data.get("message"), dict) else {}
+            push_name = message_data.get("pushName", "") if isinstance(message_data.get("pushName"), str) else ""
             
-            # Skip if message is from us (fromMe = true)
-            if key.get("fromMe", False):
-                logger.debug(f"Skipping our own message to {phone}")
-                return {"status": "ignored", "reason": "own_message"}
+            # Validate key structure (Evolution API v2 structure validation)
+            if not key or not isinstance(key, dict):
+                logger.warning(f"🚨 MESSAGES_UPSERT: Missing or invalid 'key' structure in message_data")
+                if DEBUG:
+                    logger.debug(f"Key data: {key}, Type: {type(key)}")
+                return {"status": "ignored", "reason": "missing_key_structure"}
             
-            # Extract message content
+            # Get phone number (remove @s.whatsapp.net suffix) with validation
+            remote_jid = key.get("remoteJid", "") if isinstance(key.get("remoteJid"), str) else ""
+            if not remote_jid:
+                logger.warning(f"🚨 MESSAGES_UPSERT: Missing remoteJid in key structure")
+                if DEBUG:
+                    logger.debug(f"Key structure: {key}")
+                return {"status": "ignored", "reason": "missing_remote_jid"}
+            
+            phone = remote_jid.replace("@s.whatsapp.net", "") if "@s.whatsapp.net" in remote_jid else remote_jid
+            
+            # Skip if message is from us (fromMe = true) - Evolution API v2 behavior
+            from_me = key.get("fromMe", False)
+            if from_me:
+                logger.debug(f"✅ Skipping our own message to {phone} (fromMe=true)")
+                return {"status": "ignored", "reason": "own_message", "phone": phone}
+            
+            # Validate message structure (Evolution API v2)
+            if not message or not isinstance(message, dict):
+                logger.warning(f"🚨 MESSAGES_UPSERT: Missing or invalid 'message' structure")
+                if DEBUG:
+                    logger.debug(f"Message data: {message}, Type: {type(message)}")
+                return {"status": "ignored", "reason": "missing_message_structure"}
+            
+            # Extract message content with robust validation
             text_message = None
             media_url = None
             media_type = None
             
-            # Text message
-            if "conversation" in message:
+            # Text message - Evolution API v2 message types
+            if "conversation" in message and isinstance(message.get("conversation"), str):
                 text_message = message["conversation"]
-            elif "extendedTextMessage" in message:
-                text_message = message["extendedTextMessage"].get("text", "")
+            elif "extendedTextMessage" in message and isinstance(message.get("extendedTextMessage"), dict):
+                ext_msg = message["extendedTextMessage"]
+                text_message = ext_msg.get("text", "") if isinstance(ext_msg.get("text"), str) else ""
             
             # Image message
             elif "imageMessage" in message:
@@ -340,19 +376,52 @@ async def whatsapp_webhook(
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
     
     except Exception as e:
-        # Log detailed error information for debugging
-        logger.error(f"Error processing webhook: {e}")
-        logger.error(f"Error type: {type(e).__name__}")
+        # Enhanced error logging for Evolution API webhook debugging
+        logger.error(f"🚨 WEBHOOK ERROR: {e}")
+        logger.error(f"🚨 ERROR TYPE: {type(e).__name__}")
+        logger.error(f"🚨 ERROR LINE: {e.__traceback__.tb_lineno if e.__traceback__ else 'unknown'}")
         
-        # In debug mode, log the full request data
-        if DEBUG:
+        # Log request information for debugging
+        try:
+            body = await request.body()
+            body_str = body.decode('utf-8', errors='ignore')
+            logger.error(f"🚨 REQUEST BODY: {body_str}")
+            
+            # Try to parse as JSON for better debugging
             try:
-                body = await request.body()
-                logger.error(f"Request body: {body.decode('utf-8', errors='ignore')}")
-            except Exception as body_error:
-                logger.error(f"Could not read request body: {body_error}")
+                import json
+                parsed_data = json.loads(body_str)
+                logger.error(f"🚨 PARSED JSON: {json.dumps(parsed_data, indent=2)}")
+                
+                # Specific Evolution API debugging
+                event_type = parsed_data.get('event', 'unknown')
+                data_type = type(parsed_data.get('data', {}))
+                logger.error(f"🚨 EVENT: {event_type}, DATA TYPE: {data_type}")
+                
+                if event_type == 'messages.upsert' or event_type == 'MESSAGES_UPSERT':
+                    data_content = parsed_data.get('data', {})
+                    logger.error(f"🚨 MESSAGES_UPSERT DATA: {data_content}")
+                    logger.error(f"🚨 DATA KEYS: {list(data_content.keys()) if isinstance(data_content, dict) else 'not_dict'}")
+                    
+            except json.JSONDecodeError as json_error:
+                logger.error(f"🚨 JSON PARSE ERROR: {json_error}")
+                
+        except Exception as body_error:
+            logger.error(f"🚨 Could not read request body: {body_error}")
         
-        raise HTTPException(status_code=500, detail=f"Webhook processing error: {str(e)}")
+        # Capture exception details for Evolution API specific debugging
+        import traceback
+        logger.error(f"🚨 FULL TRACEBACK:\n{traceback.format_exc()}")
+        
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": f"Webhook processing error: {str(e)}",
+                "error_type": type(e).__name__,
+                "event": event if 'event' in locals() else 'unknown',
+                "timestamp": datetime.now().isoformat()
+            }
+        )
 
 
 async def process_message_async(message: WhatsAppMessage):
