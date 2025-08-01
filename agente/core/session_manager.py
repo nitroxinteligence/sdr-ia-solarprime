@@ -343,14 +343,15 @@ class SessionManager:
                 unique_session_id
             )
         else:
-            # Create a basic conversation structure if no lead exists
-            conversation = type('Conversation', (), {
-                'id': str(uuid.uuid4()),  # UUID válido para PostgreSQL
-                'phone': phone,
-                'lead_id': None,
-                'started_at': datetime.now(timezone.utc),
-                'is_active': True
-            })()
+            # Create conversation in database even without lead
+            unique_session_id = f"session_{phone}_{str(uuid.uuid4())[:8]}"
+            conversation = await self.conversation_repo.get_or_create_conversation(
+                phone, 
+                unique_session_id
+            )
+            # Extract conversation object if tuple returned
+            if isinstance(conversation, tuple):
+                conversation = conversation[0]
         
         session = {
             "phone": phone,
