@@ -99,7 +99,8 @@ class EvolutionAPIService:
         method: str,
         endpoint: str,
         data: Optional[Dict[str, Any]] = None,
-        retry_count: int = 3
+        retry_count: int = 3,
+        timeout: int = 30
     ) -> Optional[Dict[str, Any]]:
         """
         Faz requisição HTTP com retry e tratamento de erros
@@ -109,6 +110,7 @@ class EvolutionAPIService:
             endpoint: Endpoint da API
             data: Dados para enviar
             retry_count: Número de tentativas
+            timeout: Timeout em segundos
             
         Returns:
             Resposta da API ou None em caso de erro
@@ -128,15 +130,15 @@ class EvolutionAPIService:
                     data_keys=list(data.keys()) if data else None
                 )
                 
-                # Faz a requisição
+                # Faz a requisição com timeout
                 if method == "GET":
-                    response = await self.client.get(url)
+                    response = await self.client.get(url, timeout=timeout)
                 elif method == "POST":
-                    response = await self.client.post(url, json=data)
+                    response = await self.client.post(url, json=data, timeout=timeout)
                 elif method == "PUT":
-                    response = await self.client.put(url, json=data)
+                    response = await self.client.put(url, json=data, timeout=timeout)
                 elif method == "DELETE":
-                    response = await self.client.delete(url)
+                    response = await self.client.delete(url, timeout=timeout)
                 else:
                     raise ValueError(f"Método HTTP não suportado: {method}")
                 
@@ -166,22 +168,24 @@ class EvolutionAPIService:
                 if 400 <= response.status_code < 500:
                     return None
                 
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as e:
                 module_logger.error(
-                    f"Evolution API timeout",
+                    f"Evolution API timeout after {timeout}s: {str(e)}",
                     endpoint=endpoint,
+                    timeout=timeout,
                     attempt=attempt + 1
                 )
             except httpx.HTTPError as e:
                 module_logger.error(
-                    f"Evolution API HTTP error",
+                    f"Evolution API HTTP error: {type(e).__name__}: {str(e)}",
                     endpoint=endpoint,
                     error=str(e),
+                    error_type=type(e).__name__,
                     attempt=attempt + 1
                 )
             except Exception as e:
                 module_logger.error(
-                    f"Evolution API unexpected error",
+                    f"Evolution API unexpected error: {type(e).__name__}: {str(e)}",
                     endpoint=endpoint,
                     error=str(e),
                     error_type=type(e).__name__,
