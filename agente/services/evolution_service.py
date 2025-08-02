@@ -155,6 +155,112 @@ class EvolutionAPIService:
             module_logger.error(f"❌ Error checking instance status: {str(e)}")
             return False
     
+    async def _connect_instance(self) -> bool:
+        """
+        Tenta conectar a instância do WhatsApp
+        
+        Returns:
+            True se conectou com sucesso, False caso contrário
+        """
+        try:
+            module_logger.info(f"🔄 Attempting to connect instance: {self.instance}")
+            
+            # Tenta conectar usando o endpoint instance-connect
+            response = await self._make_request(
+                method="GET",
+                endpoint=f"/instance/instanceConnect/{self.instance}",
+                retry_count=1,
+                timeout=10
+            )
+            
+            if response:
+                # Aguarda um pouco para a conexão ser estabelecida
+                await asyncio.sleep(2)
+                
+                # Verifica se conectou
+                if await self._check_instance_connection():
+                    module_logger.info(f"✅ Instance connected successfully: {self.instance}")
+                    return True
+                else:
+                    module_logger.warning(f"⚠️  Instance connect initiated but not ready yet")
+                    return False
+            else:
+                module_logger.error(f"❌ Failed to initiate instance connection")
+                return False
+                
+        except Exception as e:
+            module_logger.error(f"❌ Error connecting instance: {str(e)}")
+            return False
+    
+    async def _restart_instance(self) -> bool:
+        """
+        Reinicia a instância do WhatsApp
+        
+        Returns:
+            True se reiniciou com sucesso, False caso contrário
+        """
+        try:
+            module_logger.info(f"🔄 Attempting to restart instance: {self.instance}")
+            
+            # Reinicia a instância
+            response = await self._make_request(
+                method="PUT",
+                endpoint=f"/instance/restart/{self.instance}",
+                retry_count=1,
+                timeout=10
+            )
+            
+            if response:
+                module_logger.info(f"⏳ Instance restart initiated, waiting for reconnection...")
+                
+                # Aguarda a instância reiniciar (pode demorar um pouco)
+                await asyncio.sleep(5)
+                
+                # Verifica se conectou após reiniciar
+                for i in range(3):  # Tenta 3 vezes
+                    if await self._check_instance_connection():
+                        module_logger.info(f"✅ Instance restarted and connected successfully")
+                        return True
+                    else:
+                        module_logger.info(f"⏳ Waiting for instance to connect... ({i+1}/3)")
+                        await asyncio.sleep(3)
+                
+                module_logger.warning(f"⚠️  Instance restarted but not connected yet")
+                return False
+            else:
+                module_logger.error(f"❌ Failed to restart instance")
+                return False
+                
+        except Exception as e:
+            module_logger.error(f"❌ Error restarting instance: {str(e)}")
+            return False
+    
+    async def _ensure_connection(self) -> bool:
+        """
+        Garante que a instância está conectada, tentando reconectar se necessário
+        
+        Returns:
+            True se a instância está conectada, False caso contrário
+        """
+        # Primeiro verifica se já está conectada
+        if await self._check_instance_connection():
+            return True
+        
+        module_logger.warning(f"⚠️  Instance not connected, attempting to reconnect...")
+        
+        # Tenta conectar primeiro
+        if await self._connect_instance():
+            return True
+        
+        # Se falhou, tenta reiniciar a instância
+        module_logger.warning(f"⚠️  Connection failed, attempting to restart instance...")
+        if await self._restart_instance():
+            return True
+        
+        # Se tudo falhou
+        module_logger.error(f"❌ All connection attempts failed for instance: {self.instance}")
+        return False
+    
     async def _ensure_client(self):
         """
         Garante que o cliente HTTP esteja disponível e funcional.
@@ -338,10 +444,10 @@ class EvolutionAPIService:
             will_chunk=chunk_manually and len(text) > 300
         )
         
-        # 🚀 VERIFICA CONECTIVIDADE DA INSTÂNCIA ANTES DE ENVIAR
-        if not await self._check_instance_connection():
+        # 🚀 GARANTE CONECTIVIDADE DA INSTÂNCIA ANTES DE ENVIAR (com reconexão automática)
+        if not await self._ensure_connection():
             module_logger.error(
-                f"❌ Cannot send message - instance not connected",
+                f"❌ Cannot send message - instance connection failed after all attempts",
                 phone=formatted_phone,
                 instance=self.instance
             )

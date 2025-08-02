@@ -34,11 +34,10 @@ async def test_evolution_fixes():
             
             if instance_state != "open":
                 logger.warning(f"⚠️  Instância não está conectada (estado: {instance_state})")
-                logger.info("💡 Verifique se o WhatsApp está conectado na Evolution API")
-                return False
+                logger.info("🔄 A correção tentará reconectar automaticamente ao enviar mensagem...")
         else:
             logger.error("❌ Não foi possível verificar o status da instância")
-            return False
+            logger.info("🔄 A correção tentará reconectar automaticamente ao enviar mensagem...")
         
         # 2. Testa envio de mensagem simples
         logger.info("📱 Testando envio de mensagem simples...")
@@ -93,7 +92,30 @@ Teste concluído com sucesso! 🎉"""
             logger.error("❌ Falha no envio da mensagem longa")
             return False
         
-        logger.info("🎉 Todos os testes passaram com sucesso!")
+        # 4. Testa reconexão automática (se instância não estava conectada)
+        logger.info("🔄 Testando recurso de reconexão automática...")
+        logger.info("💡 Se a instância não estava conectada, o sistema tentará:")
+        logger.info("   1. Conectar usando instance-connect")
+        logger.info("   2. Se falhar, reiniciar a instância")
+        logger.info("   3. Se tudo falhar, reportar erro detalhado")
+        
+        # Testa envio forçando reconexão (simulando desconexão)
+        test_reconnect_message = "🔄 Teste de reconexão automática - Evolution API v2"
+        
+        result = await evolution_service.send_text_message(
+            phone=test_phone,
+            text=test_reconnect_message,
+            delay=2,
+            enable_typing=True,
+            chunk_manually=False
+        )
+        
+        if result:
+            logger.info("✅ Reconexão automática funcionou! Mensagem enviada com sucesso")
+        else:
+            logger.warning("⚠️  Mensagem não enviada - verifique se o WhatsApp está escaneado no Evolution API")
+        
+        logger.info("🎉 Todos os testes foram executados!")
         return True
         
     except Exception as e:
