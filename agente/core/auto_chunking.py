@@ -43,13 +43,29 @@ class AutoChunkingManager:
             "total_characters_processed": 0
         }
         
-        # Padrões para detectar mensagens já humanizadas pelo AGnO/Helen
+        # Padrões para detectar mensagens já humanizadas pelo AGnO/Helen (pós-sanitização)
         self.humanization_patterns = [
-            r'Oii!\s+Seja\s+muito\s+bem-vindo',  # Padrão típico de abertura Helen
-            r'Meu\s+nome\s+é\s+Helen\s+Vieira',  # Apresentação Helen
-            r'Sou\s+consultora\s+especialista',   # Descrição profissional típica
-            r'\[pausa\s+\d+\.?\d*s\]',           # Marcadores de pausa do humanizer
-            r'Antes\s+de\s+começarmos,\s+como\s+posso\s+te?\s+chamar',  # Pergunta típica
+            # Padrões de apresentação Helen Vieira (melhorados)
+            r'Oi!?\s+Muito\s+prazer,?\s+me\s+chamo\s+Helen\s+Vieira',  # Apresentação completa
+            r'Meu\s+nome\s+é\s+Helen\s+Vieira',                        # Apresentação alternativa
+            r'Sou\s+consultora\s+(da\s+)?Solar\s+Prime',               # Identificação profissional
+            r'Sou\s+consultora\s+especialista',                        # Descrição profissional
+            
+            # Padrões de quebra natural (indicam chunking já aplicado)
+            r'\n\s*\n',                                                 # Quebras duplas (natural chunking)
+            r'(Oi!?\s+[^.!?]*[.!?])\s*\n+\s*(Sou\s+[^.!?]*[.!?])',   # Padrão: saudação → quebra → profissão
+            
+            # Padrões de perguntas típicas Helen
+            r'Qual\s+(o\s+)?seu\s+nome\?',                             # Pergunta nome
+            r'Como\s+posso\s+te\s+chamar\?',                           # Pergunta tratamento
+            r'Antes\s+de\s+começarmos,?\s+',                           # Início de qualificação
+            
+            # Marcadores de pausa do humanizer (se ainda presentes)
+            r'\[pausa\s+\d+\.?\d*s\]',                                # Marcadores explícitos
+            
+            # Padrões de estrutura Helen (indicam processamento AGnO)
+            r'Helen\s+Vieira.*Solar\s+Prime',                          # Nome + empresa na mesma frase
+            r'(consultora|especialista).*energia\s+solar',             # Profissão + área
         ]
         
         module_logger.info(

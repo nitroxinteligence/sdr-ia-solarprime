@@ -613,13 +613,28 @@ async def process_message_async(message: WhatsAppMessage):
             # CRÍTICO: Enviar resposta de volta para o WhatsApp (com auto-chunking)
             if response.message:
                 try:
-                    # Usar auto-chunking manager para envio inteligente
+                    # 🧼 SANITIZAÇÃO OBRIGATÓRIA: Remover vazamentos internos do AGnO ANTES do auto-chunking
+                    from agente.core.response_sanitizer import get_response_sanitizer
+                    
+                    response_sanitizer = get_response_sanitizer()
+                    clean_message = response_sanitizer.sanitize_response(response.message)
+                    
+                    # Log se houve sanitização
+                    if clean_message != response.message:
+                        logger.info(
+                            f"🧼 ResponseSanitizer aplicado - vazamentos removidos",
+                            original_length=len(response.message),
+                            sanitized_length=len(clean_message),
+                            phone=message.phone[:4] + "****"
+                        )
+                    
+                    # Usar auto-chunking manager para envio inteligente com mensagem limpa
                     auto_chunking = get_auto_chunking_manager()
                     
                     # Processar e enviar com chunking automático se necessário
                     send_result = await auto_chunking.process_and_send_chunks(
                         phone=message.phone,
-                        text=response.message
+                        text=clean_message  # ← MENSAGEM LIMPA sem vazamentos
                     )
                     
                     if send_result.get("success"):
