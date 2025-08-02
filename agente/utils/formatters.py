@@ -4,7 +4,7 @@ Utilitários de formatação para o sistema SDR Agent
 
 import re
 from typing import Optional, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from loguru import logger
@@ -362,3 +362,66 @@ def format_stage_name(stage: str) -> str:
     }
     
     return stage_names.get(stage, stage.replace("_", " ").title())
+
+
+def ensure_timezone_aware(dt: Union[datetime, str, None]) -> Optional[datetime]:
+    """
+    Garante que um datetime seja timezone-aware (UTC).
+    
+    Esta função resolve o erro comum "can't subtract offset-naive and offset-aware datetimes"
+    garantindo que todos os datetimes tenham informação de timezone.
+    
+    Args:
+        dt: Datetime, string ISO ou None
+        
+    Returns:
+        Datetime timezone-aware em UTC ou None
+        
+    Examples:
+        >>> ensure_timezone_aware("2025-01-01T10:00:00Z")
+        datetime(2025, 1, 1, 10, 0, tzinfo=timezone.utc)
+        
+        >>> ensure_timezone_aware("2025-01-01T10:00:00")  # sem timezone
+        datetime(2025, 1, 1, 10, 0, tzinfo=timezone.utc)
+    """
+    if dt is None:
+        return None
+    
+    try:
+        # Se já é datetime
+        if isinstance(dt, datetime):
+            # Se já tem timezone, retorna como está
+            if dt.tzinfo is not None:
+                return dt
+            # Se não tem timezone, assume UTC
+            return dt.replace(tzinfo=timezone.utc)
+        
+        # Se é string, converte para datetime
+        if isinstance(dt, str):
+            # Trata diferentes padrões de string ISO
+            dt_str = dt.strip()
+            
+            # Se termina com Z, substitui por +00:00
+            if dt_str.endswith('Z'):
+                dt_str = dt_str[:-1] + '+00:00'
+            
+            # Se não tem timezone info, adiciona UTC
+            if '+' not in dt_str and 'Z' not in dt and dt_str.count('T') == 1:
+                dt_str += '+00:00'
+            
+            # Converte usando fromisoformat
+            parsed_dt = datetime.fromisoformat(dt_str)
+            
+            # Se ainda não tem timezone após conversão, assume UTC
+            if parsed_dt.tzinfo is None:
+                parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+            
+            return parsed_dt
+            
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Erro ao converter datetime '{dt}' para timezone-aware: {e}")
+        return None
+    
+    # Se chegou aqui, tipo não suportado
+    logger.warning(f"Tipo não suportado para ensure_timezone_aware: {type(dt)}")
+    return None

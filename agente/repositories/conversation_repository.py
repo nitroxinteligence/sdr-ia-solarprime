@@ -12,7 +12,7 @@ from loguru import logger
 from ..core.types import Conversation, Message, MessageRole, MediaType
 from ..core.logger import setup_module_logger
 from ..services import get_supabase_service
-from ..utils.formatters import format_datetime, format_relative_time
+from ..utils.formatters import format_datetime, format_relative_time, ensure_timezone_aware
 
 logger = setup_module_logger(__name__)
 
@@ -435,13 +435,18 @@ class ConversationRepository:
                     .execute()
                 
                 if conv_result.data:
-                    started_at = datetime.fromisoformat(conv_result.data["started_at"].replace("Z", "+00:00"))
-                    time_since_start = datetime.now(timezone.utc) - started_at
-                    return time_since_start > timedelta(minutes=CONVERSATION_TIMEOUT_MINUTES)
+                    started_at = ensure_timezone_aware(conv_result.data["started_at"])
+                    if started_at:
+                        time_since_start = datetime.now(timezone.utc) - started_at
+                        return time_since_start > timedelta(minutes=CONVERSATION_TIMEOUT_MINUTES)
+                    else:
+                        return True  # Se não conseguir processar a data, assume timeout
                 return True
             
             # Verificar tempo desde última mensagem
-            last_message_time = datetime.fromisoformat(result.data[0]["created_at"].replace("Z", "+00:00"))
+            last_message_time = ensure_timezone_aware(result.data[0]["created_at"])
+            if not last_message_time:
+                return True  # Se não conseguir processar a data, assume timeout
             time_since_last_message = datetime.now(timezone.utc) - last_message_time
             
             is_timed_out = time_since_last_message > timedelta(minutes=CONVERSATION_TIMEOUT_MINUTES)
@@ -540,10 +545,16 @@ class ConversationRepository:
             conversation = Conversation(**conv_result.data)
             
             # Calcular duração
-            if conversation.ended_at:
-                duration = conversation.ended_at - conversation.started_at
+            started_at = ensure_timezone_aware(conversation.started_at)
+            ended_at = ensure_timezone_aware(conversation.ended_at) if conversation.ended_at else None
+            
+            if not started_at:
+                raise ValueError(f"Conversa {conversation_id} tem started_at inválido")
+            
+            if ended_at:
+                duration = ended_at - started_at
             else:
-                duration = datetime.now(timezone.utc) - conversation.started_at
+                duration = datetime.now(timezone.utc) - started_at
             
             duration_minutes = duration.total_seconds() / 60
             
@@ -566,9 +577,7 @@ class ConversationRepository:
             
             last_message_time = None
             if last_msg_result.data:
-                last_message_time = datetime.fromisoformat(
-                    last_msg_result.data[0]["created_at"].replace("Z", "+00:00")
-                )
+                last_message_time = ensure_timezone_aware(last_msg_result.data[0]["created_at"])
             
             stats = {
                 "total_messages": conversation.total_messages,

@@ -21,6 +21,7 @@ from agente.repositories import (
 )
 from agente.core.context_manager import ContextManager
 from agente.core.qualification_flow import QualificationStage
+from agente.utils.formatters import ensure_timezone_aware
 
 
 class SessionState(Enum):
@@ -329,7 +330,11 @@ class SessionManager:
         if not conversation.last_message_at:
             return False
         
-        time_since_last = datetime.now(timezone.utc) - conversation.last_message_at
+        last_message_at = ensure_timezone_aware(conversation.last_message_at)
+        if not last_message_at:
+            return False
+            
+        time_since_last = datetime.now(timezone.utc) - last_message_at
         
         # Resume if last message was within session timeout
         return time_since_last < self.DEFAULT_SESSION_TIMEOUT
