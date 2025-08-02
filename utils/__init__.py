@@ -1,1 +1,0 @@
-# Utils module for SDR IA SolarPrime
