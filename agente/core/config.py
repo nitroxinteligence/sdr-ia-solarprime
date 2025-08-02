@@ -6,6 +6,10 @@ Carrega todas as variáveis de ambiente necessárias
 import os
 from datetime import time
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Carregar variáveis de ambiente do arquivo .env
+load_dotenv()
 
 # ===========================
 # CAMINHOS BASE

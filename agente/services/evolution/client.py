@@ -42,7 +42,10 @@ class EvolutionClient:
             timeout: Timeout padrão em segundos
         """
         self.base_url = base_url or EVOLUTION_API_URL
-        self.instance = instance or EVOLUTION_INSTANCE_NAME
+        # Limpar nome da instância (remover espaços e caracteres especiais)
+        raw_instance = instance or EVOLUTION_INSTANCE_NAME
+        # Converter para slug (substituir espaços por hífens, lowercase)
+        self.instance = raw_instance.lower().replace(' ', '-').replace('_', '-')
         self.timeout = timeout
         
         # Headers padrão
@@ -104,8 +107,13 @@ class EvolutionClient:
                 f"Making {method} request",
                 endpoint=endpoint,
                 has_data=bool(data),
-                has_params=bool(params)
+                has_params=bool(params),
+                url=url
             )
+            
+            # Log detalhado dos dados em DEBUG
+            if data:
+                logger.debug(f"Request data: {data}")
             
             # Faz requisição
             response = await self._client.request(
@@ -128,12 +136,25 @@ class EvolutionClient:
                 return {}
                 
         except httpx.HTTPStatusError as e:
+            # Log detalhado do erro HTTP
+            error_detail = e.response.text[:500] if e.response.text else "No response body"
             logger.error(
                 f"HTTP error {e.response.status_code}",
                 endpoint=endpoint,
                 status=e.response.status_code,
-                detail=e.response.text[:200] if e.response.text else None
+                detail=error_detail,
+                url=url,
+                data=data if e.response.status_code == 400 else None  # Log data apenas em Bad Request
             )
+            
+            # Para erro 400, tentar parsear resposta JSON para mais detalhes
+            if e.response.status_code == 400:
+                try:
+                    error_json = e.response.json()
+                    logger.error(f"Evolution API Error Details: {error_json}")
+                except:
+                    pass
+            
             return None
             
         except httpx.TimeoutException:
@@ -207,6 +228,7 @@ class EvolutionClient:
     
     def instance_endpoint(self, path: str) -> str:
         """Monta endpoint com instância"""
+        # Instância já está em formato slug (sem espaços ou caracteres especiais)
         return f"{path}/{self.instance}"
     
     async def check_connection(self) -> bool:
