@@ -213,10 +213,16 @@ class SessionManager:
             
             session["ended_at"] = datetime.now(timezone.utc)
             
-            # Get conversation and lead (using correct method names)  
-            conversation = await self.conversation_repo.get_active_conversation(
-                session.get("lead_id") if session.get("lead_id") else None
-            )
+            # Get conversation and lead (using correct method names)
+            conversation = None
+            lead_id = session.get("lead_id")
+            if lead_id and lead_id is not None:
+                try:
+                    conversation = await self.conversation_repo.get_active_conversation(lead_id)
+                except Exception as e:
+                    logger.warning(f"Erro ao buscar conversa ativa para lead_id {lead_id}: {e}")
+                    conversation = None
+            
             lead = await self.lead_repo.get_lead_by_phone(phone)
             
             # Schedule follow-ups if needed

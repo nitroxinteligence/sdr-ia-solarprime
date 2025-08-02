@@ -397,6 +397,20 @@ class SupabaseService:
             Conversa ativa ou None se não houver
         """
         try:
+            # Validar se lead_id é válido
+            if lead_id is None:
+                logger.debug("lead_id é None, retornando None")
+                return None
+            
+            # Verificar se é um UUID válido
+            if not isinstance(lead_id, UUID):
+                try:
+                    # Tentar converter string para UUID
+                    lead_id = UUID(str(lead_id))
+                except (ValueError, TypeError):
+                    logger.warning(f"lead_id inválido: {lead_id}")
+                    return None
+            
             result = await asyncio.to_thread(
                 lambda: self.client.table("conversations")
                 .select("*")

@@ -110,8 +110,12 @@ class ContextManager:
             # First, get lead to get conversation
             lead = await self.lead_repo.get_lead_by_phone(phone)
             conversation = None
-            if lead:
-                conversation = await self.conversation_repo.get_active_conversation(lead.id)
+            if lead and lead.id is not None:
+                try:
+                    conversation = await self.conversation_repo.get_active_conversation(lead.id)
+                except Exception as e:
+                    logger.warning(f"Erro ao buscar conversa ativa para lead {lead.id}: {e}")
+                    conversation = None
             if not conversation:
                 return []
             
