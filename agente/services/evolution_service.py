@@ -95,6 +95,66 @@ class EvolutionAPIService:
         
         return int(typing_delay)
     
+    def _get_error_details(self, status_code: int, response_text: str) -> Dict[str, str]:
+        """
+        Retorna detalhes específicos sobre o erro baseado no status code
+        
+        Args:
+            status_code: Código de status HTTP
+            response_text: Texto da resposta
+            
+        Returns:
+            Dict com tipo e mensagem do erro
+        """
+        error_map = {
+            400: {"type": "Bad Request", "message": "Dados inválidos ou malformados"},
+            401: {"type": "Unauthorized", "message": "API Key inválida ou ausente"},
+            403: {"type": "Forbidden", "message": "Acesso negado - verifique permissões"},
+            404: {"type": "Not Found", "message": "Instância não encontrada ou inativa"},
+            429: {"type": "Rate Limited", "message": "Muitas requisições - aguarde antes de tentar novamente"},
+            500: {"type": "Server Error", "message": "Erro interno do servidor Evolution API"},
+            502: {"type": "Bad Gateway", "message": "Evolution API indisponível temporariamente"},
+            503: {"type": "Service Unavailable", "message": "Serviço temporariamente indisponível"},
+            504: {"type": "Gateway Timeout", "message": "Timeout na comunicação com WhatsApp"}
+        }
+        
+        error_info = error_map.get(status_code, {
+            "type": f"HTTP {status_code}", 
+            "message": f"Erro HTTP {status_code} não mapeado"
+        })
+        
+        # Tenta extrair mensagem específica da resposta se possível
+        try:
+            if response_text and "error" in response_text.lower():
+                error_info["message"] += f" - Detalhes: {response_text[:200]}"
+        except Exception:
+            pass  # Ignora erros de parsing
+        
+        return error_info
+    
+    async def _check_instance_connection(self) -> bool:
+        """
+        Verifica se a instância está conectada antes de enviar mensagens
+        
+        Returns:
+            True se conectada, False caso contrário
+        """
+        try:
+            status = await self.get_instance_status()
+            if status and status.get("state") == "open":
+                return True
+            else:
+                current_state = status.get("state", "unknown") if status else "unavailable"
+                module_logger.warning(
+                    f"⚠️  Instance not ready for messages",
+                    instance=self.instance,
+                    current_state=current_state
+                )
+                return False
+        except Exception as e:
+            module_logger.error(f"❌ Error checking instance status: {str(e)}")
+            return False
+    
     async def _ensure_client(self):
         """
         Garante que o cliente HTTP esteja disponível e funcional.
@@ -176,14 +236,18 @@ class EvolutionAPIService:
                 if response.status_code >= 200 and response.status_code < 300:
                     return response.json() if response.text else {}
                 
-                # Log de erro para status não-2xx
-                module_logger.warning(
-                    f"Evolution API returned non-2xx status",
+                # Log de erro específico baseado no status
+                error_details = self._get_error_details(response.status_code, response.text)
+                module_logger.error(
+                    f"❌ Evolution API error: {error_details['message']}",
                     status=response.status_code,
-                    response=response.text[:500]  # Primeiros 500 caracteres
+                    error_type=error_details['type'],
+                    response=response.text[:300],
+                    endpoint=endpoint,
+                    attempt=attempt + 1
                 )
                 
-                # Se for 4xx, não tenta novamente
+                # Se for 4xx, não tenta novamente (erro do cliente)
                 if 400 <= response.status_code < 500:
                     return None
                 
@@ -247,7 +311,7 @@ class EvolutionAPIService:
         chunk_manually: bool = True
     ) -> Optional[Dict[str, Any]]:
         """
-        🚀 VERSÃO CORRIGIDA: Evolution API v2 com estrutura oficial + chunking manual inteligente
+        🚀 VERSÃO CORRIGIDA: Evolution API v2 com estrutura oficial simplificada + chunking inteligente
         
         Args:
             phone: Número do destinatário
@@ -274,20 +338,27 @@ class EvolutionAPIService:
             will_chunk=chunk_manually and len(text) > 300
         )
         
+        # 🚀 VERIFICA CONECTIVIDADE DA INSTÂNCIA ANTES DE ENVIAR
+        if not await self._check_instance_connection():
+            module_logger.error(
+                f"❌ Cannot send message - instance not connected",
+                phone=formatted_phone,
+                instance=self.instance
+            )
+            return None
+        
         # 🚀 CHUNKING MANUAL SIMPLES se mensagem for longa
         if chunk_manually and len(text) > 300:
             return await self._send_chunked_message(formatted_phone, text, delay, enable_typing)
         
-        # 🚀 ESTRUTURA CORRETA Evolution API v2 para mensagens diretas
+        # 🚀 ESTRUTURA OFICIAL Evolution API v2 (baseada na documentação oficial)
         data = {
             "number": formatted_phone,
-            "options": {
-                "delay": delay * 1000,  # Evolution API espera em milissegundos
-                "presence": "composing" if enable_typing else None
-            },
-            "textMessage": {
-                "text": text
-            }
+            "text": text,
+            "delay": delay,  # Em segundos conforme documentação
+            "linkPreview": False,
+            "mentionsEveryOne": False,
+            "mentioned": []
         }
         
         # Envia mensagem
@@ -298,15 +369,20 @@ class EvolutionAPIService:
         )
         
         if response:
+            message_id = response.get("key", {}).get("id", "unknown")
+            status = response.get("status", "unknown")
+            
             module_logger.info(
-                f"Text message sent successfully",
+                f"✅ Text message sent successfully",
                 phone=formatted_phone,
-                message_id=response.get("key", {}).get("id")
+                message_id=message_id,
+                status=status
             )
         else:
             module_logger.error(
-                f"Failed to send text message",
-                phone=formatted_phone
+                f"❌ Failed to send text message",
+                phone=formatted_phone,
+                text_preview=text[:50] + "..." if len(text) > 50 else text
             )
         
         return response
@@ -346,16 +422,14 @@ class EvolutionAPIService:
             # Calcula delay progressivo (mensagens posteriores com delay maior)
             chunk_delay = base_delay + (i * 2)  # +2 segundos por chunk
             
-            # Estrutura correta Evolution API v2
+            # 🚀 ESTRUTURA OFICIAL Evolution API v2 para chunks
             data = {
                 "number": formatted_phone,
-                "options": {
-                    "delay": chunk_delay * 1000,
-                    "presence": "composing" if enable_typing else None
-                },
-                "textMessage": {
-                    "text": chunk.strip()
-                }
+                "text": chunk.strip(),
+                "delay": chunk_delay,  # Em segundos conforme documentação
+                "linkPreview": False,
+                "mentionsEveryOne": False,
+                "mentioned": []
             }
             
             # Envia chunk
