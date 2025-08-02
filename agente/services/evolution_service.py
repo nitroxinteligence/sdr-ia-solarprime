@@ -52,8 +52,8 @@ class EvolutionAPIService:
             'apikey': EVOLUTION_API_KEY,
             'Content-Type': 'application/json'
         }
-        # Cliente HTTP com timeout de 30 segundos
-        self.client = httpx.AsyncClient(timeout=30.0, headers=self.headers)
+        # Cliente HTTP será criado conforme necessário
+        self.client = None
         
         module_logger.info(
             "Evolution API Service initialized",
@@ -94,6 +94,22 @@ class EvolutionAPIService:
         
         return int(typing_delay)
     
+    async def _ensure_client(self):
+        """
+        Garante que o cliente HTTP esteja disponível e funcional.
+        Cria um novo cliente se necessário.
+        """
+        if self.client is None or self.client.is_closed:
+            if self.client is not None:
+                try:
+                    await self.client.aclose()
+                except Exception:
+                    pass  # Ignora erros ao fechar cliente já fechado
+                
+            # Criar novo cliente
+            self.client = httpx.AsyncClient(timeout=30.0, headers=self.headers)
+            module_logger.debug("Created new HTTP client for Evolution API")
+    
     async def _make_request(
         self,
         method: str,
@@ -119,6 +135,8 @@ class EvolutionAPIService:
         
         for attempt in range(retry_count):
             try:
+                # Garantir que o cliente HTTP esteja disponível
+                await self._ensure_client()
                 start_time = datetime.now()
                 
                 # Log da requisição
@@ -184,13 +202,28 @@ class EvolutionAPIService:
                     attempt=attempt + 1
                 )
             except Exception as e:
-                module_logger.error(
-                    f"Evolution API unexpected error: {type(e).__name__}: {str(e)}",
-                    endpoint=endpoint,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                    attempt=attempt + 1
-                )
+                # Se for erro de TCPTransport fechado, forçar recriação do cliente
+                if "TCPTransport closed" in str(e) or "handler is closed" in str(e):
+                    module_logger.warning(
+                        f"TCP connection closed, will recreate client: {str(e)}",
+                        endpoint=endpoint,
+                        attempt=attempt + 1
+                    )
+                    # Forçar recriação do cliente na próxima tentativa
+                    if self.client is not None:
+                        try:
+                            await self.client.aclose()
+                        except Exception:
+                            pass
+                        self.client = None
+                else:
+                    module_logger.error(
+                        f"Evolution API unexpected error: {type(e).__name__}: {str(e)}",
+                        endpoint=endpoint,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        attempt=attempt + 1
+                    )
             
             # Exponential backoff
             if attempt < retry_count - 1:
@@ -555,7 +588,9 @@ class EvolutionAPIService:
     
     async def close(self):
         """Fecha cliente HTTP"""
-        await self.client.aclose()
+        if self.client is not None and not self.client.is_closed:
+            await self.client.aclose()
+        self.client = None
         module_logger.info("Evolution API Service closed")
     
     async def __aenter__(self):
