@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 from loguru import logger
 
 from agente.types import WhatsAppMessage, Message, MediaType
-from agente.core.humanizer import HelenHumanizer
+# from agente.core.humanizer import HelenHumanizer  # ❌ REMOVIDO - Evolution API faz tudo
 from agente.core.context_manager import ContextManager
 from agente.core.qualification_flow import QualificationFlow
 from agente.services import EvolutionAPIService
@@ -112,7 +112,7 @@ class MessageProcessor:
     
     def __init__(
         self,
-        humanizer: Optional[HelenHumanizer] = None,
+        # humanizer: Optional[HelenHumanizer] = None,  # ❌ REMOVIDO - Evolution API faz tudo
         context_manager: Optional[ContextManager] = None,
         qualification_flow: Optional[QualificationFlow] = None,
         evolution_service: Optional[EvolutionAPIService] = None,
@@ -120,7 +120,7 @@ class MessageProcessor:
         lead_repo: Optional[LeadRepository] = None
     ):
         """Initialize MessageProcessor with dependencies."""
-        self.humanizer = humanizer or HelenHumanizer()
+        # self.humanizer = humanizer or HelenHumanizer()  # ❌ REMOVIDO - Evolution API faz tudo
         self.context_manager = context_manager or ContextManager()
         self.qualification_flow = qualification_flow or QualificationFlow()
         self.evolution_service = evolution_service or EvolutionAPIService()

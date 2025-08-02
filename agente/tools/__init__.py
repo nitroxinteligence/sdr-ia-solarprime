@@ -10,17 +10,13 @@ Exporta todas as 30 tools organizadas por categoria:
 - Utility Tools (2)
 """
 
-# WhatsApp Tools
-from .whatsapp import (
-    SendTextMessageTool,
-    SendAudioMessageTool,
-    SendImageMessageTool,
-    SendDocumentMessageTool,
-    SendLocationMessageTool,
-    TypeSimulationTool,
-    MessageChunkingTool,
-    MessageBufferTool
-)
+# 🚀 WHATSAPP TOOLS REMOVIDAS - Evolution API faz tudo automaticamente!
+# Evolution API com splitMessages=True substitui TODAS as tools de WhatsApp:
+# - from .whatsapp import (...)  # ❌ TODAS REMOVIDAS
+# - MessageChunkingTool          # ❌ DELETADO - Evolution API chunking nativo  
+# - MessageBufferTool            # ❌ DELETADO - Evolution API delay nativo
+# - SendTextMessageTool          # ❌ DELETADO - Evolution API send nativo
+# - Todas as outras WhatsApp tools também foram removidas
 
 # Kommo Tools
 from .kommo import (
@@ -64,83 +60,77 @@ from .utility import (
     FormatCurrencyTool
 )
 
-# Lista de todas as tools para facilitar registro
+# 🚀 LISTA DE TOOLS ATUALIZADA - Sem WhatsApp tools (Evolution API faz tudo)
 ALL_TOOLS = [
-    # WhatsApp
-    SendTextMessageTool,
-    SendAudioMessageTool,
-    SendImageMessageTool,
-    SendDocumentMessageTool,
-    SendLocationMessageTool,
-    TypeSimulationTool,
-    MessageChunkingTool,
-    MessageBufferTool,
-    # Kommo
+    # 🚀 WhatsApp tools REMOVIDAS - Evolution API substitui:
+    # - SendTextMessageTool,     ❌ REMOVIDO - Evolution API send nativo
+    # - MessageChunkingTool,     ❌ REMOVIDO - Evolution API splitMessages  
+    # - MessageBufferTool,       ❌ REMOVIDO - Evolution API delay nativo
+    # - Todas as outras WhatsApp tools também removidas
+    
+    # Kommo Tools (MANTIDAS)
     SearchKommoLeadTool,
     CreateKommoLeadTool,
     UpdateKommoLeadTool,
     UpdateKommoStageTool,
     AddKommoNoteTool,
     ScheduleKommoActivityTool,
-    # Calendar
+    # Calendar Tools (MANTIDAS)
     CheckAvailabilityTool,
     CreateMeetingTool,
     UpdateMeetingTool,
     CancelMeetingTool,
     SendCalendarInviteTool,
-    # Database
+    # Database Tools (MANTIDAS)
     CreateLeadTool,
     UpdateLeadTool,
     GetLeadTool,
     SaveMessageTool,
     UpdateConversationTool,
     ScheduleFollowUpTool,
-    # Media
+    # Media Tools (MANTIDAS)
     ProcessImageTool,
     ProcessAudioTool,
     ProcessDocumentTool,
-    # Utility
+    # Utility Tools (MANTIDAS)
     ValidatePhoneTool,
     FormatCurrencyTool
 ]
 
 __all__ = [
-    # WhatsApp Tools
-    'SendTextMessageTool',
-    'SendAudioMessageTool',
-    'SendImageMessageTool',
-    'SendDocumentMessageTool',
-    'SendLocationMessageTool',
-    'TypeSimulationTool',
-    'MessageChunkingTool',
-    'MessageBufferTool',
-    # Kommo Tools
+    # 🚀 WhatsApp Tools REMOVIDAS - Evolution API faz tudo automaticamente!
+    # - 'SendTextMessageTool',     ❌ REMOVIDO - Evolution API send nativo
+    # - 'MessageChunkingTool',     ❌ REMOVIDO - Evolution API splitMessages
+    # - 'MessageBufferTool',       ❌ REMOVIDO - Evolution API delay nativo
+    # - Todas as outras WhatsApp tools também removidas
+    
+    # Kommo Tools (MANTIDAS)
     'SearchKommoLeadTool',
     'CreateKommoLeadTool',
     'UpdateKommoLeadTool',
     'UpdateKommoStageTool',
     'AddKommoNoteTool',
     'ScheduleKommoActivityTool',
-    # Calendar Tools
+    # Calendar Tools (MANTIDAS)
     'CheckAvailabilityTool',
     'CreateMeetingTool',
     'UpdateMeetingTool',
     'CancelMeetingTool',
     'SendCalendarInviteTool',
-    # Database Tools
+    # Database Tools (MANTIDAS)
     'CreateLeadTool',
     'UpdateLeadTool',
     'GetLeadTool',
     'SaveMessageTool',
     'UpdateConversationTool',
     'ScheduleFollowUpTool',
-    # Media Tools
+    # Media Tools (MANTIDAS)
     'ProcessImageTool',
     'ProcessAudioTool',
     'ProcessDocumentTool',
-    # Utility Tools
+    # Utility Tools (MANTIDAS)
     'ValidatePhoneTool',
     'FormatCurrencyTool',
-    # Lista completa
+    # Lista completa (ATUALIZADA)
     'ALL_TOOLS'
 ]

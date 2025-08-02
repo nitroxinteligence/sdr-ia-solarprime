@@ -20,7 +20,7 @@ from agente.core.config import (
 from agente.core.types import WhatsAppMessage
 from agente.core.agent import SDRAgent
 from agente.core.reaction_manager import get_reaction_manager
-from agente.core.auto_chunking import get_auto_chunking_manager
+# from agente.core.auto_chunking import get_auto_chunking_manager  # ❌ REMOVIDO - Evolution API faz tudo
 from agente.core.monitoring import (
     setup_sentry,
     capture_agent_error,
@@ -610,10 +610,10 @@ async def process_message_async(message: WhatsAppMessage):
                     logger.error(f"❌ ERRO ao salvar resposta do agente: {save_error}")
                     # Não bloqueamos o envio por erro de salvamento
             
-            # CRÍTICO: Enviar resposta de volta para o WhatsApp (com auto-chunking)
+            # 🚀 SOLUÇÃO ULTRA-SIMPLES: Evolution API faz TUDO
             if response.message:
                 try:
-                    # 🧼 SANITIZAÇÃO OBRIGATÓRIA: Remover vazamentos internos do AGnO ANTES do auto-chunking
+                    # 🧼 Sanitização mínima (apenas objetos Python críticos)
                     from agente.core.response_sanitizer import get_response_sanitizer
                     
                     response_sanitizer = get_response_sanitizer()
@@ -622,39 +622,27 @@ async def process_message_async(message: WhatsAppMessage):
                     # Log se houve sanitização
                     if clean_message != response.message:
                         logger.info(
-                            f"🧼 ResponseSanitizer aplicado - vazamentos removidos",
-                            original_length=len(response.message),
-                            sanitized_length=len(clean_message),
+                            f"🧼 Vazamentos removidos",
+                            reduction=len(response.message) - len(clean_message),
                             phone=message.phone[:4] + "****"
                         )
                     
-                    # Usar auto-chunking manager para envio inteligente com mensagem limpa
-                    auto_chunking = get_auto_chunking_manager()
-                    
-                    # Processar e enviar com chunking automático se necessário
-                    send_result = await auto_chunking.process_and_send_chunks(
+                    # 🎯 UMA LINHA SUBSTITUI 1500+ LINHAS DE CÓDIGO COMPLEXO!
+                    from agente.services import get_evolution_service
+                    evolution_service = get_evolution_service()
+                    send_result = await evolution_service.send_text_message(
                         phone=message.phone,
-                        text=clean_message  # ← MENSAGEM LIMPA sem vazamentos
+                        text=clean_message,
+                        split_messages=True,    # 🚀 Evolution API divide automaticamente
+                        time_per_char=100       # 🚀 Digitação natural automática
                     )
                     
-                    if send_result.get("success"):
-                        if send_result.get("chunked"):
-                            # Mensagem foi dividida em chunks
-                            total_chunks = send_result.get("total_chunks", 1)
-                            successful_chunks = send_result.get("successful_chunks", 0)
-                            logger.info(
-                                f"📤 Response sent to WhatsApp for {message.phone} in {total_chunks} chunk(s) "
-                                f"({successful_chunks} successful)"
-                            )
-                        else:
-                            # Mensagem enviada normalmente
-                            logger.info(f"📤 Response sent to WhatsApp for {message.phone} (single message)")
+                    if send_result:
+                        logger.info(f"✅ Evolution API sent message to {message.phone[:4]}**** (splitMessages=true)")
+                        logger.debug(f"   - Message length: {len(clean_message)} chars")
+                        logger.debug(f"   - Evolution API handled chunking automatically")
                     else:
-                        # Falha no envio
-                        error_msg = send_result.get("error", "Unknown error")
-                        logger.error(f"❌ Failed to send WhatsApp response: {error_msg}")
-                        logger.error(f"   - Phone: {message.phone}")
-                        logger.error(f"   - Response length: {len(response.message)} chars")
+                        logger.error(f"❌ Evolution API failed to send message to {message.phone[:4]}****")
                         
                 except Exception as send_error:
                     logger.error(f"❌ Error sending WhatsApp response: {send_error}")

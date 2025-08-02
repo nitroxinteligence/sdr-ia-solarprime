@@ -24,6 +24,14 @@ class ResponseSanitizer:
     
     # Padrões de vazamento interno do AGnO Framework
     INTERNAL_LEAKAGE_PATTERNS = [
+        # 🚨 CRÍTICO: Vazamentos de objetos Python (PRIORIDADE MÁXIMA)
+        r"<coroutine object [^>]*>",                    # Coroutines não executadas
+        r"<function [^>]*>",                            # Funções vazadas
+        r"<method [^>]*>",                              # Métodos vazados
+        r"<class [^>]*>",                               # Classes vazadas
+        r"<module [^>]*>",                              # Módulos vazados
+        r"<.*object at 0x[0-9a-fA-F]+>",              # Qualquer objeto Python com endereço
+        
         # Frases diretas de processamento (início de frase)
         r"^Got it\.?\s*I'll continue the conversation\.?\s*",
         r"^I'll help you with that\.?\s*",

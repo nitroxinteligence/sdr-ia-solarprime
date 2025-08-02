@@ -31,24 +31,15 @@ from agente.core.monitoring import (
 )
 
 # Import all core components
-from agente.core.humanizer import HelenHumanizer
+# from agente.core.humanizer import HelenHumanizer  # ❌ REMOVIDO - Evolution API faz tudo
 from agente.core.context_manager import ContextManager
 from agente.core.qualification_flow import QualificationFlow
 from agente.core.message_processor import MessageProcessor
 
 # Import all tools
-from agente.tools.whatsapp import (
-    send_text_message,
-    send_audio_message,
-    send_image_message,
-    send_document_message,
-    send_location_message,
-    send_greetings,
-    type_simulation,
-    message_chunking,
-    message_buffer,
-    send_reaction
-)
+# 🚀 SIMPLIFICAÇÃO RADICAL: Removidas TODAS as tools de WhatsApp
+# Evolution API com splitMessages faz TODO o trabalho de envio e chunking
+# from agente.tools.whatsapp import (...)  # ❌ REMOVIDO COMPLETAMENTE
 from agente.tools.kommo import (
     search_kommo_lead,
     create_kommo_lead,
@@ -98,12 +89,12 @@ class SDRAgent:
         # Context storage for tools access
         self._current_context = {}
         
-        # Initialize core components
-        self.humanizer = HelenHumanizer()
+        # Initialize core components  
+        # self.humanizer = HelenHumanizer()  # ❌ REMOVIDO - Evolution API faz tudo
         self.context_manager = ContextManager()
         self.qualification_flow = QualificationFlow()
         self.message_processor = MessageProcessor(
-            humanizer=self.humanizer,
+            # humanizer=self.humanizer,  # ❌ REMOVIDO - Evolution API faz tudo
             context_manager=self.context_manager,
             qualification_flow=self.qualification_flow
         )
@@ -177,15 +168,16 @@ class SDRAgent:
         4. Atualize Kommo para "reunião agendada" com 'update_kommo_stage'
         5. Adicione nota no Kommo com detalhes usando 'add_kommo_note'
         
-        ### Envio de Mensagens:
-        🚨 CRÍTICO: NÃO use 'send_text_message' ou 'message_chunking'
-        O sistema auto-chunking do main.py gerencia TODOS os envios de texto
-        1. Para áudios, use 'send_audio_message'
-        2. Para imagens, use 'send_image_message' 
-        3. Para documentos, use 'send_document_message'
-        4. Para localização, use 'send_location_message'
-        5. Para saudações iniciais, use 'send_greetings'
-        TODAS as mensagens de texto são enviadas automaticamente após seu processamento
+        ### 🚀 SISTEMA ULTRA-SIMPLIFICADO DE MENSAGENS:
+        🎯 VOCÊ SÓ PRECISA GERAR CONTEÚDO - NÃO ENVIAR!
+        
+        ✅ Evolution API faz TODO o trabalho de envio automaticamente
+        ✅ Chunking inteligente nativo da Evolution API  
+        ✅ Digitação natural automática
+        ✅ Delays e timing automáticos
+        
+        🚨 NÃO USE NENHUMA TOOL DE WHATSAPP - FORAM TODAS REMOVIDAS!
+        🚨 Apenas RESPONDA com o conteúdo - Evolution API cuida do resto!
         
         ### Follow-ups:
         1. Se lead não responder, agende follow-up com 'schedule_followup'
@@ -236,19 +228,12 @@ class SDRAgent:
                 'name': self.name,
                 'model': model,
                 'tools': [
-                    # WhatsApp Tools - REMOVIDO send_text_message e message_chunking
-                    # CRÍTICO: Estes tools causavam duplicação de mensagens
-                    # Agora o auto-chunking do main.py gerencia todos os envios
-                    # send_text_message,     # ❌ DESABILITADO - causava duplicação
-                    # message_chunking,      # ❌ DESABILITADO - conflitava com auto-chunking
-                    send_audio_message,
-                    send_image_message,
-                    send_document_message,
-                    send_location_message,
-                    send_greetings,
-                    type_simulation,
-                    message_buffer,
-                    send_reaction,
+                    # 🚀 TODAS AS TOOLS DE WHATSAPP REMOVIDAS!
+                    # Evolution API com splitMessages substitui tudo isso:
+                    # - Sem chunking manual ✅
+                    # - Sem duplicação ✅  
+                    # - Sem vazamentos ✅
+                    # - Sem complexidade ✅
                     
                     # Kommo Tools
                     search_kommo_lead,

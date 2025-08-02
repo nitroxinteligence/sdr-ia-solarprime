@@ -241,15 +241,19 @@ class EvolutionAPIService:
         self,
         phone: str,
         text: str,
-        delay: Optional[int] = None
+        delay: Optional[int] = None,
+        split_messages: bool = True,
+        time_per_char: int = 100
     ) -> Optional[Dict[str, Any]]:
         """
-        Envia mensagem de texto com simulação de digitação
+        🚀 NOVA VERSÃO SIMPLES: Envia mensagem usando splitMessages nativo da Evolution API
         
         Args:
             phone: Número do destinatário
-            text: Texto da mensagem
+            text: Texto da mensagem (será dividido automaticamente pela Evolution API)
             delay: Delay customizado em segundos (opcional)
+            split_messages: Se True, Evolution API divide mensagens longas automaticamente
+            time_per_char: Tempo por caractere em ms para simular digitação natural
             
         Returns:
             Resposta da API ou None em caso de erro
@@ -268,11 +272,16 @@ class EvolutionAPIService:
             delay=delay
         )
         
-        # Dados da mensagem
+        # 🚀 DADOS SIMPLIFICADOS: Evolution API faz TODO o trabalho de chunking
         data = {
             "number": formatted_phone,
             "text": text,
-            "delay": delay * 1000  # Evolution API espera em milissegundos
+            "delay": delay * 1000,  # Evolution API espera em milissegundos
+            "options": {
+                "splitMessages": split_messages,  # 🎯 MAGIC: Evolution API divide automaticamente
+                "timePerChar": time_per_char,     # 🎯 Simula digitação natural
+                "presence": "composing"           # 🎯 Mostra "digitando..." 
+            }
         }
         
         # Envia mensagem
