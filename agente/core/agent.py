@@ -178,10 +178,14 @@ class SDRAgent:
         5. Adicione nota no Kommo com detalhes usando 'add_kommo_note'
         
         ### Envio de Mensagens:
-        1. Para mensagens normais, use 'send_text_message'
-        2. Para mensagens longas, use 'message_chunking' primeiro
-        3. Para simular digitação, use 'type_simulation'
-        4. Para áudios, use 'send_audio_message'
+        🚨 CRÍTICO: NÃO use 'send_text_message' ou 'message_chunking'
+        O sistema auto-chunking do main.py gerencia TODOS os envios de texto
+        1. Para áudios, use 'send_audio_message'
+        2. Para imagens, use 'send_image_message' 
+        3. Para documentos, use 'send_document_message'
+        4. Para localização, use 'send_location_message'
+        5. Para saudações iniciais, use 'send_greetings'
+        TODAS as mensagens de texto são enviadas automaticamente após seu processamento
         
         ### Follow-ups:
         1. Se lead não responder, agende follow-up com 'schedule_followup'
@@ -232,15 +236,17 @@ class SDRAgent:
                 'name': self.name,
                 'model': model,
                 'tools': [
-                    # WhatsApp Tools - usando nomes originais para compatibilidade
-                    send_text_message,
+                    # WhatsApp Tools - REMOVIDO send_text_message e message_chunking
+                    # CRÍTICO: Estes tools causavam duplicação de mensagens
+                    # Agora o auto-chunking do main.py gerencia todos os envios
+                    # send_text_message,     # ❌ DESABILITADO - causava duplicação
+                    # message_chunking,      # ❌ DESABILITADO - conflitava com auto-chunking
                     send_audio_message,
                     send_image_message,
                     send_document_message,
                     send_location_message,
                     send_greetings,
                     type_simulation,
-                    message_chunking,
                     message_buffer,
                     send_reaction,
                     
