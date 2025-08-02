@@ -6,7 +6,8 @@ Gerencia envio de mensagens, mídia, reações e configurações da instância
 import asyncio
 import httpx
 import base64
-from typing import Optional, Dict, Any, Union
+import re
+from typing import Optional, Dict, Any, Union, List
 from datetime import datetime
 import random
 import time
@@ -242,18 +243,18 @@ class EvolutionAPIService:
         phone: str,
         text: str,
         delay: Optional[int] = None,
-        split_messages: bool = True,
-        time_per_char: int = 100
+        enable_typing: bool = True,
+        chunk_manually: bool = True
     ) -> Optional[Dict[str, Any]]:
         """
-        🚀 NOVA VERSÃO SIMPLES: Envia mensagem usando splitMessages nativo da Evolution API
+        🚀 VERSÃO CORRIGIDA: Evolution API v2 com estrutura oficial + chunking manual inteligente
         
         Args:
             phone: Número do destinatário
-            text: Texto da mensagem (será dividido automaticamente pela Evolution API)
+            text: Texto da mensagem
             delay: Delay customizado em segundos (opcional)
-            split_messages: Se True, Evolution API divide mensagens longas automaticamente
-            time_per_char: Tempo por caractere em ms para simular digitação natural
+            enable_typing: Se True, mostra indicador "digitando..."
+            chunk_manually: Se True, divide mensagens longas manualmente
             
         Returns:
             Resposta da API ou None em caso de erro
@@ -269,18 +270,23 @@ class EvolutionAPIService:
             f"Sending text message",
             phone=formatted_phone,
             text_length=len(text),
-            delay=delay
+            delay=delay,
+            will_chunk=chunk_manually and len(text) > 300
         )
         
-        # 🚀 DADOS SIMPLIFICADOS: Evolution API faz TODO o trabalho de chunking
+        # 🚀 CHUNKING MANUAL SIMPLES se mensagem for longa
+        if chunk_manually and len(text) > 300:
+            return await self._send_chunked_message(formatted_phone, text, delay, enable_typing)
+        
+        # 🚀 ESTRUTURA CORRETA Evolution API v2 para mensagens diretas
         data = {
             "number": formatted_phone,
-            "text": text,
-            "delay": delay * 1000,  # Evolution API espera em milissegundos
             "options": {
-                "splitMessages": split_messages,  # 🎯 MAGIC: Evolution API divide automaticamente
-                "timePerChar": time_per_char,     # 🎯 Simula digitação natural
-                "presence": "composing"           # 🎯 Mostra "digitando..." 
+                "delay": delay * 1000,  # Evolution API espera em milissegundos
+                "presence": "composing" if enable_typing else None
+            },
+            "textMessage": {
+                "text": text
             }
         }
         
@@ -304,6 +310,136 @@ class EvolutionAPIService:
             )
         
         return response
+    
+    async def _send_chunked_message(
+        self,
+        formatted_phone: str,
+        text: str,
+        base_delay: int,
+        enable_typing: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """
+        🧠 CHUNKING MANUAL INTELIGENTE: Divide mensagens longas naturalmente
+        
+        Args:
+            formatted_phone: Número formatado
+            text: Texto completo para dividir
+            base_delay: Delay base entre mensagens
+            enable_typing: Se deve mostrar "digitando..."
+            
+        Returns:
+            Resultado da última mensagem enviada
+        """
+        # 🧠 DIVISÃO INTELIGENTE por quebras naturais
+        chunks = self._split_text_naturally(text)
+        
+        module_logger.info(
+            f"Sending chunked message",
+            phone=formatted_phone,
+            total_chunks=len(chunks),
+            original_length=len(text)
+        )
+        
+        last_response = None
+        
+        for i, chunk in enumerate(chunks):
+            # Calcula delay progressivo (mensagens posteriores com delay maior)
+            chunk_delay = base_delay + (i * 2)  # +2 segundos por chunk
+            
+            # Estrutura correta Evolution API v2
+            data = {
+                "number": formatted_phone,
+                "options": {
+                    "delay": chunk_delay * 1000,
+                    "presence": "composing" if enable_typing else None
+                },
+                "textMessage": {
+                    "text": chunk.strip()
+                }
+            }
+            
+            # Envia chunk
+            response = await self._make_request(
+                method="POST",
+                endpoint=f"/message/sendText/{self.instance}",
+                data=data
+            )
+            
+            if response:
+                module_logger.info(
+                    f"Chunk {i+1}/{len(chunks)} sent successfully",
+                    phone=formatted_phone,
+                    chunk_length=len(chunk)
+                )
+                last_response = response
+            else:
+                module_logger.error(
+                    f"Failed to send chunk {i+1}/{len(chunks)}",
+                    phone=formatted_phone
+                )
+                break
+            
+            # Pequena pausa entre chunks para evitar flood
+            if i < len(chunks) - 1:
+                await asyncio.sleep(0.5)
+        
+        return last_response
+    
+    def _split_text_naturally(self, text: str, max_length: int = 300) -> List[str]:
+        """
+        🧠 DIVISÃO NATURAL DE TEXTO: Quebra em pontos naturais como Helen faria
+        
+        Args:
+            text: Texto para dividir
+            max_length: Comprimento máximo por chunk
+            
+        Returns:
+            Lista de chunks divididos naturalmente
+        """
+        if len(text) <= max_length:
+            return [text]
+        
+        chunks = []
+        current_chunk = ""
+        
+        # Divide por sentenças primeiro
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        
+        for sentence in sentences:
+            # Se a sentença sozinha é muito longa, divide por vírgulas/quebras
+            if len(sentence) > max_length:
+                # Divide por vírgulas, quebras de linha, etc.
+                sub_parts = re.split(r'(?<=[,\n])\s*', sentence)
+                
+                for part in sub_parts:
+                    if len(current_chunk) + len(part) + 1 > max_length:
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                            current_chunk = part
+                        else:
+                            # Se mesmo uma parte é muito longa, força divisão por palavras
+                            chunks.append(part[:max_length].strip())
+                    else:
+                        current_chunk += (current_chunk and " " or "") + part
+            else:
+                # Sentença normal
+                if len(current_chunk) + len(sentence) + 1 > max_length:
+                    if current_chunk:
+                        chunks.append(current_chunk.strip())
+                        current_chunk = sentence
+                    else:
+                        chunks.append(sentence)
+                else:
+                    current_chunk += (current_chunk and " " or "") + sentence
+        
+        # Adiciona último chunk se houver
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        # Remove chunks vazios
+        chunks = [chunk for chunk in chunks if chunk.strip()]
+        
+        return chunks
     
     async def send_media(
         self,

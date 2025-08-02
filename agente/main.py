@@ -627,14 +627,14 @@ async def process_message_async(message: WhatsAppMessage):
                             phone=message.phone[:4] + "****"
                         )
                     
-                    # 🎯 UMA LINHA SUBSTITUI 1500+ LINHAS DE CÓDIGO COMPLEXO!
+                    # 🎯 SOLUÇÃO ULTRA-SIMPLES: Evolution API v2 + chunking inteligente manual!
                     from agente.services import get_evolution_service
                     evolution_service = get_evolution_service()
                     send_result = await evolution_service.send_text_message(
                         phone=message.phone,
                         text=clean_message,
-                        split_messages=True,    # 🚀 Evolution API divide automaticamente
-                        time_per_char=100       # 🚀 Digitação natural automática
+                        enable_typing=True,     # 🚀 Mostra "digitando..." 
+                        chunk_manually=True     # 🚀 Chunking inteligente manual
                     )
                     
                     if send_result:
