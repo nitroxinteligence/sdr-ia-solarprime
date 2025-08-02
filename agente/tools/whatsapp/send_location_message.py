@@ -1,12 +1,13 @@
 """
-SendLocationMessageTool - Envia localização via WhatsApp usando Evolution API
+SendLocationMessageTool - Envia localização via WhatsApp
+Versão atualizada para novo Evolution API Service v2
 """
 
 from typing import Dict, Any, Optional
 from agno.tools import tool
 from loguru import logger
 
-from ...services import get_evolution_service
+from agente.services import get_evolution_service
 
 
 @tool(show_result=True)
@@ -18,14 +19,14 @@ async def send_location_message(
     address: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Envia localização geográfica via WhatsApp.
+    Envia localização geográfica via WhatsApp
     
     Args:
         phone: Número de telefone do destinatário (formato: 5511999999999)
         latitude: Latitude da localização (-90 a 90)
         longitude: Longitude da localização (-180 a 180)
         name: Nome do local (opcional, ex: "Escritório SolarPrime")
-        address: Endereço completo (opcional, ex: "Av. Boa Viagem, 123")
+        address: Endereço completo (opcional - não usado no v2)
     
     Returns:
         Dict com status do envio:
@@ -47,11 +48,10 @@ async def send_location_message(
         # Log da operação
         logger.info(
             "Enviando localização via WhatsApp",
-            phone=phone,
+            phone=phone[:4] + "****",
             latitude=latitude,
             longitude=longitude,
-            location_name=name,
-            has_address=bool(address)
+            has_name=bool(name)
         )
         
         # Validação de coordenadas
@@ -81,14 +81,14 @@ async def send_location_message(
                 "has_name": bool(name)
             }
         
-        # Prepara nome do local com endereço se fornecido
+        # Combina nome e endereço se ambos fornecidos
         location_name = name
         if name and address:
-            location_name = f"{name}\n{address}"
-        elif address and not name:
+            location_name = f"{name} - {address}"
+        elif address:
             location_name = address
         
-        # Obtém serviço Evolution API
+        # Obtém serviço Evolution API v2
         evolution = get_evolution_service()
         
         # Envia localização
@@ -100,26 +100,18 @@ async def send_location_message(
         )
         
         if result:
-            # Extrai informações relevantes
-            message_id = result.get("key", {}).get("id", "")
-            
             logger.success(
                 "Localização enviada com sucesso",
                 phone=phone,
-                message_id=message_id,
-                latitude=latitude,
-                longitude=longitude,
-                has_name=bool(name)
+                message_id=result.key.id,
+                location={"lat": latitude, "lng": longitude}
             )
             
             return {
                 "success": True,
-                "message_id": message_id,
+                "message_id": result.key.id,
                 "phone": phone,
-                "location": {
-                    "lat": latitude,
-                    "lng": longitude
-                },
+                "location": {"lat": latitude, "lng": longitude},
                 "has_name": bool(name)
             }
         else:
@@ -130,12 +122,9 @@ async def send_location_message(
             
             return {
                 "success": False,
-                "error": "Falha ao enviar localização - resposta vazia da API",
+                "error": "Falha ao enviar localização - verifique conexão da instância",
                 "phone": phone,
-                "location": {
-                    "lat": latitude,
-                    "lng": longitude
-                },
+                "location": {"lat": latitude, "lng": longitude},
                 "has_name": bool(name)
             }
             
@@ -150,10 +139,7 @@ async def send_location_message(
             "success": False,
             "error": f"Erro ao enviar localização: {str(e)}",
             "phone": phone,
-            "location": {
-                "lat": latitude,
-                "lng": longitude
-            },
+            "location": {"lat": latitude, "lng": longitude},
             "has_name": bool(name)
         }
 

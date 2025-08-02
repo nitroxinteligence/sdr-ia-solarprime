@@ -1,19 +1,15 @@
 """
-SendDocumentMessageTool - Envia documento PDF via WhatsApp usando Evolution API
-CORREÇÃO CAMADA 2: Nome curto para resolver truncamento AGnO Framework
+SendDocumentMessageTool - Envia documento PDF via WhatsApp
+Versão atualizada para novo Evolution API Service v2
 """
 
 from typing import Dict, Any, Optional
-# from agno.tools import tool  # Removido - causa RuntimeWarning + truncamento
 from loguru import logger
 
-from ...services import get_evolution_service
-from ...core.types import MediaType
-from ..core.agno_async_executor import AGnOAsyncExecutor
+from agente.services import get_evolution_service
+from agente.tools.core.agno_async_executor import AGnOAsyncExecutor
 
 
-# CAMADA 2: Correção truncamento AGnO Framework
-# send_document_message (20 chars) → send_doc (8 chars)
 async def _send_document_message_async(
     phone: str,
     document_url: str,
@@ -21,13 +17,13 @@ async def _send_document_message_async(
     filename: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Envia documento (PDF, DOC, etc) via WhatsApp.
+    Envia documento (PDF, DOC, etc) via WhatsApp
     
     Args:
         phone: Número de telefone do destinatário (formato: 5511999999999)
         document_url: URL do documento (pdf, doc, docx, xls, xlsx, etc)
         caption: Legenda/descrição opcional para acompanhar o documento
-        filename: Nome customizado do arquivo (opcional)
+        filename: Nome customizado do arquivo (opcional - não usado no v2)
     
     Returns:
         Dict com status do envio:
@@ -50,10 +46,9 @@ async def _send_document_message_async(
         # Log da operação
         logger.info(
             "Enviando documento via WhatsApp",
-            phone=phone,
+            phone=phone[:4] + "****",
             document_url=document_url,
-            has_caption=bool(caption),
-            custom_filename=filename
+            has_caption=bool(caption)
         )
         
         # Validação básica da URL
@@ -71,71 +66,43 @@ async def _send_document_message_async(
                 "document_type": "unknown"
             }
         
-        # Detecta tipo de documento
+        # Detecta tipo do documento pela extensão
         document_type = "unknown"
         url_lower = document_url.lower()
+        if '.pdf' in url_lower:
+            document_type = "pdf"
+        elif '.doc' in url_lower or '.docx' in url_lower:
+            document_type = "doc"
+        elif '.xls' in url_lower or '.xlsx' in url_lower:
+            document_type = "xls"
+        elif '.ppt' in url_lower or '.pptx' in url_lower:
+            document_type = "ppt"
+        elif '.txt' in url_lower:
+            document_type = "txt"
+        elif '.csv' in url_lower:
+            document_type = "csv"
         
-        # Mapeamento de extensões
-        doc_extensions = {
-            '.pdf': 'pdf',
-            '.doc': 'doc',
-            '.docx': 'docx',
-            '.xls': 'xls',
-            '.xlsx': 'xlsx',
-            '.ppt': 'ppt',
-            '.pptx': 'pptx',
-            '.txt': 'txt',
-            '.csv': 'csv',
-            '.zip': 'zip',
-            '.rar': 'rar'
-        }
-        
-        # Detecta extensão
-        for ext, doc_type in doc_extensions.items():
-            if ext in url_lower:
-                document_type = doc_type
-                break
-        
-        # Aviso se não detectou tipo
-        if document_type == "unknown":
-            logger.warning(
-                "Tipo de documento não detectado",
-                document_url=document_url
-            )
-        
-        # Obtém serviço Evolution API
+        # Obtém serviço Evolution API v2
         evolution = get_evolution_service()
         
-        # Prepara caption com filename se fornecido
-        final_caption = caption
-        if filename and caption:
-            final_caption = f"{filename}\n\n{caption}"
-        elif filename:
-            final_caption = filename
-        
-        # Envia documento
-        result = await evolution.send_media(
+        # Envia documento usando o novo método
+        result = await evolution.send_document(
             phone=phone,
-            media_url=document_url,
-            media_type="document",
-            caption=final_caption
+            document_url=document_url,
+            caption=caption
         )
         
         if result:
-            # Extrai informações relevantes
-            message_id = result.get("key", {}).get("id", "")
-            
             logger.success(
                 "Documento enviado com sucesso",
                 phone=phone,
-                message_id=message_id,
-                document_type=document_type,
-                has_caption=bool(caption)
+                message_id=result.key.id,
+                document_type=document_type
             )
             
             return {
                 "success": True,
-                "message_id": message_id,
+                "message_id": result.key.id,
                 "phone": phone,
                 "media_type": "document",
                 "has_caption": bool(caption),
@@ -149,7 +116,7 @@ async def _send_document_message_async(
             
             return {
                 "success": False,
-                "error": "Falha ao enviar documento - resposta vazia da API",
+                "error": "Falha ao enviar documento - verifique conexão da instância",
                 "phone": phone,
                 "media_type": "document",
                 "has_caption": bool(caption),
@@ -173,8 +140,7 @@ async def _send_document_message_async(
         }
 
 
-# CAMADA 2: Wrapper síncrono com nome curto (evita truncamento)
-# Resolve: send_document_message (20 chars) → send_doc (8 chars)
+# Criar wrapper síncrono para AGnO Framework
 send_doc = AGnOAsyncExecutor.wrap_async_tool(_send_document_message_async)
 send_doc.__name__ = "send_doc"  # Nome curto para evitar truncamento AGnO
 

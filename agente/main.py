@@ -627,14 +627,13 @@ async def process_message_async(message: WhatsAppMessage):
                             phone=message.phone[:4] + "****"
                         )
                     
-                    # 🎯 SOLUÇÃO ULTRA-SIMPLES: Evolution API v2 + chunking inteligente manual!
+                    # 🎯 SOLUÇÃO ULTRA-SIMPLES: Evolution API v2 + chunking inteligente automático!
                     from agente.services import get_evolution_service
                     evolution_service = get_evolution_service()
                     send_result = await evolution_service.send_text_message(
                         phone=message.phone,
-                        text=clean_message,
-                        enable_typing=True,     # 🚀 Mostra "digitando..." 
-                        chunk_manually=True     # 🚀 Chunking inteligente manual
+                        text=clean_message
+                        # Novo serviço já faz chunking automático e delay inteligente
                     )
                     
                     if send_result:

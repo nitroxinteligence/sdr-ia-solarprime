@@ -1,13 +1,13 @@
 """
-SendImageMessageTool - Envia mensagem de imagem via WhatsApp usando Evolution API
+SendImageMessageTool - Envia mensagem de imagem via WhatsApp
+Versão atualizada para novo Evolution API Service v2
 """
 
 from typing import Dict, Any, Optional
 from agno.tools import tool
 from loguru import logger
 
-from ...services import get_evolution_service
-from ...core.types import MediaType
+from agente.services import get_evolution_service
 
 
 @tool(show_result=True)
@@ -17,7 +17,7 @@ async def send_image_message(
     caption: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Envia mensagem de imagem via WhatsApp.
+    Envia mensagem de imagem via WhatsApp
     
     Args:
         phone: Número de telefone do destinatário (formato: 5511999999999)
@@ -44,7 +44,7 @@ async def send_image_message(
         # Log da operação
         logger.info(
             "Enviando mensagem de imagem via WhatsApp",
-            phone=phone,
+            phone=phone[:4] + "****",
             image_url=image_url,
             has_caption=bool(caption)
         )
@@ -63,43 +63,27 @@ async def send_image_message(
                 "has_caption": bool(caption)
             }
         
-        # Validação de extensão de imagem
-        valid_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg')
-        url_lower = image_url.lower()
-        has_valid_extension = any(url_lower.endswith(ext) for ext in valid_extensions)
-        
-        if not has_valid_extension and '?' not in url_lower:
-            logger.warning(
-                "URL de imagem pode não ter extensão válida",
-                image_url=image_url,
-                valid_extensions=valid_extensions
-            )
-        
-        # Obtém serviço Evolution API
+        # Obtém serviço Evolution API v2
         evolution = get_evolution_service()
         
-        # Envia imagem
-        result = await evolution.send_media(
+        # Envia imagem usando o novo método específico
+        result = await evolution.send_image(
             phone=phone,
-            media_url=image_url,
-            media_type="image",
+            image_url=image_url,
             caption=caption
         )
         
         if result:
-            # Extrai informações relevantes
-            message_id = result.get("key", {}).get("id", "")
-            
             logger.success(
                 "Mensagem de imagem enviada com sucesso",
                 phone=phone,
-                message_id=message_id,
+                message_id=result.key.id,
                 has_caption=bool(caption)
             )
             
             return {
                 "success": True,
-                "message_id": message_id,
+                "message_id": result.key.id,
                 "phone": phone,
                 "media_type": "image",
                 "has_caption": bool(caption)
@@ -112,7 +96,7 @@ async def send_image_message(
             
             return {
                 "success": False,
-                "error": "Falha ao enviar imagem - resposta vazia da API",
+                "error": "Falha ao enviar imagem - verifique conexão da instância",
                 "phone": phone,
                 "media_type": "image",
                 "has_caption": bool(caption)

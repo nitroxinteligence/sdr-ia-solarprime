@@ -1,13 +1,13 @@
 """
-SendAudioMessageTool - Envia mensagem de áudio via WhatsApp usando Evolution API
+SendAudioMessageTool - Envia mensagem de áudio via WhatsApp
+Versão simplificada usando novo Evolution API Service v2
 """
 
 from typing import Dict, Any, Optional
 from agno.tools import tool
 from loguru import logger
 
-from ...services import get_evolution_service
-from ...core.types import MediaType
+from agente.services import get_evolution_service
 
 
 @tool(show_result=True)
@@ -17,7 +17,7 @@ async def send_audio_message(
     caption: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Envia mensagem de áudio via WhatsApp.
+    Envia mensagem de áudio via WhatsApp
     
     Args:
         audio_url: URL do arquivo de áudio (mp3, ogg, opus, etc)
@@ -34,16 +34,16 @@ async def send_audio_message(
         - has_caption: bool - Se incluiu caption
     
     Examples:
-        >>> await send_audio_message("5511999999999", "https://example.com/audio.mp3")
+        >>> await send_audio_message("https://example.com/audio.mp3", "5511999999999")
         {"success": True, "message_id": "3EB0C767D097E9ECFE8C", "phone": "5511999999999", "media_type": "audio", "has_caption": False}
         
-        >>> await send_audio_message("5511999999999", "https://example.com/voice.ogg", "Ouça este áudio importante")
+        >>> await send_audio_message("https://example.com/voice.ogg", "5511999999999", "Ouça este áudio importante")
         {"success": True, "message_id": "3EB0C767D097E9ECFE8D", "phone": "5511999999999", "media_type": "audio", "has_caption": True}
     """
     try:
         # Obter phone do contexto se não fornecido
         if phone is None:
-            from ...core.tool_context import get_current_phone
+            from agente.core.tool_context import get_current_phone
             phone = get_current_phone()
             
             if phone is None:
@@ -78,31 +78,26 @@ async def send_audio_message(
                 "has_caption": bool(caption)
             }
         
-        # Obtém serviço Evolution API
+        # Obtém serviço Evolution API v2
         evolution = get_evolution_service()
         
         # Envia áudio
-        result = await evolution.send_media(
+        result = await evolution.send_audio(
             phone=phone,
-            media_url=audio_url,
-            media_type="audio",
-            caption=caption
+            audio_url=audio_url
         )
         
         if result:
-            # Extrai informações relevantes
-            message_id = result.get("key", {}).get("id", "")
-            
             logger.success(
                 "Mensagem de áudio enviada com sucesso",
                 phone=phone,
-                message_id=message_id,
+                message_id=result.key.id,
                 has_caption=bool(caption)
             )
             
             return {
                 "success": True,
-                "message_id": message_id,
+                "message_id": result.key.id,
                 "phone": phone,
                 "media_type": "audio",
                 "has_caption": bool(caption)
@@ -115,7 +110,7 @@ async def send_audio_message(
             
             return {
                 "success": False,
-                "error": "Falha ao enviar áudio - resposta vazia da API",
+                "error": "Falha ao enviar áudio - verifique conexão da instância",
                 "phone": phone,
                 "media_type": "audio",
                 "has_caption": bool(caption)

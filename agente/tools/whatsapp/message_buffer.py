@@ -1,5 +1,6 @@
 """
 MessageBufferTool - Gerencia buffer de mensagens para envio natural e consolidado
+Versão simplificada usando novo Evolution API Service v2
 """
 
 import asyncio
@@ -9,7 +10,7 @@ from collections import defaultdict
 from agno.tools import tool
 from loguru import logger
 
-from ...core.types import BufferedMessages
+from agente.services import get_evolution_service
 
 
 # Buffer global de mensagens por telefone
@@ -27,7 +28,7 @@ async def buffer_message(
     force_send: bool = False
 ) -> Dict[str, Any]:
     """
-    Adiciona mensagem ao buffer para consolidação e envio otimizado.
+    Adiciona mensagem ao buffer para consolidação e envio otimizado
     
     Esta ferramenta gerencia um buffer de mensagens por telefone, permitindo
     consolidar múltiplas mensagens em uma única antes do envio, evitando
@@ -124,9 +125,7 @@ async def buffer_message(
                         total_length=len(consolidated_message)
                     )
                     
-                    # Aqui você chamaria o serviço de envio real
-                    # Por enquanto, apenas simulamos o envio
-                    from ...services import get_evolution_service
+                    # Usa o novo serviço Evolution API v2
                     evolution = get_evolution_service()
                     
                     try:
@@ -198,7 +197,7 @@ async def _schedule_auto_send(
     max_buffer_size: int
 ):
     """
-    Agenda envio automático do buffer após timeout.
+    Agenda envio automático do buffer após timeout
     
     Args:
         phone: Número do telefone
@@ -238,7 +237,7 @@ async def _schedule_auto_send(
 @tool(show_result=True)
 async def clear_buffer(phone: str) -> Dict[str, Any]:
     """
-    Limpa o buffer de mensagens para um telefone específico.
+    Limpa o buffer de mensagens para um telefone específico
     
     Args:
         phone: Número de telefone para limpar o buffer
@@ -280,7 +279,7 @@ async def clear_buffer(phone: str) -> Dict[str, Any]:
 @tool(show_result=True)
 async def get_buffer_status(phone: Optional[str] = None) -> Dict[str, Any]:
     """
-    Obtém status do buffer de mensagens.
+    Obtém status do buffer de mensagens
     
     Args:
         phone: Número de telefone específico (opcional, retorna todos se não fornecido)

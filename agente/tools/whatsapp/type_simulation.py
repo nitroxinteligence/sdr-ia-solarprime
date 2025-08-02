@@ -1,21 +1,18 @@
 """
 TypeSimulationTool - Simula digitação humana no WhatsApp
-CORREÇÃO CAMADA 1: Wrapper síncrono para resolver RuntimeWarning AGnO Framework
+Versão simplificada usando novo Evolution API Service v2
 """
 
 import asyncio
 import random
 from typing import Dict, Any, Optional
-# from agno.tools import tool  # Removido - causa RuntimeWarning
 from loguru import logger
 
-from ...services import get_evolution_service
-from ...core.config import AI_TYPING_DELAY_MAX
-from ..core.agno_async_executor import AGnOAsyncExecutor
+from agente.services import get_evolution_service
+from agente.core.config import AI_TYPING_DELAY_MAX
+from agente.tools.core.agno_async_executor import AGnOAsyncExecutor
 
 
-# CAMADA 1: Correção RuntimeWarning AGnO Framework agno/models/base.py:467  
-# Wrapper síncrono resolve: RuntimeWarning: coroutine 'simulate_typing' was never awaited
 async def _simulate_typing_async(
     text: str,
     phone: Optional[str] = None,
@@ -23,7 +20,7 @@ async def _simulate_typing_async(
     custom_delay: Optional[float] = None
 ) -> Dict[str, Any]:
     """
-    Simula digitação humana no WhatsApp antes de enviar mensagem.
+    Simula digitação humana no WhatsApp antes de enviar mensagem
     
     Esta ferramenta calcula um delay proporcional ao tamanho do texto,
     simulando o tempo que uma pessoa levaria para digitar, criando
@@ -46,16 +43,16 @@ async def _simulate_typing_async(
         - error: str - Mensagem de erro (se falhou)
     
     Examples:
-        >>> await simulate_typing("5511999999999", "Olá! Como posso ajudar você hoje?")
+        >>> await simulate_typing("Olá! Como posso ajudar você hoje?", "5511999999999")
         {"success": True, "typing_duration": 3.2, "words_count": 6, "chars_count": 34, "message_sent": True, "message_id": "3EB0C767D097E9ECFE94"}
         
-        >>> await simulate_typing("5511999999999", "Mensagem longa...", send_after=False)
+        >>> await simulate_typing("Mensagem longa...", "5511999999999", send_after=False)
         {"success": True, "typing_duration": 5.7, "words_count": 2, "chars_count": 16, "message_sent": False}
     """
     try:
         # Obter phone do contexto se não fornecido
         if phone is None:
-            from ...core.tool_context import get_current_phone
+            from agente.core.tool_context import get_current_phone
             phone = get_current_phone()
             
             if phone is None:
@@ -149,7 +146,7 @@ async def _simulate_typing_async(
             
             if send_result:
                 result["message_sent"] = True
-                result["message_id"] = send_result.get("key", {}).get("id", "")
+                result["message_id"] = send_result.key.id
                 
                 logger.success(
                     "Mensagem enviada após simulação",
@@ -183,8 +180,7 @@ async def _simulate_typing_async(
         }
 
 
-# CAMADA 1: Criar wrapper síncrono com nome curto (evita truncamento)
-# Resolve RuntimeWarning AGnO Framework
+# Criar wrapper síncrono para AGnO Framework
 type_sim = AGnOAsyncExecutor.wrap_async_tool(_simulate_typing_async)
 type_sim.__name__ = "type_sim"  # Nome curto para evitar truncamento AGnO
 
