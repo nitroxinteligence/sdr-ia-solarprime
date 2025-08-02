@@ -1,9 +1,11 @@
 """
 Auto Chunking System - Sistema de chunking automático para mensagens grandes
 Funciona independentemente do LLM, aplicando chunking quando necessário
+VERSÃO INTELIGENTE: Detecta se mensagem já foi humanizada pelo AGnO e faz bypass
 """
 
 import asyncio
+import re
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -41,11 +43,51 @@ class AutoChunkingManager:
             "total_characters_processed": 0
         }
         
+        # Padrões para detectar mensagens já humanizadas pelo AGnO/Helen
+        self.humanization_patterns = [
+            r'Oii!\s+Seja\s+muito\s+bem-vindo',  # Padrão típico de abertura Helen
+            r'Meu\s+nome\s+é\s+Helen\s+Vieira',  # Apresentação Helen
+            r'Sou\s+consultora\s+especialista',   # Descrição profissional típica
+            r'\[pausa\s+\d+\.?\d*s\]',           # Marcadores de pausa do humanizer
+            r'Antes\s+de\s+começarmos,\s+como\s+posso\s+te?\s+chamar',  # Pergunta típica
+        ]
+        
         module_logger.info(
-            "AutoChunkingManager initialized",
+            "AutoChunkingManager initialized with intelligent humanization detection",
             threshold=self.auto_chunk_threshold,
-            max_chars_per_chunk=self.max_chars_per_chunk
+            max_chars_per_chunk=self.max_chars_per_chunk,
+            humanization_patterns=len(self.humanization_patterns)
         )
+    
+    def is_already_humanized(self, text: str) -> bool:
+        """
+        Detecta se mensagem já foi processada pelo HelenHumanizer/AGnO
+        
+        Args:
+            text: Texto da mensagem para analisar
+            
+        Returns:
+            True se mensagem já foi humanizada (deve fazer bypass)
+        """
+        if not text:
+            return False
+        
+        # Verificar padrões de humanização Helen Vieira
+        matches_found = []
+        for pattern in self.humanization_patterns:
+            if re.search(pattern, text, re.IGNORECASE | re.MULTILINE):
+                matches_found.append(pattern)
+        
+        is_humanized = len(matches_found) >= 2  # Pelo menos 2 padrões = humanizada
+        
+        if is_humanized:
+            module_logger.info(
+                "Mensagem já humanizada detectada - BYPASS auto-chunking",
+                patterns_matched=len(matches_found),
+                text_length=len(text)
+            )
+        
+        return is_humanized
     
     def should_chunk_message(self, text: str) -> bool:
         """
@@ -58,6 +100,63 @@ class AutoChunkingManager:
             True se deve fazer chunking
         """
         return len(text) > self.auto_chunk_threshold
+    
+    def extract_humanized_chunks(self, text: str) -> List[Dict[str, Any]]:
+        """
+        Extrai chunks de uma mensagem já humanizada pelo AGnO
+        
+        Args:
+            text: Texto humanizado para extrair chunks
+            
+        Returns:
+            Lista de chunks extraídos com delay
+        """
+        try:
+            # Detectar separadores naturais de humanização
+            # Padrão: quebras duplas de linha indicam separação natural
+            raw_chunks = re.split(r'\n\s*\n+', text.strip())
+            
+            chunks = []
+            for i, chunk_text in enumerate(raw_chunks):
+                chunk_text = chunk_text.strip()
+                if not chunk_text:
+                    continue
+                
+                # Extrair delay se houver marcadores [pausa Xs]
+                delay_ms = self.min_delay_ms  # Default
+                delay_match = re.search(r'\[pausa\s+(\d+\.?\d*)s\]', chunk_text)
+                if delay_match:
+                    delay_seconds = float(delay_match.group(1))
+                    delay_ms = int(delay_seconds * 1000)
+                    # Remover marcador de pausa do texto
+                    chunk_text = re.sub(r'\[pausa\s+\d+\.?\d*s\]', '', chunk_text).strip()
+                
+                chunks.append({
+                    "text": chunk_text,
+                    "delay_ms": delay_ms,
+                    "chunk_index": i,
+                    "words": len(chunk_text.split()),
+                    "chars": len(chunk_text)
+                })
+            
+            module_logger.info(
+                "Chunks extraídos de mensagem humanizada",
+                total_chunks=len(chunks),
+                avg_chunk_size=sum(c["chars"] for c in chunks) / len(chunks) if chunks else 0
+            )
+            
+            return chunks
+            
+        except Exception as e:
+            module_logger.error(f"Erro ao extrair chunks humanizados: {e}")
+            # Fallback: retornar texto como chunk único
+            return [{
+                "text": text,
+                "delay_ms": self.min_delay_ms,
+                "chunk_index": 0,
+                "words": len(text.split()),
+                "chars": len(text)
+            }]
     
     async def process_and_send_chunks(
         self, 
@@ -77,7 +176,79 @@ class AutoChunkingManager:
             Resultado do processamento e envio
         """
         try:
-            # Verificar se precisa de chunking
+            # 🧠 BYPASS INTELIGENTE: Verificar se já foi humanizada pelo AGnO
+            if self.is_already_humanized(text):
+                module_logger.info(
+                    "🎭 BYPASS: Mensagem já humanizada detectada - usando chunks pré-processados",
+                    phone=phone[:4] + "****",
+                    text_length=len(text)
+                )
+                
+                # Extrair chunks da resposta já humanizada
+                humanized_chunks = self.extract_humanized_chunks(text)
+                
+                # Enviar chunks humanizados sequencialmente
+                evolution_service = get_evolution_service()
+                sent_chunks = []
+                
+                for i, chunk in enumerate(humanized_chunks):
+                    chunk_text = chunk.get("text", "")
+                    chunk_delay = chunk.get("delay_ms", self.min_delay_ms)
+                    
+                    if not chunk_text.strip():
+                        continue
+                    
+                    try:
+                        # Delay antes do envio (exceto primeiro chunk)
+                        if i > 0:
+                            await asyncio.sleep(chunk_delay / 1000.0)
+                        
+                        result = await evolution_service.send_text_message(
+                            phone=phone, 
+                            text=chunk_text
+                        )
+                        
+                        sent_chunks.append({
+                            "chunk_index": i,
+                            "text": chunk_text[:50] + "..." if len(chunk_text) > 50 else chunk_text,
+                            "chars": len(chunk_text),
+                            "delay_ms": chunk_delay,
+                            "evolution_result": result
+                        })
+                        
+                        module_logger.debug(
+                            f"✅ Chunk humanizado {i+1}/{len(humanized_chunks)} enviado",
+                            chars=len(chunk_text),
+                            delay_ms=chunk_delay
+                        )
+                        
+                    except Exception as chunk_error:
+                        module_logger.error(
+                            f"❌ Erro ao enviar chunk humanizado {i+1}: {chunk_error}"
+                        )
+                        sent_chunks.append({
+                            "chunk_index": i,
+                            "error": str(chunk_error),
+                            "chars": len(chunk_text)
+                        })
+                
+                # Atualizar estatísticas
+                self.stats["messages_chunked"] += 1
+                self.stats["total_chunks_sent"] += len(sent_chunks)
+                self.stats["total_characters_processed"] += len(text)
+                
+                return {
+                    "success": True,
+                    "chunked": True,
+                    "humanized_bypass": True,
+                    "total_chunks": len(humanized_chunks),
+                    "successful_chunks": len([c for c in sent_chunks if "error" not in c]),
+                    "chunks_sent": sent_chunks,
+                    "message_length": len(text),
+                    "processing_time_ms": 0  # Bypass é instantâneo
+                }
+            
+            # Verificar se precisa de chunking normal
             if not force_chunk and not self.should_chunk_message(text):
                 # Enviar mensagem normal sem chunking
                 evolution_service = get_evolution_service()
