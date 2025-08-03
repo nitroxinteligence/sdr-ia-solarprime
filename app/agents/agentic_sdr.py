@@ -884,27 +884,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
     async def initialize(self):
         """Inicializa recursos do agente com fallback robusto"""
         try:
-            # Tentar carregar knowledge base se disponível
-            if self.knowledge:
-                try:
-                    # Verificar se arquivos existem antes de carregar
-                    import os
-                    knowledge_files = [
-                        "data/solar_prime_info.txt",
-                        "data/produtos_solucoes.txt",
-                        "data/objecoes_respostas.txt"
-                    ]
-                    
-                    existing_files = [f for f in knowledge_files if os.path.exists(f)]
-                    
-                    if existing_files:
-                        await self.knowledge.load_documents(existing_files)
-                        emoji_logger.system_ready("Knowledge base", files_loaded=len(existing_files))
-                    else:
-                        emoji_logger.system_warning("Knowledge base vazia - arquivos não encontrados")
-                except Exception as kb_error:
-                    emoji_logger.system_warning(f"Knowledge base não carregada: {str(kb_error)[:50]}")
-                    # Continuar sem knowledge base
+            # Carregar knowledge base do SUPABASE (não de arquivos locais!)
+            await self._load_knowledge_from_supabase()
             
             # Inicializar SDR Team se necessário (com fallback)
             try:
@@ -925,6 +906,86 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             emoji_logger.system_error("AGENTIC SDR", f"Erro crítico na inicialização: {e}")
             # Marcar como inicializado mesmo com erro para permitir funcionamento básico
             self.is_initialized = True
+    
+    async def _load_knowledge_from_supabase(self):
+        """Carrega knowledge base diretamente do Supabase"""
+        try:
+            if not self.knowledge:
+                emoji_logger.system_warning("AgentKnowledge não disponível - pulando carregamento")
+                return
+            
+            emoji_logger.system_info("Carregando knowledge base do Supabase...")
+            
+            # Buscar documentos da tabela knowledge_base
+            from app.integrations.supabase_client import supabase_client
+            
+            # Query para buscar todos os documentos ativos
+            result = supabase_client.client.table("knowledge_base").select("*").execute()
+            
+            if result.data and len(result.data) > 0:
+                # Processar cada documento
+                docs_loaded = 0
+                for doc in result.data:
+                    try:
+                        # Extrair campos do documento
+                        doc_id = doc.get("id")
+                        title = doc.get("title", "")
+                        content = doc.get("content", "")
+                        category = doc.get("category", "")
+                        tags = doc.get("tags", [])
+                        
+                        # Verificar se tem conteúdo
+                        if not content:
+                            continue
+                        
+                        # Criar texto formatado para o knowledge base
+                        formatted_text = f"""
+                        Título: {title}
+                        Categoria: {category}
+                        Tags: {', '.join(tags) if tags else 'N/A'}
+                        
+                        {content}
+                        """
+                        
+                        # Adicionar ao knowledge base usando método correto
+                        if hasattr(self.knowledge, 'load_text'):
+                            self.knowledge.load_text(
+                                text=formatted_text,
+                                metadata={
+                                    "id": doc_id,
+                                    "title": title,
+                                    "category": category,
+                                    "tags": tags,
+                                    "source": "supabase"
+                                }
+                            )
+                            docs_loaded += 1
+                        elif hasattr(self.knowledge, 'add'):
+                            self.knowledge.add(
+                                text=formatted_text,
+                                metadata={
+                                    "id": doc_id,
+                                    "title": title,
+                                    "category": category,
+                                    "tags": tags,
+                                    "source": "supabase"
+                                }
+                            )
+                            docs_loaded += 1
+                            
+                    except Exception as doc_error:
+                        emoji_logger.system_warning(f"Erro ao carregar doc {doc.get('id')}: {str(doc_error)[:50]}")
+                        continue
+                
+                emoji_logger.system_ready(f"Knowledge base carregada do Supabase", 
+                                        documents_loaded=docs_loaded,
+                                        total_documents=len(result.data))
+            else:
+                emoji_logger.system_warning("Nenhum documento encontrado na knowledge_base do Supabase")
+                
+        except Exception as e:
+            emoji_logger.system_error("Knowledge Base Loader", f"Erro ao carregar do Supabase: {str(e)[:100]}")
+            # Não lançar erro - continuar sem knowledge base
     
     async def process_message(
         self,
