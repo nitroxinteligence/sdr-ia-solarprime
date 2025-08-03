@@ -12,7 +12,7 @@ from agno.agent import Agent
 from agno.team import Team
 from agno.models.google import Gemini
 # from agno.models.openai import OpenAIChat  # Temporarily disabled due to compatibility issues
-from agno.memory import Memory
+from agno.memory import AgentMemory
 from agno.storage.postgres import PostgresStorage
 from loguru import logger
 from app.utils.logger import emoji_logger
@@ -62,23 +62,7 @@ class SDRTeam:
             auto_upgrade_schema=True  # Auto-atualiza schema se necessário
         )
         
-        # Memory compartilhada do Team
-        # Tenta criar Memory com storage, fallback para sem persistência
-        try:
-            self.memory = Memory(
-                db=self.storage,  # db é o parâmetro correto para storage
-                create_user_memories=True,
-                create_session_summary=True
-            )
-            logger.info("Memory configurado com persistência")
-        except Exception as e:
-            logger.warning(f"Memory sem persistência: {str(e)[:50]}...")
-            self.memory = Memory(
-                create_user_memories=True,
-                create_session_summary=True
-            )
-        
-        # Modelo principal - Gemini 2.5 Pro
+        # Modelo principal - Gemini 2.5 Pro (MUST be initialized before Memory)
         try:
             self.model = Gemini(
                 id="gemini-2.5-pro",
@@ -91,6 +75,23 @@ class SDRTeam:
             self.model = Gemini(
                 id="gemini-2.0-flash-exp",
                 api_key=settings.google_api_key
+            )
+        
+        # Memory compartilhada do Team (AFTER model initialization)
+        # Tenta criar Memory com storage, fallback para sem persistência
+        try:
+            self.memory = AgentMemory(
+                db=self.storage,  # db é o parâmetro correto para storage
+                create_user_memories=True,
+                create_session_summary=True
+            )
+            logger.info("Memory configurado com persistência")
+        except Exception as e:
+            logger.warning(f"Memory sem persistência: {str(e)[:50]}...")
+            # Memory without persistence needs model parameter
+            self.memory = AgentMemory(
+                create_user_memories=True,
+                create_session_summary=True
             )
         
         # Team Leader - Helen SDR Master
@@ -296,7 +297,7 @@ class SDRTeam:
                 # Configurações adicionais
                 memory=self.memory,
                 show_reasoning=settings.agno_reasoning_enabled,
-                max_tokens=settings.agno_max_tokens,
+                max_output_tokens=settings.agno_max_tokens,
                 temperature=settings.agno_temperature,
                 stream=True,  # Habilitar streaming
                 store_events=True,  # Armazenar eventos para métricas

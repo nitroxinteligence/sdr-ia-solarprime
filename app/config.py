@@ -8,24 +8,27 @@ from pydantic import Field, validator
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Carrega variáveis de ambiente - procura em múltiplos lugares
-# Tenta primeiro no diretório pai (local) e depois no container
-possible_paths = [
-    Path(__file__).parent.parent / '.env',  # Local: projeto/app/../.env
-    Path('/app/.env'),  # Container Docker
-    Path('.env'),  # Diretório atual
-]
+# Carrega variáveis de ambiente
+# Para desenvolvimento local, tenta carregar .env
+# Para produção (EasyPanel), usa variáveis de ambiente direto
+import os
 
-env_loaded = False
-for env_path in possible_paths:
-    if env_path.exists():
-        load_dotenv(env_path, override=True)
-        print(f"✅ Arquivo .env encontrado: {env_path}")
-        env_loaded = True
-        break
-
-if not env_loaded:
-    print("⚠️ Arquivo .env NÃO encontrado em nenhum dos caminhos esperados")
+# Só tenta carregar .env se estiver em desenvolvimento
+if not os.getenv('ENVIRONMENT') or os.getenv('ENVIRONMENT') == 'development':
+    possible_paths = [
+        Path(__file__).parent.parent / '.env',  # Local: projeto/app/../.env
+        Path('/app/.env'),  # Container Docker
+        Path('.env'),  # Diretório atual
+    ]
+    
+    for env_path in possible_paths:
+        if env_path.exists():
+            load_dotenv(env_path, override=True)
+            print(f"✅ Arquivo .env encontrado: {env_path}")
+            break
+else:
+    # Em produção, usa variáveis de ambiente direto
+    print("✅ Usando variáveis de ambiente do servidor (EasyPanel)")
 
 class Settings(BaseSettings):
     """Configurações do sistema"""

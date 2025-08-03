@@ -49,11 +49,25 @@ class KnowledgeAgent:
         # Gerenciador de embeddings
         self.embeddings_manager = EmbeddingsManager()
         
-        # Knowledge base do AGnO
-        self.knowledge_base = AgentKnowledge(
-            vector_db=storage,  # Usar 'vector_db' ao invés de 'store'
-            embedder=self.embeddings_manager.get_embedder()
-        )
+        # Knowledge base do AGnO - only create if we have a proper VectorDb
+        # OptionalStorage is not a VectorDb, so we skip AgentKnowledge creation
+        try:
+            from agno.vectordb.pgvector import PgVector
+            from app.config import settings
+            
+            # Try to create a real PgVector instance
+            vector_db = PgVector(
+                table_name="knowledge_base",
+                db_url=settings.get_postgres_url()
+            )
+            
+            self.knowledge_base = AgentKnowledge(
+                vector_db=vector_db,
+                num_documents=10
+            )
+        except Exception as e:
+            logger.warning(f"Could not create AgentKnowledge with vector database: {str(e)[:100]}")
+            self.knowledge_base = None
         
         # Configurações de RAG
         self.rag_config = {

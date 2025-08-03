@@ -14,7 +14,7 @@ import base64
 from agno.agent import Agent
 from agno.models.google import Gemini
 # from agno.models.openai import OpenAIChat  # Temporarily disabled due to compatibility issues
-from agno.memory import Memory
+from agno.memory import AgentMemory
 from agno.storage.postgres import PostgresStorage
 from agno.knowledge import AgentKnowledge
 from agno.vectordb.pgvector import PgVector
@@ -95,48 +95,45 @@ class AgenticSDR:
             auto_upgrade_schema=True  # Auto-atualiza schema se necessário
         )
         
+        # Setup models BEFORE Memory (needed for fallback)
+        self._setup_models()
+        
         # Memory v2 com multi-usuário e persistência
         # Tenta criar Memory com storage, fallback para sem persistência
         try:
-            self.memory = Memory(
+            self.memory = AgentMemory(
                 db=self.storage,  # db é o parâmetro correto para storage
                 create_user_memories=True,
-                create_session_summary=True,
-                add_datetime_to_messages=True
+                create_session_summary=True
             )
             emoji_logger.system_ready("Memory", status="com persistência")
         except Exception as e:
             emoji_logger.system_warning(f"Memory sem persistência: {str(e)[:50]}...")
-            self.memory = Memory(
+            # Memory without persistence needs model parameter
+            self.memory = AgentMemory(
                 create_user_memories=True,
-                create_session_summary=True,
-                add_datetime_to_messages=True
+                create_session_summary=True
             )
         
         # PgVector para embeddings e busca semântica (opcional)
         try:
             self.vector_db = PgVector(
-                db_url=settings.get_postgres_url(),
-                collection="agentic_knowledge",
-                embedder={"provider": "openai", "model": "text-embedding-3-small"}
+                table_name="agentic_knowledge",  # table_name is the first required parameter
+                db_url=settings.get_postgres_url()
+                # Removed embedder parameter as it expects an Embedder object, not a dict
             )
             
             # Knowledge base com RAG
             self.knowledge = AgentKnowledge(
                 vector_db=self.vector_db,
-                search_type="hybrid",  # Busca híbrida (semântica + keyword)
-                num_documents=10,
-                rerank=True,
-                reranker={"provider": "cohere", "model": "rerank-v3.5"}
+                num_documents=10
+                # Removed unsupported parameters: search_type, rerank, reranker
             )
             emoji_logger.system_ready("Knowledge base", status="ativo")
         except Exception as e:
             emoji_logger.system_warning(f"Knowledge base não disponível: {str(e)[:50]}...")
             self.vector_db = None
             self.knowledge = None
-        
-        # Configurar modelo principal com fallback
-        self._setup_models()
         
         # SDR Team para tarefas especializadas
         self.sdr_team = None
@@ -161,8 +158,16 @@ class AgenticSDR:
         if self.knowledge_search_enabled:
             self.tools.append(self.search_knowledge_base)
         
+        tool_names = []
+        for t in self.tools:
+            if hasattr(t, '__name__'):
+                tool_names.append(t.__name__)
+            elif hasattr(t, 'name'):
+                tool_names.append(t.name)
+            else:
+                tool_names.append(str(t))
         emoji_logger.agentic_thinking(f"Tools habilitadas: {len(self.tools)}", 
-                                      tools=[t.__name__ for t in self.tools])
+                                      tools=tool_names)
         
         # Criar o agente principal
         self._create_agentic_agent()
@@ -184,7 +189,7 @@ class AgenticSDR:
                     id=primary_model,
                     api_key=settings.google_api_key,
                     temperature=settings.ai_temperature,
-                    max_tokens=settings.ai_max_tokens
+                    max_output_tokens=settings.ai_max_tokens
                 )
                 
                 # Modelo de reasoning - Gemini 2.0 Flash Thinking
@@ -192,9 +197,8 @@ class AgenticSDR:
                     self.reasoning_model = Gemini(
                         id="gemini-2.0-flash-thinking-exp-01-21",
                         api_key=settings.google_api_key,
-                        reasoning=True,
-                        reasoning_effort="high",
-                        stream_reasoning=settings.enable_streaming_responses
+                        thinking_budget=8192,  # Enable thinking/reasoning
+                        include_thoughts=True
                     )
                 else:
                     self.reasoning_model = self.model
@@ -288,8 +292,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             show_tool_calls=True,
             markdown=True,
             debug_mode=settings.debug,
-            # Configurações de personalidade
-            system_prompt_kwargs={
+            # Context includes personality configurations
+            context={
                 "emotional_state": self.emotional_state.value,
                 "cognitive_load": self.cognitive_load,
                 "current_time": datetime.now().strftime("%H:%M"),
