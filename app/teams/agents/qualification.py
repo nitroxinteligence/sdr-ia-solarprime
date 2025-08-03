@@ -93,7 +93,7 @@ class QualificationAgent:
         self.agent = Agent(
             name="Qualification Specialist",
             model=self.model,
-            role="""Você é um especialista em qualificação de leads para energia solar.
+            instructions="""Você é um especialista em qualificação de leads para energia solar.
             
             Suas responsabilidades:
             1. Avaliar o potencial do lead baseado em critérios objetivos
@@ -108,16 +108,16 @@ class QualificationAgent:
             - Timeline de implementação
             - Nível de engajamento
             
-            Seja objetivo e baseie-se em dados concretos.""",
+            Seja objetivo e baseie-se em dados concretos.
             
-            tools=self.tools,
-            instructions=[
-                "Analise todos os dados disponíveis do lead",
-                "Calcule o score baseado nos critérios estabelecidos",
-                "Identifique pontos fortes e fracos",
-                "Sugira ações específicas para avançar o lead",
-                "Documente objeções encontradas"
-            ]
+            Diretrizes:
+            - Analise todos os dados disponíveis do lead
+            - Calcule o score baseado nos critérios estabelecidos
+            - Identifique pontos fortes e fracos
+            - Sugira ações específicas para avançar o lead
+            - Documente objeções encontradas""",
+            
+            tools=self.tools
         )
         
         logger.info("✅ QualificationAgent inicializado")

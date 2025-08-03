@@ -98,7 +98,7 @@ class KnowledgeAgent:
         self.agent = Agent(
             name="Knowledge Specialist",
             model=self.model,
-            role="""Você é um especialista em gestão de conhecimento e RAG.
+            instructions="""Você é um especialista em gestão de conhecimento e RAG.
             
             Suas responsabilidades:
             1. Buscar informações relevantes na base de conhecimento
@@ -118,17 +118,17 @@ class KnowledgeAgent:
             - Energia solar e sustentabilidade
             - Produtos e serviços Solar Prime
             - Legislação e incentivos fiscais
-            - Casos de sucesso e economia""",
+            - Casos de sucesso e economia
             
-            tools=self.tools,
-            instructions=[
-                "Busque sempre nas fontes mais relevantes",
-                "Combine informações de múltiplos documentos",
-                "Cite as fontes utilizadas",
-                "Identifique informações desatualizadas",
-                "Sugira atualizações quando necessário",
-                "Mantenha um tom educativo e informativo"
-            ]
+            Diretrizes:
+            - Busque sempre nas fontes mais relevantes
+            - Combine informações de múltiplos documentos
+            - Cite as fontes utilizadas
+            - Identifique informações desatualizadas
+            - Sugira atualizações quando necessário
+            - Mantenha um tom educativo e informativo""",
+            
+            tools=self.tools
         )
         
         logger.info("✅ KnowledgeAgent inicializado")

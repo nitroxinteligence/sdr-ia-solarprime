@@ -98,7 +98,7 @@ class SDRTeam:
         self.team_leader = Agent(
             name="Helen SDR Master",
             model=self.model,
-            role="""Você é Helen Vieira, SDR Master da Solar Prime.
+            instructions="""Você é Helen Vieira, SDR Master da Solar Prime.
             
             Como Team Leader, você:
             1. Recebe mensagens dos leads e analisa o contexto
@@ -255,7 +255,7 @@ class SDRTeam:
                 name="SDR Solar Prime Team",
                 mode="coordinate",  # Team Leader delega e sintetiza
                 members=team_members,
-                role="""Equipe especializada em vendas de energia solar.
+                description="""Equipe especializada em vendas de energia solar.
                 
                 O Team Leader (Helen) coordena os agentes:
                 - QualificationAgent: Qualifica leads e calcula scores
@@ -267,42 +267,25 @@ class SDRTeam:
                 
                 Objetivo: Qualificar leads e agendar reuniões com consultores.""",
                 
-                instructions=[
-                    "Analise a mensagem do lead e o contexto da conversa",
-                    "Identifique qual(is) agente(s) deve(m) ser acionado(s)",
-                    "Delegue tarefas específicas para os agentes apropriados",
-                    "Se necessário, acione múltiplos agentes em paralelo",
-                    "Sintetize as respostas em uma mensagem coesa da Helen",
-                    "Mantenha o tom amigável, profissional e empático",
-                    "Use emojis com moderação",
-                    "Foque sempre em qualificar e converter o lead"
-                ],
-                
-                # Shared state entre todos os membros
-                team_session_state={
-                    "lead_data": {},
-                    "conversation_history": [],
-                    "current_stage": ConversationStage.INITIAL_CONTACT.value,
-                    "qualification_score": 0,
-                    "is_qualified": False,
-                    "bill_value": 0,
-                    "has_decision_power": False,
-                    "timeline": "not_defined",
-                    "objections": [],
-                    "scheduled_meeting": None,
-                    "follow_ups": [],
-                    "knowledge_context": []
-                },
+                instructions="""
+                1. Analise a mensagem do lead e o contexto da conversa
+                2. Identifique qual(is) agente(s) deve(m) ser acionado(s)
+                3. Delegue tarefas específicas para os agentes apropriados
+                4. Se necessário, acione múltiplos agentes em paralelo
+                5. Sintetize as respostas em uma mensagem coesa da Helen
+                6. Mantenha o tom amigável, profissional e empático
+                7. Use emojis com moderação
+                8. Foque sempre em qualificar e converter o lead
+                """,
                 
                 # Configurações adicionais
+                model=self.model,  # Adicionar modelo explicitamente
                 memory=self.memory,
-                show_reasoning=settings.agno_reasoning_enabled,
-                max_output_tokens=settings.agno_max_tokens,
-                temperature=settings.agno_temperature,
-                stream=True,  # Habilitar streaming
-                store_events=True,  # Armazenar eventos para métricas
+                show_tool_calls=True,
+                markdown=True,
+                show_members_responses=True,
                 enable_agentic_context=True,  # Contexto agentic
-                share_member_interactions=True  # Compartilhar interações
+                debug_mode=settings.debug
             )
             
             # Carregar knowledge base se habilitado
@@ -437,7 +420,7 @@ class SDRTeam:
                 return
             
             # Extrair informações da sessão do Team
-            team_state = self.team.team_session_state if self.team else {}
+            team_state = getattr(self.team, 'team_session_state', {}) if self.team else {}
             
             updates = {
                 "last_interaction": datetime.now().isoformat(),
@@ -525,7 +508,7 @@ class SDRTeam:
             multimodal_result = enriched_context.get("multimodal_result")
             
             # Atualizar estado do Team com contexto
-            if self.team:
+            if self.team and hasattr(self.team, 'team_session_state'):
                 self.team.team_session_state.update({
                     "context_analysis": context_analysis,
                     "emotional_state": emotional_triggers.get("dominant_emotion"),

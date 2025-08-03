@@ -285,7 +285,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         self.agent = Agent(
             name="AGENTIC SDR",
             model=self.model,
-            role=enhanced_prompt,
+            instructions=enhanced_prompt,
             tools=self.tools,
             memory=self.memory,
             knowledge=self.knowledge,

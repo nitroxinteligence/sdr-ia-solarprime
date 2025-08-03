@@ -112,7 +112,7 @@ class BillAnalyzerAgent:
         self.agent = Agent(
             name="Bill Analyzer",
             model=self.model,
-            role="""Você é um especialista em análise de contas de energia elétrica.
+            instructions="""Você é um especialista em análise de contas de energia elétrica.
             
             Suas responsabilidades:
             1. Analisar imagens de contas de luz com OCR
@@ -132,17 +132,17 @@ class BillAnalyzerAgent:
             - Extraia TODOS os dados possíveis
             - Valide os valores encontrados
             - Calcule economia realista
-            - Sugira sistema adequado""",
+            - Sugira sistema adequado
             
-            tools=self.tools,
-            instructions=[
-                "Analise cuidadosamente a imagem da conta",
-                "Extraia valor total, consumo em kWh e dados do cliente",
-                "Calcule economia de 20% garantida",
-                "Dimensione sistema solar apropriado",
-                "Considere bandeiras tarifárias se visíveis",
-                "Valide se o valor atende critérios mínimos"
-            ]
+            Diretrizes:
+            - Analise cuidadosamente a imagem da conta
+            - Extraia valor total, consumo em kWh e dados do cliente
+            - Calcule economia de 20% garantida
+            - Dimensione sistema solar apropriado
+            - Considere bandeiras tarifárias se visíveis
+            - Valide se o valor atende critérios mínimos""",
+            
+            tools=self.tools
         )
         
         logger.info("✅ BillAnalyzerAgent inicializado")

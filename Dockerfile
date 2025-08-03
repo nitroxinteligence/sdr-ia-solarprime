@@ -49,6 +49,13 @@ WORKDIR /app
 # Copy application code
 COPY . .
 
+# Clean Python cache to force fresh imports
+RUN find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
+    find . -type f -name "*.pyc" -delete 2>/dev/null || true && \
+    find . -type f -name "*.pyo" -delete 2>/dev/null || true && \
+    rm -rf /root/.cache/pip/* 2>/dev/null || true && \
+    python -c "import py_compile; import compileall; compileall.compile_dir('/app', force=True)" || true
+
 # Copy .env file if exists (can be overridden by docker-compose volume)
 # Using shell to handle if file doesn't exist
 RUN if [ -f .env ]; then cp .env /app/.env; fi

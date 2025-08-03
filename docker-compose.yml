@@ -20,6 +20,7 @@ services:
       # Força algumas variáveis importantes
       - PYTHONUNBUFFERED=1
       - TZ=America/Sao_Paulo
+      - FORCE_REBUILD=2025-08-03-v3
     networks:
       - sdr-network
     healthcheck:

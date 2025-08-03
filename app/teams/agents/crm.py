@@ -104,7 +104,7 @@ class CRMAgent:
         self.agent = Agent(
             name="CRM Manager",
             model=self.model,
-            role="""Você é um especialista em gestão de CRM (Kommo).
+            instructions="""Você é um especialista em gestão de CRM (Kommo).
             
             Suas responsabilidades:
             1. Sincronizar leads entre o sistema e o Kommo CRM
@@ -125,17 +125,17 @@ class CRMAgent:
             2. Qualificação → Lead qualificado
             3. Proposta → Proposta enviada
             4. Negociação → Em discussão
-            5. Fechamento → Ganho ou Perdido""",
+            5. Fechamento → Ganho ou Perdido
             
-            tools=self.tools,
-            instructions=[
-                "Mantenha dados sincronizados entre sistemas",
-                "Crie deals apenas para leads qualificados",
-                "Adicione contexto relevante nas notas",
-                "Atualize stages conforme progresso real",
-                "Configure tarefas para garantir follow-up",
-                "Use tags para categorização"
-            ]
+            Diretrizes:
+            - Mantenha dados sincronizados entre sistemas
+            - Crie deals apenas para leads qualificados
+            - Adicione contexto relevante nas notas
+            - Atualize stages conforme progresso real
+            - Configure tarefas para garantir follow-up
+            - Use tags para categorização""",
+            
+            tools=self.tools
         )
         
         # Inicializar campos e stages automaticamente

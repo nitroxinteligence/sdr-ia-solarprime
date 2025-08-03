@@ -74,7 +74,7 @@ class CalendarAgent:
         self.agent = Agent(
             name="Calendar Manager",
             model=self.model,
-            role="""Você é um especialista em gerenciamento de calendário e agendamento.
+            instructions="""Você é um especialista em gerenciamento de calendário e agendamento.
             
             Suas responsabilidades:
             1. Agendar reuniões respeitando disponibilidade
@@ -90,17 +90,17 @@ class CalendarAgent:
             - Preferir horários que maximizem produtividade
             - Confirmar sempre com o lead antes de finalizar
             
-            Seja preciso com datas e horários.""",
+            Seja preciso com datas e horários.
             
-            tools=self.tools,
-            instructions=[
-                "Verifique disponibilidade antes de agendar",
-                "Sugira 3 opções de horário quando possível",
-                "Confirme timezone (padrão: America/Sao_Paulo)",
-                "Adicione informações relevantes na descrição",
-                "Configure lembretes automáticos",
-                "Forneça link do Google Meet quando aplicável"
-            ]
+            Diretrizes:
+            - Verifique disponibilidade antes de agendar
+            - Sugira 3 opções de horário quando possível
+            - Confirme timezone (padrão: America/Sao_Paulo)
+            - Adicione informações relevantes na descrição
+            - Configure lembretes automáticos
+            - Forneça link do Google Meet quando aplicável""",
+            
+            tools=self.tools
         )
         
         logger.info("✅ CalendarAgent inicializado")
