@@ -1,6 +1,4 @@
 # Core Framework
-agno==1.7.6
-agno-phoenix==1.0.0  # AGNO Phoenix for advanced features
 fastapi==0.115.5
 uvicorn[standard]==0.32.0
 pydantic==2.10.1
@@ -35,8 +33,8 @@ google-auth-httplib2==0.2.0
 google-api-python-client==2.150.0
 
 # Document Processing
-pypdf==3.17.4  # PDF reading for AGNO
-docx2txt==0.8.1  # DOCX reading for AGNO
+pypdf==3.17.4  # PDF reading
+docx2txt==0.8.1  # DOCX reading
 pdfplumber==0.10.3  # Advanced PDF extraction
 markdown==3.5.1  # Markdown processing
 
