@@ -32,8 +32,8 @@ class RedisClient:
             logger.info("Conectado ao Redis com sucesso")
             
         except Exception as e:
-            logger.error(f"Erro ao conectar ao Redis: {e}")
-            raise
+            logger.warning(f"Redis não disponível: {e}. Sistema funcionará sem cache.")
+            self.redis_client = None  # Define como None para indicar que não está conectado
     
     async def disconnect(self):
         """Desconecta do Redis"""
@@ -53,6 +53,9 @@ class RedisClient:
         Returns:
             Valor ou None se não existir
         """
+        if not self.redis_client:
+            return None
+            
         try:
             value = await self.redis_client.get(key)
             
@@ -87,6 +90,9 @@ class RedisClient:
         Returns:
             True se sucesso
         """
+        if not self.redis_client:
+            return False
+            
         try:
             # Serializa para JSON se necessário
             if isinstance(value, (dict, list)):
@@ -113,6 +119,9 @@ class RedisClient:
         Returns:
             True se removido
         """
+        if not self.redis_client:
+            return False
+            
         try:
             result = await self.redis_client.delete(key)
             return result > 0
@@ -131,6 +140,9 @@ class RedisClient:
         Returns:
             True se existe
         """
+        if not self.redis_client:
+            return False
+            
         try:
             return await self.redis_client.exists(key) > 0
             
@@ -149,6 +161,9 @@ class RedisClient:
         Returns:
             True se sucesso
         """
+        if not self.redis_client:
+            return False
+            
         try:
             return await self.redis_client.expire(key, ttl)
             
@@ -166,6 +181,9 @@ class RedisClient:
         Returns:
             TTL em segundos ou -1 se não tem TTL
         """
+        if not self.redis_client:
+            return -1
+            
         try:
             return await self.redis_client.ttl(key)
             
@@ -254,6 +272,9 @@ class RedisClient:
         Returns:
             True se sucesso
         """
+        if not self.redis_client:
+            return False
+            
         try:
             # Cria payload com timestamp
             payload = {
@@ -295,6 +316,9 @@ class RedisClient:
         Returns:
             Item da fila ou None
         """
+        if not self.redis_client:
+            return None
+            
         try:
             # Verifica fila de prioridade primeiro
             priority_key = f"queue:priority:{queue_name}"
@@ -332,6 +356,9 @@ class RedisClient:
         Returns:
             Número de itens na fila
         """
+        if not self.redis_client:
+            return 0
+            
         try:
             priority_key = f"queue:priority:{queue_name}"
             normal_key = f"queue:{queue_name}"
@@ -413,6 +440,9 @@ class RedisClient:
         Returns:
             True se permitido, False se excedeu limite
         """
+        if not self.redis_client:
+            return True  # Sem Redis, permite tudo
+            
         try:
             rate_key = f"rate:{key}"
             
@@ -445,6 +475,9 @@ class RedisClient:
         Returns:
             Número de requisições restantes
         """
+        if not self.redis_client:
+            return max_requests
+            
         try:
             rate_key = f"rate:{key}"
             current = await self.redis_client.get(rate_key)
@@ -476,6 +509,9 @@ class RedisClient:
         Returns:
             True se adquiriu lock
         """
+        if not self.redis_client:
+            return True  # Sem Redis, permite tudo
+            
         try:
             lock_key = f"lock:{key}"
             
@@ -521,6 +557,9 @@ class RedisClient:
             channel: Nome do canal
             message: Mensagem a publicar
         """
+        if not self.redis_client:
+            return
+            
         try:
             if isinstance(message, (dict, list)):
                 message = json.dumps(message)
@@ -541,6 +580,9 @@ class RedisClient:
         Returns:
             PubSub object
         """
+        if not self.redis_client:
+            return None
+            
         try:
             pubsub = self.redis_client.pubsub()
             await pubsub.subscribe(*channels)
@@ -568,6 +610,9 @@ class RedisClient:
         Returns:
             Valor atual do contador
         """
+        if not self.redis_client:
+            return 0
+            
         try:
             key = f"counter:{counter_name}"
             return await self.redis_client.incrby(key, amount)
@@ -586,6 +631,9 @@ class RedisClient:
         Returns:
             Valor do contador
         """
+        if not self.redis_client:
+            return 0
+            
         try:
             key = f"counter:{counter_name}"
             value = await self.redis_client.get(key)
