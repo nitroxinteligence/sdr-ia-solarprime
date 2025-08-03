@@ -1,69 +1,180 @@
-025-08-03 16:22:45.508 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ SDR IA Solar Prime pronto | Data: {'startup_ms': 3000.0}
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:57272 - "GET /health HTTP/1.1" 200 OK
-2025-08-03 16:23:07.679 | INFO     | app.utils.logger:log_with_emoji:140 | 📞 Webhook recebido: /whatsapp/presence-update de evolution-api | Data: {'event': 'PRESENCE_UPDATE', 'endpoint': '/whatsapp/presence-update', 'source': 'evolution-api'}
-INFO:     10.11.0.4:46048 - "POST /webhook/whatsapp/presence-update HTTP/1.1" 200 OK
-2025-08-03 16:23:07.895 | INFO     | app.utils.logger:log_with_emoji:140 | 📞 Webhook recebido: /whatsapp/chats-update de evolution-api | Data: {'event': 'CHATS_UPDATE', 'endpoint': '/whatsapp/chats-update', 'source': 'evolution-api'}
-2025-08-03 16:23:07.896 | INFO     | app.api.webhooks:whatsapp_dynamic_webhook:79 | Chat update recebido: {'event': 'chats.update', 'instance': 'SDR IA SolarPrime', 'data': [{'remoteJid': '558182986181@s.whatsapp.net', 'instanceId': '02f1c146-f8b8-4f19-9e8a-d3517ee84269'}, {'remoteJid': '558195554978@s.whatsapp.net', 'instanceId': '02f1c146-f8b8-4f19-9e8a-d3517ee84269'}], 'destination': 'https://sdr-api-evolution-api.fzvgou.easypanel.host/webhook/whatsapp', 'date_time': '2025-08-03T13:23:07.885Z', 'sender': '558195554978@s.whatsapp.net', 'server_url': 'https://evoapi-evolution-api.fzvgou.easypanel.host', 'apikey': '3ECB607589F3-4D35-949F-BA5D2D5892E9'}
-INFO:     10.11.0.4:46048 - "POST /webhook/whatsapp/chats-update HTTP/1.1" 200 OK
-2025-08-03 16:23:07.926 | INFO     | app.utils.logger:log_with_emoji:140 | 📞 Webhook recebido: /whatsapp/messages-upsert de evolution-api | Data: {'event': 'MESSAGES_UPSERT', 'endpoint': '/whatsapp/messages-upsert', 'source': 'evolution-api'}
-INFO:     10.11.0.4:46048 - "POST /webhook/whatsapp/messages-upsert HTTP/1.1" 200 OK
-2025-08-03 16:23:07.927 | INFO     | app.utils.logger:log_with_emoji:140 | 📥 Recebido text de 558182986181 | Data: {'preview': 'oi', 'sender': '558182986181', 'type': 'text'}
-✅ PostgreSQL URL configurada: ...@db.rcjcpwqezmlhenmhrski.supabase.co:5432/postgres
-2025-08-03 16:23:09.778 | WARNING  | app.utils.optional_storage:__init__:47 | ⚠️ PostgreSQL não disponível: (psycopg2.OperationalError) connection to server at "db.rcjcpwqezmlhenmhrski.supabase.co" (2a05:d016...
-2025-08-03 16:23:09.778 | WARNING  | app.utils.optional_storage:__init__:48 | 📝 Sistema funcionará com storage em memória para: agentic_sdr_sessions
-2025-08-03 16:23:09.778 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ Modelos configurados pronto | Data: {'primary_model': 'gemini-2.5-pro', 'reasoning_enabled': True}
-2025-08-03 16:23:09.779 | WARNING  | app.utils.logger:log_with_emoji:140 | ⚠️ Memory sem persistência: 1 validation error for AgentMemory
-db
-  Input shou...
-✅ PostgreSQL URL configurada: ...@db.rcjcpwqezmlhenmhrski.supabase.co:5432/postgres
-INFO Embedder not provided, using OpenAIEmbedder as default.                    
-2025-08-03 16:23:09.783 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ Knowledge base pronto | Data: {'status': 'ativo'}
-2025-08-03 16:23:09.786 | INFO     | app.utils.logger:log_with_emoji:140 | 🤖 AGENTIC SDR: Sistema inicializado com sucesso | Data: {'context_enabled': True, 'reasoning_enabled': True, 'multimodal_enabled': True}
-2025-08-03 16:23:09.787 | INFO     | app.utils.logger:log_with_emoji:140 | ℹ️ Carregando knowledge base do Supabase...
-2025-08-03 16:23:10.183 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ Knowledge base carregada do Supabase pronto | Data: {'documents_loaded': 0, 'total_documents': 67}
-✅ PostgreSQL URL configurada: ...@db.rcjcpwqezmlhenmhrski.supabase.co:5432/postgres
-2025-08-03 16:23:10.185 | WARNING  | app.utils.optional_storage:__init__:47 | ⚠️ PostgreSQL não disponível: (psycopg2.OperationalError) connection to server at "db.rcjcpwqezmlhenmhrski.supabase.co" (2a05:d016...
-2025-08-03 16:23:10.185 | WARNING  | app.utils.optional_storage:__init__:48 | 📝 Sistema funcionará com storage em memória para: sdr_team_sessions
-2025-08-03 16:23:10.185 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ SDR Team pronto | Data: {'model': 'gemini-2.5-pro'}
-2025-08-03 16:23:10.185 | WARNING  | app.teams.sdr_team:__init__:90 | Memory sem persistência: 1 validation error for AgentMemory
-db
-  Input shou...
-2025-08-03 16:23:10.186 | INFO     | app.teams.agents.qualification:__init__:123 | ✅ QualificationAgent inicializado
-2025-08-03 16:23:10.186 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ QualificationAgent ✅ Habilitado
-2025-08-03 16:23:10.186 | INFO     | app.teams.agents.calendar:__init__:106 | ✅ CalendarAgent inicializado
-2025-08-03 16:23:10.186 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ CalendarAgent ✅ Habilitado
-2025-08-03 16:23:10.187 | INFO     | app.teams.agents.followup:__init__:149 | ✅ FollowUpAgent inicializado
-2025-08-03 16:23:10.187 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ FollowUpAgent ✅ Habilitado
-✅ PostgreSQL URL configurada: ...@db.rcjcpwqezmlhenmhrski.supabase.co:5432/postgres
-INFO Embedder not provided, using OpenAIEmbedder as default.                    
-2025-08-03 16:23:10.191 | INFO     | app.teams.agents.knowledge:__init__:134 | ✅ KnowledgeAgent inicializado
-2025-08-03 16:23:10.192 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ KnowledgeAgent ✅ Habilitado
-2025-08-03 16:23:10.192 | INFO     | app.teams.agents.crm:__init__:144 | ✅ CRMAgent inicializado
-2025-08-03 16:23:10.192 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ CRMAgent ✅ Habilitado
-2025-08-03 16:23:10.192 | INFO     | app.teams.agents.bill_analyzer:__init__:148 | ✅ BillAnalyzerAgent inicializado
-2025-08-03 16:23:10.192 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ BillAnalyzerAgent ✅ Habilitado
-2025-08-03 16:23:10.192 | INFO     | app.utils.logger:log_with_emoji:140 | 👥 TEAM SDR: Sistema inicializado
-2025-08-03 16:23:10.977 | INFO     | app.teams.agents.knowledge:load_knowledge_base:193 | 📚 Carregados 67 documentos na base de conhecimento
-2025-08-03 16:23:10.978 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ SDR Team pronto | Data: {'agents_active': 6, 'startup_ms': 1000.0}
-2025-08-03 16:23:10.978 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ SDR Team inicializado pronto
-2025-08-03 16:23:10.978 | INFO     | app.utils.logger:log_with_emoji:140 | ✅ AGENTIC SDR pronto | Data: {'startup_ms': 500.0}
-2025-08-03 16:23:10.979 | INFO     | app.utils.logger:log_with_emoji:140 | 📞 Webhook recebido: /whatsapp/contacts-update de evolution-api | Data: {'event': 'CONTACTS_UPDATE', 'endpoint': '/whatsapp/contacts-update', 'source': 'evolution-api'}
-2025-08-03 16:23:10.979 | INFO     | app.api.webhooks:whatsapp_dynamic_webhook:84 | Contacts update recebido: {'event': 'contacts.update', 'instance': 'SDR IA SolarPrime', 'data': [{'remoteJid': '558182986181@s.whatsapp.net', 'pushName': 'Mateus M', 'profilePicUrl': 'https://pps.whatsapp.net/v/t61.24694-24/521428372_23966156116410343_3058739794538851299_n.jpg?ccb=11-4&oh=01_Q5Aa2AHsW87F1FTJv7dwyuh-4t-tb9pkUGvBS6flwvRmqxeTfw&oe=689C98CD&_nc_sid=5e03e0&_nc_cat=104', 'instanceId': '02f1c146-f8b8-4f19-9e8a-d3517ee84269'}], 'destination': 'https://sdr-api-evolution-api.fzvgou.easypanel.host/webhook/whatsapp', 'date_time': '2025-08-03T13:23:08.260Z', 'sender': '558195554978@s.whatsapp.net', 'server_url': 'https://evoapi-evolution-api.fzvgou.easypanel.host', 'apikey': '3ECB607589F3-4D35-949F-BA5D2D5892E9'}
-INFO:     10.11.0.4:46050 - "POST /webhook/whatsapp/contacts-update HTTP/1.1" 200 OK
-2025-08-03 16:23:10.980 | INFO     | app.utils.logger:log_with_emoji:140 | 📞 Webhook recebido: /whatsapp/contacts-update de evolution-api | Data: {'event': 'CONTACTS_UPDATE', 'endpoint': '/whatsapp/contacts-update', 'source': 'evolution-api'}
-2025-08-03 16:23:10.981 | INFO     | app.api.webhooks:whatsapp_dynamic_webhook:84 | Contacts update recebido: {'event': 'contacts.update', 'instance': 'SDR IA SolarPrime', 'data': {'remoteJid': '558182986181@s.whatsapp.net', 'pushName': 'Mateus M', 'profilePicUrl': 'https://pps.whatsapp.net/v/t61.24694-24/521428372_23966156116410343_3058739794538851299_n.jpg?ccb=11-4&oh=01_Q5Aa2AHsW87F1FTJv7dwyuh-4t-tb9pkUGvBS6flwvRmqxeTfw&oe=689C98CD&_nc_sid=5e03e0&_nc_cat=104', 'instanceId': '02f1c146-f8b8-4f19-9e8a-d3517ee84269'}, 'destination': 'https://sdr-api-evolution-api.fzvgou.easypanel.host/webhook/whatsapp', 'date_time': '2025-08-03T13:23:08.311Z', 'sender': '558195554978@s.whatsapp.net', 'server_url': 'https://evoapi-evolution-api.fzvgou.easypanel.host', 'apikey': '3ECB607589F3-4D35-949F-BA5D2D5892E9'}
-INFO:     10.11.0.4:46060 - "POST /webhook/whatsapp/contacts-update HTTP/1.1" 200 OK
-2025-08-03 16:23:12.351 | INFO     | app.utils.logger:log_with_emoji:140 | 💭 Decisão: AGENTIC SDR resolve sozinha
-WARNING  MemoryDb not provided.                                                 
-INFO:     127.0.0.1:45900 - "GET /health HTTP/1.1" 200 OK
-2025-08-03 16:23:21.651 | INFO     | app.utils.logger:log_with_emoji:140 | 💬 Resposta: Resposta gerada: Oii! Seja muito bem-vindo à Solar Prime!
-Meu nome é Helen Vieira
-Sou consultora especialista aqui da...
-2025-08-03 16:23:33.029 | INFO     | app.utils.logger:log_with_emoji:140 | 📤 Enviando typing para 558182986181 | Data: {'duration_seconds': 3.32, 'message_length': 165, 'recipient': '558182986181', 'type': 'typing'}
-2025-08-03 16:23:33.038 | INFO     | app.utils.logger:log_with_emoji:140 | 📤 Enviando text para 558182986181 | Data: {'message_length': 165, 'delay_used': 8.0, 'recipient': '558182986181', 'type': 'text'}
-2025-08-03 16:23:33.039 | INFO     | app.utils.logger:log_with_emoji:140 | 📤 Enviando text para 558182986181 | Data: {'preview': 'Oii! Seja muito bem-vindo à Solar Prime!\nMeu nome ', 'recipient': '558182986181', 'type': 'text'}
-INFO:     127.0.0.1:50352 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59332 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60182 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46442 - "GET /health HTTP/1.1" 200 OK
+2025-08-03 16:44:14.636 | INFO     | app.utils.logger:log_with_emoji:140 | 📤 Enviando typing para 558182986181 | Data: {'duration_seconds': 4.22, 'message_length': 116, 'recipient': '558182986181', 'type': 'typing'}
+2025-08-03 16:44:14.645 | ERROR    | app.utils.logger:log_with_emoji:140 | 🚨 Erro Evolution: Evolution API retornou erro 404: {"status":404,"error":"Not Found","response":{"message":["The \"sdr-ia-solarprime\" instance does not exist"]}}
+2025-08-03 16:44:14.645 | ERROR    | app.utils.logger:log_with_emoji:140 | 🚨 Erro Evolution: Erro ao enviar mensagem: Erro ao enviar mensagem: Status 404 - {"status":404,"error":"Not Found","response":{"message":["The \"sdr-ia-solarprime\" instance does not exist"]}}
+2025-08-03 16:44:14.646 | ERROR    | app.utils.logger:log_with_emoji:140 | 💥 Erro em Evolution API: Erro ao enviar mensagem: Erro ao enviar mensagem: Status 404 - {"status":404,"error":"Not Found","response":{"message":["The \"sdr-ia-solarprime\" instance does not exist"]}} | Data: {'component': 'Evolution API'}
+2025-08-03 16:44:14.646 | ERROR    | app.utils.logger:log_with_emoji:140 | 💥 Erro em Webhook Message Processing: Erro ao enviar mensagem: Status 404 - {"status":404,"error":"Not Found","response":{"message":["The \"sdr-ia-solarprime\" instance does not exist"]}} | Data: {'component': 'Webhook Message Processing'}
+2025-08-03 16:44:14.646 | ERROR    | app.api.webhooks:process_new_message:367 | Erro detalhado no processamento:
+Traceback (most recent call last):
+
+  File "/root/.local/bin/uvicorn", line 7, in <module>
+    sys.exit(main())
+    │   │    └ <Command main>
+    │   └ <built-in function exit>
+    └ <module 'sys' (built-in)>
+  File "/root/.local/lib/python3.11/site-packages/click/core.py", line 1442, in __call__
+    return self.main(*args, **kwargs)
+           │    │     │       └ {}
+           │    │     └ ()
+           │    └ <function Command.main at 0x7a47bd13e480>
+           └ <Command main>
+  File "/root/.local/lib/python3.11/site-packages/click/core.py", line 1363, in main
+    rv = self.invoke(ctx)
+         │    │      └ <click.core.Context object at 0x7a47bde06610>
+         │    └ <function Command.invoke at 0x7a47bd13e160>
+         └ <Command main>
+  File "/root/.local/lib/python3.11/site-packages/click/core.py", line 1226, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           │   │      │    │           │   └ {'host': '0.0.0.0', 'port': 8000, 'workers': 1, 'app': 'main:app', 'uds': None, 'fd': None, 'reload': False, 'reload_dirs': (...
+           │   │      │    │           └ <click.core.Context object at 0x7a47bde06610>
+           │   │      │    └ <function main at 0x7a47bcc38860>
+           │   │      └ <Command main>
+           │   └ <function Context.invoke at 0x7a47bd13d3a0>
+           └ <click.core.Context object at 0x7a47bde06610>
+  File "/root/.local/lib/python3.11/site-packages/click/core.py", line 794, in invoke
+    return callback(*args, **kwargs)
+           │         │       └ {'host': '0.0.0.0', 'port': 8000, 'workers': 1, 'app': 'main:app', 'uds': None, 'fd': None, 'reload': False, 'reload_dirs': (...
+           │         └ ()
+           └ <function main at 0x7a47bcc38860>
+  File "/root/.local/lib/python3.11/site-packages/uvicorn/main.py", line 410, in main
+    run(
+    └ <function run at 0x7a47bd137880>
+  File "/root/.local/lib/python3.11/site-packages/uvicorn/main.py", line 577, in run
+    server.run()
+    │      └ <function Server.run at 0x7a47bd02ccc0>
+    └ <uvicorn.server.Server object at 0x7a47bd2fdc90>
+  File "/root/.local/lib/python3.11/site-packages/uvicorn/server.py", line 65, in run
+    return asyncio.run(self.serve(sockets=sockets))
+           │       │   │    │             └ None
+           │       │   │    └ <function Server.serve at 0x7a47bd02cd60>
+           │       │   └ <uvicorn.server.Server object at 0x7a47bd2fdc90>
+           │       └ <function run at 0x7a47bdaa0ea0>
+           └ <module 'asyncio' from '/usr/local/lib/python3.11/asyncio/__init__.py'>
+  File "/usr/local/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           │      │   └ <coroutine object Server.serve at 0x7a47bcf133d0>
+           │      └ <function Runner.run at 0x7a47bd380cc0>
+           └ <asyncio.runners.Runner object at 0x7a47bcc434d0>
+  File "/usr/local/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           │    │     │                  └ <Task pending name='Task-1' coro=<Server.serve() running at /root/.local/lib/python3.11/site-packages/uvicorn/server.py:69> w...
+           │    │     └ <cyfunction Loop.run_until_complete at 0x7a47bcc7d3c0>
+           │    └ <uvloop.Loop running=True closed=False debug=False>
+           └ <asyncio.runners.Runner object at 0x7a47bcc434d0>
+  File "/root/.local/lib/python3.11/site-packages/uvicorn/protocols/http/httptools_impl.py", line 399, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+                   └ <uvicorn.middleware.proxy_headers.ProxyHeadersMiddleware object at 0x7a47b6657190>
+  File "/root/.local/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 70, in __call__
+    return await self.app(scope, receive, send)
+                 │    │   │      │        └ <bound method RequestResponseCycle.send of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a8194d...
+                 │    │   │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+                 │    │   └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+                 │    └ <fastapi.applications.FastAPI object at 0x7a47b45e8c90>
+                 └ <uvicorn.middleware.proxy_headers.ProxyHeadersMiddleware object at 0x7a47b6657190>
+  File "/root/.local/lib/python3.11/site-packages/fastapi/applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+                           │      │        └ <bound method RequestResponseCycle.send of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a8194d...
+                           │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+                           └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+  File "/root/.local/lib/python3.11/site-packages/starlette/applications.py", line 123, in __call__
+    await self.middleware_stack(scope, receive, send)
+          │    │                │      │        └ <bound method RequestResponseCycle.send of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a8194d...
+          │    │                │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │    │                └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          │    └ <starlette.middleware.errors.ServerErrorMiddleware object at 0x7a47b45d6150>
+          └ <fastapi.applications.FastAPI object at 0x7a47b45e8c90>
+  File "/root/.local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+          │    │   │      │        └ <function ServerErrorMiddleware.__call__.<locals>._send at 0x7a47a816ab60>
+          │    │   │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │    │   └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          │    └ <starlette.middleware.cors.CORSMiddleware object at 0x7a47abe696d0>
+          └ <starlette.middleware.errors.ServerErrorMiddleware object at 0x7a47b45d6150>
+  File "/root/.local/lib/python3.11/site-packages/starlette/middleware/cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+          │    │   │      │        └ <function ServerErrorMiddleware.__call__.<locals>._send at 0x7a47a816ab60>
+          │    │   │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │    │   └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          │    └ <starlette.middleware.exceptions.ExceptionMiddleware object at 0x7a47abe69490>
+          └ <starlette.middleware.cors.CORSMiddleware object at 0x7a47abe696d0>
+  File "/root/.local/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 65, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+          │                            │    │    │     │      │        └ <function ServerErrorMiddleware.__call__.<locals>._send at 0x7a47a816ab60>
+          │                            │    │    │     │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │                            │    │    │     └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          │                            │    │    └ <starlette.requests.Request object at 0x7a47a8183590>
+          │                            │    └ <fastapi.routing.APIRouter object at 0x7a47b4596c50>
+          │                            └ <starlette.middleware.exceptions.ExceptionMiddleware object at 0x7a47abe69490>
+          └ <function wrap_app_handling_exceptions at 0x7a47bbc08a40>
+  File "/root/.local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+          │   │      │        └ <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x7a47a816b740>
+          │   │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │   └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          └ <fastapi.routing.APIRouter object at 0x7a47b4596c50>
+  File "/root/.local/lib/python3.11/site-packages/starlette/routing.py", line 756, in __call__
+    await self.middleware_stack(scope, receive, send)
+          │    │                │      │        └ <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x7a47a816b740>
+          │    │                │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │    │                └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          │    └ <bound method Router.app of <fastapi.routing.APIRouter object at 0x7a47b4596c50>>
+          └ <fastapi.routing.APIRouter object at 0x7a47b4596c50>
+  File "/root/.local/lib/python3.11/site-packages/starlette/routing.py", line 776, in app
+    await route.handle(scope, receive, send)
+          │     │      │      │        └ <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x7a47a816b740>
+          │     │      │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │     │      └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          │     └ <function Route.handle at 0x7a47bbc0a0c0>
+          └ APIRoute(path='/webhook/whatsapp/{event_type}', name='whatsapp_dynamic_webhook', methods=['POST'])
+  File "/root/.local/lib/python3.11/site-packages/starlette/routing.py", line 297, in handle
+    await self.app(scope, receive, send)
+          │    │   │      │        └ <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x7a47a816b740>
+          │    │   │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │    │   └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          │    └ <function request_response.<locals>.app at 0x7a47abe1fe20>
+          └ APIRoute(path='/webhook/whatsapp/{event_type}', name='whatsapp_dynamic_webhook', methods=['POST'])
+  File "/root/.local/lib/python3.11/site-packages/starlette/routing.py", line 77, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+          │                            │    │        │      │        └ <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x7a47a816b740>
+          │                            │    │        │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │                            │    │        └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          │                            │    └ <starlette.requests.Request object at 0x7a47abefa850>
+          │                            └ <function request_response.<locals>.app.<locals>.app at 0x7a47a816b600>
+          └ <function wrap_app_handling_exceptions at 0x7a47bbc08a40>
+  File "/root/.local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    await app(scope, receive, sender)
+          │   │      │        └ <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x7a47a816b4c0>
+          │   │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │   └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          └ <function request_response.<locals>.app.<locals>.app at 0x7a47a816b600>
+  File "/root/.local/lib/python3.11/site-packages/starlette/routing.py", line 75, in app
+    await response(scope, receive, send)
+          │        │      │        └ <function wrap_app_handling_exceptions.<locals>.wrapped_app.<locals>.sender at 0x7a47a816b4c0>
+          │        │      └ <bound method RequestResponseCycle.receive of <uvicorn.protocols.http.httptools_impl.RequestResponseCycle object at 0x7a47a81...
+          │        └ {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.4'}, 'http_version': '1.1', 'server': ('10.11.3.193', 8000), '...
+          └ <starlette.responses.JSONResponse object at 0x7a47a8197790>
+  File "/root/.local/lib/python3.11/site-packages/starlette/responses.py", line 162, in __call__
+    await self.background()
+          │    └ <fastapi.background.BackgroundTasks object at 0x7a47a8197090>
+          └ <starlette.responses.JSONResponse object at 0x7a47a8197790>
+  File "/root/.local/lib/python3.11/site-packages/starlette/background.py", line 45, in __call__
+    await task()
+          └ <starlette.background.BackgroundTask object at 0x7a47a8197810>
+  File "/root/.local/lib/python3.11/site-packages/starlette/background.py", line 28, in __call__
+    await self.func(*self.args, **self.kwargs)
+          │    │     │    │       │    └ {}
+          │    │     │    │       └ <starlette.background.BackgroundTask object at 0x7a47a8197810>
+          │    │     │    └ ({'key': {'remoteJid': '558182986181@s.whatsapp.net', 'fromMe': False, 'id': '3A39FE9D92FD6028B404', 'senderLid': '1294720240...
+          │    │     └ <starlette.background.BackgroundTask object at 0x7a47a8197810>
+          │    └ <function process_new_message at 0x7a47ba600b80>
+          └ <starlette.background.BackgroundTask object at 0x7a47a8197810>
+
+> File "/app/app/api/webhooks.py", line 326, in process_new_message
+    result = await evolution_client.send_text_message(
+                   │                └ <function EvolutionAPIClient.send_text_message at 0x7a47ba1a6de0>
+                   └ <app.integrations.evolution.EvolutionAPIClient object at 0x7a47bbd4c290>
+
+  File "/app/app/integrations/evolution.py", line 312, in send_text_message
+    raise Exception(f"Erro ao enviar mensagem: Status {response.status_code} - {error_text}")
+
+Exception: Erro ao enviar mensagem: Status 404 - {"status":404,"error":"Not Found","response":{"message":["The \"sdr-ia-solarprime\" instance does not exist"]}}

@@ -40,9 +40,9 @@ class Settings(BaseSettings):
     google_api_key: str = Field(default="", env="GOOGLE_API_KEY")
     
     # Evolution API
-    evolution_api_url: str = Field(default="http://localhost:8080", env="EVOLUTION_API_URL")
-    evolution_api_key: str = Field(default="", env="EVOLUTION_API_KEY")
-    evolution_instance_name: str = Field(default="sdr-ia-solarprime", env="EVOLUTION_INSTANCE_NAME")
+    evolution_api_url: str = Field(default="https://evoapi-evolution-api.fzvgou.easypanel.host", env="EVOLUTION_API_URL")
+    evolution_api_key: str = Field(default="3ECB607589F3-4D35-949F-BA5D2D5892E9", env="EVOLUTION_API_KEY")
+    evolution_instance_name: str = Field(default="SDR IA SolarPrime", env="EVOLUTION_INSTANCE_NAME")
     
     # Supabase
     supabase_url: str = Field(default="", env="SUPABASE_URL")
