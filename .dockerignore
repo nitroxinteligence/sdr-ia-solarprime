@@ -1,0 +1,73 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.pytest_cache
+.mypy_cache
+.hypothesis
+
+# Environment
+.env
+.env.local
+.env.production
+.env.development
+
+# IDEs
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/*
+!logs/.gitkeep
+
+# Credentials (sensitive)
+credentials/*.json
+credentials/*.pickle
+!credentials/.gitkeep
+
+# Documentation
+docs/
+README.md
+DEPLOY.md
+*.md
+
+# Tests
+tests/
+test_*.py
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Misc
+*.sql
+scripts/
+examples/
