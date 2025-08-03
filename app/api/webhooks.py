@@ -3,6 +3,7 @@ Webhooks API - Recebe eventos da Evolution API
 """
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from typing import Dict, Any, Optional
+import asyncio
 import base64
 import json
 from datetime import datetime
@@ -14,7 +15,7 @@ from app.integrations.evolution import evolution_client
 from app.agents.agentic_sdr import get_agentic_sdr  # Importa o AGENTIC SDR
 from app.config import settings
 
-router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+router = APIRouter(prefix="/webhook", tags=["webhooks"])  # Mudado para /webhook (sem 's')
 
 # Instância global do AGENTIC SDR
 agentic_agent = None
@@ -25,6 +26,71 @@ async def get_agentic_agent():
     if agentic_agent is None:
         agentic_agent = await get_agentic_sdr()
     return agentic_agent
+
+@router.post("/whatsapp/{event_type}")
+async def whatsapp_dynamic_webhook(
+    event_type: str,
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    Webhook dinâmico para eventos específicos do WhatsApp
+    Captura URLs como /webhook/whatsapp/messages-upsert
+    """
+    try:
+        # Converter event_type de kebab-case para UPPER_SNAKE_CASE
+        # Ex: messages-upsert -> MESSAGES_UPSERT
+        event = event_type.upper().replace("-", "_")
+        
+        # Recebe dados do webhook
+        data = await request.json()
+        
+        # Log do evento recebido
+        emoji_logger.webhook_receive(f"/whatsapp/{event_type}", "evolution-api", event=event)
+        
+        # Processa eventos específicos baseado no tipo
+        if event == "MESSAGES_UPSERT":
+            # Nova mensagem recebida
+            background_tasks.add_task(
+                process_new_message,
+                data
+            )
+            
+        elif event == "CONNECTION_UPDATE":
+            # Status da conexão mudou
+            await process_connection_update(data)
+            
+        elif event == "QRCODE_UPDATED":
+            # QR Code atualizado
+            await process_qrcode_update(data)
+            
+        elif event == "MESSAGES_UPDATE":
+            # Status de mensagem atualizado (entregue, lida, etc)
+            await process_message_update(data)
+            
+        elif event == "PRESENCE_UPDATE":
+            # Status de presença (online, digitando, etc)
+            await process_presence_update(data)
+            
+        elif event == "CHATS_UPDATE":
+            # Atualização de chats
+            logger.info(f"Chat update recebido: {data}")
+            # TODO: Implementar processamento de chats_update se necessário
+            
+        elif event == "CONTACTS_UPDATE":
+            # Atualização de contatos
+            logger.info(f"Contacts update recebido: {data}")
+            # TODO: Implementar processamento de contacts_update se necessário
+        
+        else:
+            logger.warning(f"Evento não reconhecido: {event}")
+            
+        return {"status": "ok", "event": event}
+        
+    except Exception as e:
+        emoji_logger.system_error(f"Webhook WhatsApp {event_type}", str(e))
+        # Não lança exceção para não travar o webhook
+        return {"status": "error", "message": str(e)}
 
 @router.post("/evolution")
 async def evolution_webhook(
