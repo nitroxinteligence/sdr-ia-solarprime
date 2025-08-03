@@ -472,7 +472,7 @@ class CalendarAgent:
             
             # Se tem lead_id, filtrar do banco
             if lead_id:
-                db_events = await supabase_client.client.table("calendar_events")\
+                db_events = supabase_client.client.table("calendar_events")\
                     .select("*")\
                     .eq("lead_id", lead_id)\
                     .gte("start_time", time_min.isoformat())\
@@ -710,7 +710,7 @@ class CalendarAgent:
                 "created_at": datetime.now().isoformat()
             }
             
-            await supabase_client.client.table("calendar_events")\
+            supabase_client.client.table("calendar_events")\
                 .insert(data)\
                 .execute()
                 
@@ -725,7 +725,7 @@ class CalendarAgent:
     ):
         """Atualiza reunião no banco"""
         try:
-            await supabase_client.client.table("calendar_events")\
+            supabase_client.client.table("calendar_events")\
                 .update({
                     "start_time": new_start.isoformat(),
                     "end_time": new_end.isoformat(),
@@ -741,7 +741,7 @@ class CalendarAgent:
     async def _cancel_meeting_in_db(self, event_id: str, reason: str):
         """Marca reunião como cancelada no banco"""
         try:
-            await supabase_client.client.table("calendar_events")\
+            supabase_client.client.table("calendar_events")\
                 .update({
                     "status": "cancelled",
                     "cancelled_reason": reason,

@@ -452,20 +452,20 @@ class QualificationAgent:
             }
             
             # Verificar se já existe
-            existing = await supabase_client.client.table("leads_qualifications")\
+            existing = supabase_client.client.table("leads_qualifications")\
                 .select("*")\
                 .eq("lead_id", lead_id)\
                 .execute()
             
             if existing.data:
                 # Atualizar existente
-                result = await supabase_client.client.table("leads_qualifications")\
+                result = supabase_client.client.table("leads_qualifications")\
                     .update(data)\
                     .eq("lead_id", lead_id)\
                     .execute()
             else:
                 # Inserir novo
-                result = await supabase_client.client.table("leads_qualifications")\
+                result = supabase_client.client.table("leads_qualifications")\
                     .insert(data)\
                     .execute()
             

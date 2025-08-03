@@ -755,7 +755,7 @@ class CRMAgent:
             crm_lead_id = lead_result["crm_id"]
             
             # Adicionar nota com contexto
-            qualification = await supabase_client.client.table("leads_qualifications")\
+            qualification = supabase_client.client.table("leads_qualifications")\
                 .select("*")\
                 .eq("lead_id", lead_id)\
                 .single()\
@@ -966,7 +966,7 @@ class CRMAgent:
         
         # Buscar no banco
         try:
-            result = await supabase_client.client.table("crm_mappings")\
+            result = supabase_client.client.table("crm_mappings")\
                 .select("crm_id")\
                 .eq("local_id", local_id)\
                 .eq("entity_type", entity_type)\
@@ -991,7 +991,7 @@ class CRMAgent:
     ):
         """Salva mapeamento entre IDs local e CRM"""
         try:
-            await supabase_client.client.table("crm_mappings").upsert({
+            supabase_client.client.table("crm_mappings").upsert({
                 "local_id": local_id,
                 "crm_id": crm_id,
                 "entity_type": entity_type,

@@ -137,7 +137,7 @@ class KnowledgeAgent:
         """Carrega base de conhecimento do Supabase"""
         try:
             # Buscar documentos do banco (removido filtro is_active que não existe)
-            documents = await supabase_client.client.table("knowledge_base")\
+            documents = supabase_client.client.table("knowledge_base")\
                 .select("*")\
                 .execute()
             
@@ -266,7 +266,7 @@ class KnowledgeAgent:
             content_hash = hashlib.md5(content.encode()).hexdigest()
             
             # Verificar se já existe
-            existing = await supabase_client.client.table("knowledge_base")\
+            existing = supabase_client.client.table("knowledge_base")\
                 .select("id")\
                 .eq("content_hash", content_hash)\
                 .execute()
@@ -290,7 +290,7 @@ class KnowledgeAgent:
             }
             
             # Salvar no banco
-            result = await supabase_client.client.table("knowledge_base")\
+            result = supabase_client.client.table("knowledge_base")\
                 .insert(doc_data)\
                 .execute()
             
@@ -315,7 +315,7 @@ class KnowledgeAgent:
                     embedding = await self.embeddings_manager.create_embedding(chunk)
                     
                     # Salvar embedding
-                    await supabase_client.client.table("embeddings").insert({
+                    supabase_client.client.table("embeddings").insert({
                         "document_id": doc_id,
                         "chunk_index": i,
                         "chunk_text": chunk,
@@ -365,7 +365,7 @@ class KnowledgeAgent:
         """
         try:
             # Atualizar no banco
-            result = await supabase_client.client.table("knowledge_base")\
+            result = supabase_client.client.table("knowledge_base")\
                 .update({
                     **updates,
                     "updated_at": datetime.now().isoformat()
@@ -377,7 +377,7 @@ class KnowledgeAgent:
                 # Se o conteúdo foi atualizado, regenerar embeddings
                 if "content" in updates:
                     # Deletar embeddings antigas
-                    await supabase_client.client.table("embeddings")\
+                    supabase_client.client.table("embeddings")\
                         .delete()\
                         .eq("document_id", document_id)\
                         .execute()
@@ -387,7 +387,7 @@ class KnowledgeAgent:
                     for i, chunk in enumerate(chunks):
                         embedding = await self.embeddings_manager.create_embedding(chunk)
                         
-                        await supabase_client.client.table("embeddings").insert({
+                        supabase_client.client.table("embeddings").insert({
                             "document_id": document_id,
                             "chunk_index": i,
                             "chunk_text": chunk,
@@ -432,7 +432,7 @@ class KnowledgeAgent:
             Documento completo ou None
         """
         try:
-            result = await supabase_client.client.table("knowledge_base")\
+            result = supabase_client.client.table("knowledge_base")\
                 .select("*")\
                 .eq("id", document_id)\
                 .single()\
@@ -655,7 +655,7 @@ class KnowledgeAgent:
         try:
             if action == "list":
                 # Listar categorias únicas
-                result = await supabase_client.client.table("knowledge_base")\
+                result = supabase_client.client.table("knowledge_base")\
                     .select("category")\
                     .execute()
                 
@@ -686,7 +686,7 @@ class KnowledgeAgent:
                     }
                 
                 # Renomear categoria
-                result = await supabase_client.client.table("knowledge_base")\
+                result = supabase_client.client.table("knowledge_base")\
                     .update({"category": new_name})\
                     .eq("category", category_name)\
                     .execute()
@@ -702,7 +702,7 @@ class KnowledgeAgent:
             
             elif action == "remove":
                 # Desativar documentos da categoria
-                result = await supabase_client.client.table("knowledge_base")\
+                result = supabase_client.client.table("knowledge_base")\
                     .delete()\
                     .eq("category", category_name)\
                     .execute()

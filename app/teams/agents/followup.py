@@ -203,7 +203,7 @@ class FollowUpAgent:
                 "created_at": datetime.now().isoformat()
             }
             
-            result = await supabase_client.client.table("follow_ups")\
+            result = supabase_client.client.table("follow_ups")\
                 .insert(followup_data)\
                 .execute()
             
@@ -267,7 +267,7 @@ class FollowUpAgent:
             
             if sent:
                 # Registrar envio
-                await supabase_client.client.table("messages").insert({
+                supabase_client.client.table("messages").insert({
                     "lead_id": lead_id,
                     "sender": "assistant",
                     "content": message,
@@ -369,7 +369,7 @@ class FollowUpAgent:
             
             # Salvar todos os follow-ups
             for followup in followups:
-                await supabase_client.client.table("follow_ups")\
+                supabase_client.client.table("follow_ups")\
                     .insert(followup)\
                     .execute()
             
@@ -410,7 +410,7 @@ class FollowUpAgent:
         """
         try:
             # Buscar follow-ups pendentes
-            pending = await supabase_client.client.table("follow_ups")\
+            pending = supabase_client.client.table("follow_ups")\
                 .select("*")\
                 .eq("lead_id", lead_id)\
                 .eq("status", "pending")\
@@ -442,7 +442,7 @@ class FollowUpAgent:
             
             # Incluir histórico se solicitado
             if include_history:
-                completed = await supabase_client.client.table("follow_ups")\
+                completed = supabase_client.client.table("follow_ups")\
                     .select("*")\
                     .eq("lead_id", lead_id)\
                     .eq("status", "completed")\
@@ -491,7 +491,7 @@ class FollowUpAgent:
         try:
             if followup_id:
                 # Cancelar específico
-                result = await supabase_client.client.table("follow_ups")\
+                result = supabase_client.client.table("follow_ups")\
                     .update({"status": "cancelled"})\
                     .eq("id", followup_id)\
                     .execute()
@@ -504,7 +504,7 @@ class FollowUpAgent:
             
             elif lead_id and cancel_all:
                 # Cancelar todos do lead
-                result = await supabase_client.client.table("follow_ups")\
+                result = supabase_client.client.table("follow_ups")\
                     .update({"status": "cancelled"})\
                     .eq("lead_id", lead_id)\
                     .eq("status", "pending")\
@@ -549,7 +549,7 @@ class FollowUpAgent:
         """
         try:
             # Analisar histórico de interações
-            messages = await supabase_client.client.table("messages")\
+            messages = supabase_client.client.table("messages")\
                 .select("created_at, sender")\
                 .eq("lead_id", lead_id)\
                 .eq("sender", "user")\
@@ -635,13 +635,13 @@ class FollowUpAgent:
             if response_time_minutes:
                 update_data["response_time_minutes"] = response_time_minutes
             
-            await supabase_client.client.table("follow_ups")\
+            supabase_client.client.table("follow_ups")\
                 .update(update_data)\
                 .eq("id", followup_id)\
                 .execute()
             
             # Calcular métricas de engajamento
-            all_followups = await supabase_client.client.table("follow_ups")\
+            all_followups = supabase_client.client.table("follow_ups")\
                 .select("*")\
                 .eq("lead_id", lead_id)\
                 .eq("status", "completed")\
@@ -731,7 +731,7 @@ class FollowUpAgent:
             # Adicionar dados específicos se solicitado
             if include_data:
                 # Buscar reunião agendada se houver
-                meetings = await supabase_client.client.table("calendar_events")\
+                meetings = supabase_client.client.table("calendar_events")\
                     .select("*")\
                     .eq("lead_id", lead_id)\
                     .eq("status", "scheduled")\

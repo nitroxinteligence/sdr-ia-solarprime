@@ -638,7 +638,7 @@ class BillAnalyzerAgent:
             }
             
             # Salvar proposta
-            await supabase_client.client.table("proposals").insert({
+            supabase_client.client.table("proposals").insert({
                 "lead_id": lead_id,
                 "proposal_data": proposal,
                 "bill_value": bill_value,
