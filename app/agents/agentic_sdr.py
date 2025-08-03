@@ -1255,30 +1255,10 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                                      emotional_state=self.emotional_state.value)
     
     def _apply_typing_simulation(self, text: str) -> str:
-        """Aplica simulação de digitação natural"""
-        
-        # Quebrar em mensagens menores (WhatsApp natural)
-        if len(text) > 100:
-            # Encontrar pontos naturais de quebra
-            sentences = text.split(". ")
-            
-            result = []
-            current_chunk = ""
-            
-            for sentence in sentences:
-                if len(current_chunk) + len(sentence) < 80:
-                    current_chunk += sentence + ". "
-                else:
-                    if current_chunk:
-                        result.append(current_chunk.strip())
-                    current_chunk = sentence + ". "
-            
-            if current_chunk:
-                result.append(current_chunk.strip())
-            
-            # Juntar com quebras naturais
-            return "\n".join(result)
-        
+        """Retorna o texto sem modificação - typing é feito via Evolution API"""
+        # IMPORTANTE: Esta função NÃO deve modificar o texto!
+        # O indicador "digitando..." é enviado corretamente via Evolution API em webhooks.py
+        # Qualquer quebra de linha aqui causa problemas no WhatsApp
         return text
     
     def get_metrics(self) -> Dict[str, Any]:
