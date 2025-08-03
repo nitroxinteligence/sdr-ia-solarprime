@@ -461,6 +461,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         
         return triggers
     
+    @tool
     async def should_call_sdr_team(
         self,
         context_analysis: Dict[str, Any],
@@ -568,10 +569,18 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             if media_type == "image":
                 # Usar GPT-4 Vision ou Gemini Vision
                 # Em AGNO v1.7.6, usar run()
-                result = await self.agent.run(
-                    f"Analise esta imagem: {caption or 'Sem legenda'}",
-                    images=[media_data]
-                )
+                # Usar arun() para suporte assíncrono
+                if hasattr(self.agent, 'arun'):
+                    result = await self.agent.arun(
+                        f"Analise esta imagem: {caption or 'Sem legenda'}",
+                        images=[media_data]
+                    )
+                else:
+                    # Fallback para run() se arun() não estiver disponível
+                    result = await self.agent.run(
+                        f"Analise esta imagem: {caption or 'Sem legenda'}",
+                        images=[media_data]
+                    )
                 
                 # Verificar se é conta de luz
                 if any(word in result.content.lower() for word in 
@@ -1017,9 +1026,13 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             
             # 1. Tentar análise contextual (com fallback)
             try:
-                context_analysis = await self.analyze_conversation_context(phone, message)
+                # Verificar se a função está disponível e é callable
+                if hasattr(self, 'analyze_conversation_context') and callable(self.analyze_conversation_context):
+                    context_analysis = await self.analyze_conversation_context(phone, message)
+                else:
+                    raise AttributeError("analyze_conversation_context não está disponível")
             except Exception as ctx_error:
-                emoji_logger.system_warning(f"Análise contextual falhou: {str(ctx_error)[:50]}")
+                emoji_logger.system_warning(f"Análise contextual falhou: {str(ctx_error)}")
                 # Fallback para contexto básico
                 context_analysis = {
                     "primary_context": ConversationContext.INITIAL_CONTACT.value,
@@ -1124,7 +1137,12 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     if self.reasoning_enabled and context_analysis.get("complexity_score", 0) > 0.5:
                         result = await self.reasoning_model.run(contextual_prompt)
                     else:
-                        result = await self.agent.run(contextual_prompt)
+                        # Usar arun() para suporte assíncrono
+                        if hasattr(self.agent, 'arun'):
+                            result = await self.agent.arun(contextual_prompt)
+                        else:
+                            # Fallback para run() se arun() não estiver disponível
+                            result = await self.agent.run(contextual_prompt)
                     
                     response = result.content if hasattr(result, 'content') else str(result)
                     
@@ -1200,7 +1218,12 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         """
         
         # Em AGNO v1.7.6, usar run()
-        result = await self.agent.run(personalization_prompt)
+        # Usar arun() para suporte assíncrono
+        if hasattr(self.agent, 'arun'):
+            result = await self.agent.arun(personalization_prompt)
+        else:
+            # Fallback para run() se arun() não estiver disponível
+            result = await self.agent.run(personalization_prompt)
         return result.content if hasattr(result, 'content') else str(result)
     
     def _update_emotional_state(
