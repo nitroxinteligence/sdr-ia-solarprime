@@ -6,34 +6,147 @@ import json
 import asyncio
 import base64
 import random
+import time
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from loguru import logger
 from app.utils.logger import emoji_logger
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from app.config import settings
 
 class EvolutionAPIClient:
-    """Cliente para integração com Evolution API v2"""
+    """Cliente para integração com Evolution API v2 com conexão robusta"""
     
     def __init__(self):
         self.base_url = settings.evolution_api_url
         self.instance_name = settings.evolution_instance_name
         self.api_key = settings.evolution_api_key
-        self.client = httpx.AsyncClient(
+        self._client = None
+        self._last_health_check = 0
+        self._health_check_interval = 30  # segundos
+        self._connection_failed = False
+        self._circuit_breaker_reset_time = 0
+        self._circuit_breaker_failure_count = 0
+        self._circuit_breaker_threshold = 5
+        self._circuit_breaker_timeout = 60  # segundos
+        
+    def _create_client(self) -> httpx.AsyncClient:
+        """Cria cliente HTTP com configuração otimizada"""
+        return httpx.AsyncClient(
             base_url=self.base_url,
             headers={
                 "apikey": self.api_key,
                 "Content-Type": "application/json"
             },
-            timeout=30.0
+            timeout=httpx.Timeout(
+                connect=5.0,      # Timeout de conexão
+                read=30.0,        # Timeout de leitura
+                write=10.0,       # Timeout de escrita
+                pool=5.0          # Timeout do pool
+            ),
+            limits=httpx.Limits(
+                max_keepalive_connections=5,
+                max_connections=10,
+                keepalive_expiry=30.0
+            ),
+            http2=True,  # Habilita HTTP/2 para melhor performance
+            follow_redirects=True
         )
+    
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """Retorna o cliente HTTP, criando se necessário"""
+        if self._client is None:
+            self._client = self._create_client()
+        return self._client
     
     async def __aenter__(self):
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.client.aclose()
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+    
+    async def _check_circuit_breaker(self):
+        """Verifica estado do circuit breaker"""
+        if self._circuit_breaker_failure_count >= self._circuit_breaker_threshold:
+            if time.time() < self._circuit_breaker_reset_time:
+                raise Exception(f"Circuit breaker ativo. Tentativas bloqueadas por {int(self._circuit_breaker_reset_time - time.time())}s")
+            else:
+                # Reset circuit breaker
+                self._circuit_breaker_failure_count = 0
+                emoji_logger.system_info("Circuit breaker resetado")
+    
+    def _record_success(self):
+        """Registra sucesso na conexão"""
+        self._circuit_breaker_failure_count = 0
+        self._connection_failed = False
+    
+    def _record_failure(self):
+        """Registra falha na conexão"""
+        self._circuit_breaker_failure_count += 1
+        if self._circuit_breaker_failure_count >= self._circuit_breaker_threshold:
+            self._circuit_breaker_reset_time = time.time() + self._circuit_breaker_timeout
+            emoji_logger.evolution_error(f"Circuit breaker ativado por {self._circuit_breaker_timeout}s após {self._circuit_breaker_failure_count} falhas")
+        self._connection_failed = True
+    
+    async def health_check(self) -> bool:
+        """Verifica saúde da conexão com Evolution API"""
+        try:
+            current_time = time.time()
+            
+            # Pula check se foi feito recentemente
+            if current_time - self._last_health_check < self._health_check_interval:
+                return not self._connection_failed
+            
+            await self._check_circuit_breaker()
+            
+            response = await self._make_request(
+                "get",
+                f"/instance/connectionState/{self.instance_name}",
+                timeout=5.0
+            )
+            
+            if response.status_code == 200:
+                self._last_health_check = current_time
+                self._record_success()
+                return True
+            else:
+                self._record_failure()
+                return False
+                
+        except Exception as e:
+            logger.debug(f"Health check falhou: {e}")
+            self._record_failure()
+            return False
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError))
+    )
+    async def _make_request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        """Método base para fazer requisições com retry"""
+        try:
+            await self._check_circuit_breaker()
+            
+            # Reconectar se necessário
+            if self._connection_failed:
+                if self._client:
+                    await self._client.aclose()
+                self._client = self._create_client()
+                emoji_logger.system_info("Reconectando ao Evolution API...")
+            
+            response = await getattr(self.client, method)(path, **kwargs)
+                        
+            self._record_success()
+            return response
+            
+        except Exception as e:
+            self._record_failure()
+            emoji_logger.evolution_error(f"Erro na requisição {method.upper()} {path}: {e}")
+            raise
     
     # ==================== INSTÂNCIA ====================
     
@@ -50,11 +163,11 @@ class EvolutionAPIClient:
                 "webhook_base64": True
             }
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 "/instance/create",
                 json=payload
             )
-            response.raise_for_status()
             
             emoji_logger.evolution_success(f"Instância {self.instance_name} criada")
             return response.json()
@@ -66,10 +179,10 @@ class EvolutionAPIClient:
     async def get_instance_info(self) -> Dict[str, Any]:
         """Obtém informações da instância"""
         try:
-            response = await self.client.get(
+            response = await self._make_request(
+                "get",
                 f"/instance/connectionState/{self.instance_name}"
             )
-            response.raise_for_status()
             return response.json()
             
         except Exception as e:
@@ -79,10 +192,10 @@ class EvolutionAPIClient:
     async def connect_instance(self) -> Dict[str, Any]:
         """Conecta a instância gerando QR Code"""
         try:
-            response = await self.client.get(
+            response = await self._make_request(
+                "get",
                 f"/instance/connect/{self.instance_name}"
             )
-            response.raise_for_status()
             
             data = response.json()
             if "qrcode" in data:
@@ -98,10 +211,10 @@ class EvolutionAPIClient:
     async def disconnect_instance(self) -> Dict[str, Any]:
         """Desconecta a instância"""
         try:
-            response = await self.client.delete(
+            response = await self._make_request(
+                "delete",
                 f"/instance/logout/{self.instance_name}"
             )
-            response.raise_for_status()
             return response.json()
             
         except Exception as e:
@@ -137,10 +250,6 @@ class EvolutionAPIClient:
         # Limitar entre 0.5 e 5 segundos
         return max(0.5, min(reading_time, 5.0))
     
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
-    )
     async def send_text_message(
         self,
         phone: str,
@@ -190,11 +299,11 @@ class EvolutionAPIClient:
                 "delay": int(settings.delay_between_messages * 1000)  # Delay entre mensagens múltiplas (ms)
             }
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/message/sendText/{self.instance_name}",
                 json=payload
             )
-            response.raise_for_status()
             
             emoji_logger.evolution_send(phone, "text", message_length=len(message), delay_used=round(delay, 2))
             return response.json()
@@ -248,18 +357,19 @@ class EvolutionAPIClient:
                 "state": "composing"
             }
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/chat/updatePresence/{self.instance_name}",
                 json=payload
             )
-            response.raise_for_status()
             
             # Aguarda duração
             await asyncio.sleep(duration)
             
             # Para digitação
             payload["state"] = "paused"
-            await self.client.post(
+            await self._make_request(
+                "post",
                 f"/chat/updatePresence/{self.instance_name}",
                 json=payload
             )
@@ -268,6 +378,8 @@ class EvolutionAPIClient:
             
         except Exception as e:
             emoji_logger.evolution_error(f"Erro ao simular digitação: {e}")
+            # Não propaga o erro para não bloquear o envio de mensagem
+            logger.debug(f"Digitação falhou mas continuando: {e}")
     
     async def send_reaction(self, phone: str, message_id: str, emoji: str):
         """
@@ -291,11 +403,11 @@ class EvolutionAPIClient:
                 }
             }
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/message/sendReaction/{self.instance_name}",
                 json=payload
             )
-            response.raise_for_status()
             
             emoji_logger.evolution_send("reaction", "emoji", reaction=emoji)
             return response.json()
@@ -334,11 +446,11 @@ class EvolutionAPIClient:
             if caption:
                 payload["caption"] = caption
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/message/sendMedia/{self.instance_name}",
                 json=payload
             )
-            response.raise_for_status()
             
             emoji_logger.evolution_send(phone, "image")
             return response.json()
@@ -380,11 +492,11 @@ class EvolutionAPIClient:
             if caption:
                 payload["caption"] = caption
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/message/sendMedia/{self.instance_name}",
                 json=payload
             )
-            response.raise_for_status()
             
             emoji_logger.evolution_send(phone, "document")
             return response.json()
@@ -421,11 +533,11 @@ class EvolutionAPIClient:
                 "ptt": as_voice_note  # Push to talk (nota de voz)
             }
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/message/sendMedia/{self.instance_name}",
                 json=payload
             )
-            response.raise_for_status()
             
             emoji_logger.evolution_send(phone, "audio")
             return response.json()
@@ -439,10 +551,10 @@ class EvolutionAPIClient:
     async def get_all_chats(self) -> List[Dict[str, Any]]:
         """Obtém todos os chats"""
         try:
-            response = await self.client.get(
+            response = await self._make_request(
+                "get",
                 f"/chat/findChats/{self.instance_name}"
             )
-            response.raise_for_status()
             return response.json()
             
         except Exception as e:
@@ -464,7 +576,8 @@ class EvolutionAPIClient:
         try:
             phone = self._format_phone(phone)
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/chat/findMessages/{self.instance_name}",
                 json={
                     "where": {
@@ -473,7 +586,6 @@ class EvolutionAPIClient:
                     "limit": limit
                 }
             )
-            response.raise_for_status()
             return response.json()
             
         except Exception as e:
@@ -500,12 +612,12 @@ class EvolutionAPIClient:
                 ]
             }
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/chat/markMessageAsRead/{self.instance_name}",
                 json=payload
             )
-            response.raise_for_status()
-            
+                        
             logger.debug(f"Mensagem {message_id} marcada como lida")
             
         except Exception as e:
@@ -526,12 +638,12 @@ class EvolutionAPIClient:
         try:
             phone = self._format_phone(phone)
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/chat/fetchProfilePictureUrl/{self.instance_name}",
                 json={"number": phone}
             )
-            response.raise_for_status()
-            
+                        
             data = response.json()
             return data.get("profilePictureUrl")
             
@@ -552,12 +664,12 @@ class EvolutionAPIClient:
         try:
             phone = self._format_phone(phone)
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/chat/fetchBusinessProfile/{self.instance_name}",
                 json={"number": phone}
             )
-            response.raise_for_status()
-            
+                        
             return response.json()
             
         except Exception as e:
@@ -602,12 +714,12 @@ class EvolutionAPIClient:
                 ]
             }
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/webhook/set/{self.instance_name}",
                 json=payload
             )
-            response.raise_for_status()
-            
+                        
             logger.info(f"Webhook configurado: {webhook_url}")
             return response.json()
             
@@ -618,10 +730,10 @@ class EvolutionAPIClient:
     async def get_webhook(self) -> Dict[str, Any]:
         """Obtém configuração atual do webhook"""
         try:
-            response = await self.client.get(
+            response = await self._make_request(
+                "get",
                 f"/webhook/get/{self.instance_name}"
             )
-            response.raise_for_status()
             return response.json()
             
         except Exception as e:
@@ -648,12 +760,12 @@ class EvolutionAPIClient:
                 "text": message
             }
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/message/sendText/{self.instance_name}",
                 json=payload
             )
-            response.raise_for_status()
-            
+                        
             logger.info(f"Mensagem enviada para grupo {group_id}")
             return response.json()
             
@@ -669,11 +781,11 @@ class EvolutionAPIClient:
             group_id: ID do grupo
         """
         try:
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/group/findGroupByJid/{self.instance_name}",
                 json={"groupJid": group_id}
             )
-            response.raise_for_status()
             return response.json()
             
         except Exception as e:
@@ -722,7 +834,6 @@ class EvolutionAPIClient:
             
             async with httpx.AsyncClient() as client:
                 response = await client.get(message_data["mediaUrl"])
-                response.raise_for_status()
                 return response.content
                 
         except Exception as e:
@@ -742,12 +853,12 @@ class EvolutionAPIClient:
         try:
             phone = self._format_phone(phone)
             
-            response = await self.client.post(
+            response = await self._make_request(
+                "post",
                 f"/chat/checkNumber/{self.instance_name}",
                 json={"number": phone}
             )
-            response.raise_for_status()
-            
+                        
             data = response.json()
             return data.get("exists", False)
             
@@ -757,7 +868,9 @@ class EvolutionAPIClient:
     
     async def close(self):
         """Fecha conexão do cliente"""
-        await self.client.aclose()
+        if self._client:
+            await self._client.aclose()
+            self._client = None
     
     async def connect(self):
         """Conecta e verifica a instância"""
