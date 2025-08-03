@@ -380,7 +380,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 .order("created_at", desc=True)\
                 .limit(100)
             
-            response = await query.execute()
+            response = query.execute()  # Removido await - cliente síncrono
             messages = response.data if response.data else []
             
             # Reverter para ordem cronológica

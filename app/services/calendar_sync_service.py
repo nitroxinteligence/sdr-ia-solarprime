@@ -135,7 +135,7 @@ class CalendarSyncService:
                 }
                 
                 # Inserir no banco
-                await self.db.table('calendar_events').insert(db_event).execute()
+                self.db.table('calendar_events').insert(db_event).execute()  # Removido await - cliente síncrono
                 logger.info(f"📅 Novo evento sincronizado: {event.get('title')}")
                 
             except Exception as e:
