@@ -44,8 +44,9 @@ async def lifespan(app: FastAPI):
         emoji_logger.system_ready("Supabase")
         
         # Inicializa o Team SDR
-        team = await create_sdr_team()
-        emoji_logger.system_ready("SDR Team", members_count=len(team.team.members))
+        team = create_sdr_team()  # create_sdr_team is not async
+        await team.initialize()  # Initialize the team asynchronously
+        emoji_logger.system_ready("SDR Team", members_count=len(team.agents) if hasattr(team, 'agents') else 0)
         
         # Inicializa campos do CRM automaticamente
         if hasattr(team, 'crm_agent'):
