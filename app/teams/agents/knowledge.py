@@ -141,25 +141,27 @@ class KnowledgeAgent:
                 .select("*")\
                 .execute()
             
-            if documents.data:
+            if documents.data and self.knowledge_base:
                 for doc in documents.data:
-                    # Adicionar ao knowledge base
-                    await self.knowledge_base.add_document(
-                        content=doc["content"],
-                        metadata={
-                            "id": doc["id"],
-                            "title": doc["title"],
-                            "category": doc["category"],
-                            "source": doc.get("source"),
-                            "created_at": doc["created_at"],
-                            "tags": doc.get("tags", [])
-                        }
-                    )
+                    # Adicionar ao knowledge base se tiver conteúdo
+                    if doc.get("content"):
+                        self.knowledge_base.load_text(
+                            text=doc["content"],
+                            metadata={
+                                "id": doc["id"],
+                                "title": doc.get("title", ""),
+                                "category": doc.get("category", ""),
+                                "source": doc.get("source"),
+                                "created_at": doc.get("created_at"),
+                                "tags": doc.get("tags", [])
+                            }
+                        )
                 
                 logger.info(f"📚 Carregados {len(documents.data)} documentos na base de conhecimento")
             
             # Carregar embeddings se existirem
-            await self.embeddings_manager.load_embeddings()
+            # TODO: Implementar load_embeddings no EmbeddingsManager se necessário
+            # await self.embeddings_manager.load_embeddings()
             
         except Exception as e:
             logger.error(f"Erro ao carregar knowledge base: {e}")
@@ -193,12 +195,17 @@ class KnowledgeAgent:
                     logger.info("📋 Resultado do cache")
                     return cached["results"]
             
-            # Busca vetorial
-            results = await self.knowledge_base.search(
-                query=query,
-                limit=limit,
-                filter_metadata={"category": category} if category else None
-            )
+            # Busca vetorial se knowledge_base disponível
+            if self.knowledge_base:
+                results = self.knowledge_base.search(
+                    query=query,
+                    limit=limit,
+                    filter_metadata={"category": category} if category else None
+                )
+            else:
+                # Fallback: buscar diretamente no banco
+                logger.warning("Knowledge base não disponível, usando busca direta no banco")
+                results = []
             
             # Formatar resultados
             formatted_results = []
@@ -297,17 +304,18 @@ class KnowledgeAgent:
             if result.data:
                 doc_id = result.data[0]["id"]
                 
-                # Adicionar ao knowledge base
-                await self.knowledge_base.add_document(
-                    content=content,
-                    metadata={
-                        "id": doc_id,
-                        "title": title,
-                        "category": category,
-                        "source": source,
-                        "tags": tags
-                    }
-                )
+                # Adicionar ao knowledge base se disponível
+                if self.knowledge_base:
+                    self.knowledge_base.load_text(
+                        text=content,
+                        metadata={
+                            "id": doc_id,
+                            "title": title,
+                            "category": category,
+                            "source": source,
+                            "tags": tags
+                        }
+                    )
                 
                 # Gerar embeddings
                 chunks = self._chunk_text(content)
