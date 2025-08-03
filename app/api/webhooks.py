@@ -149,12 +149,16 @@ async def process_new_message(data: Dict[str, Any]):
         data: Dados da mensagem
     """
     try:
+        emoji_logger.webhook_process("Iniciando processamento de nova mensagem")
+        
         # Extrai informações da mensagem
         messages = data.get("messages", [])
         if not messages:
+            emoji_logger.system_warning("Nenhuma mensagem no payload")
             return
         
         message = messages[0]  # Pega primeira mensagem
+        emoji_logger.webhook_process(f"Mensagem extraída: {message.get('key', {}).get('id', 'unknown')}")
         
         # Informações básicas
         key = message.get("key", {})
@@ -164,6 +168,7 @@ async def process_new_message(data: Dict[str, Any]):
         
         # Ignora mensagens enviadas por nós
         if from_me:
+            emoji_logger.webhook_process("Mensagem própria ignorada")
             return
         
         # Extrai número do telefone
@@ -175,6 +180,8 @@ async def process_new_message(data: Dict[str, Any]):
             # Por enquanto, ignora mensagens de grupo
             emoji_logger.webhook_process(f"Mensagem de grupo ignorada: {remote_jid}")
             return
+        
+        emoji_logger.webhook_process(f"Processando mensagem de {phone}")
         
         # Extrai conteúdo da mensagem
         message_content = extract_message_content(message)
@@ -242,7 +249,9 @@ async def process_new_message(data: Dict[str, Any]):
         )
         
         # Processa com o AGENTIC SDR
+        emoji_logger.webhook_process("Obtendo instância do AGENTIC SDR")
         agentic = await get_agentic_agent()
+        emoji_logger.webhook_process("AGENTIC SDR obtido com sucesso")
         
         # Simular tempo de leitura da mensagem recebida
         if settings.simulate_reading_time:
@@ -279,27 +288,43 @@ async def process_new_message(data: Dict[str, Any]):
             }
         
         # Processa mensagem com análise contextual inteligente
-        response = await agentic.process_message(
-            phone=phone,
-            message=message_content,
-            lead_data=lead,
-            conversation_id=conversation["id"],
-            media=media_data
-        )
+        emoji_logger.webhook_process(f"Chamando AGENTIC SDR para processar: {message_content[:50]}...")
+        
+        try:
+            response = await agentic.process_message(
+                phone=phone,
+                message=message_content,
+                lead_data=lead,
+                conversation_id=conversation["id"],
+                media=media_data
+            )
+            
+            emoji_logger.webhook_process(f"Resposta recebida do AGENTIC SDR: {response[:100] if response else 'NENHUMA'}...")
+            
+        except Exception as agent_error:
+            emoji_logger.system_error("AGENTIC SDR", f"Erro ao processar: {agent_error}")
+            response = None
         
         # Envia resposta
         if response:
+            emoji_logger.webhook_process(f"Enviando resposta para {phone}")
+            
             # Delay antes de enviar mídia se houver
             if media_data and settings.delay_before_media > 0:
                 await asyncio.sleep(settings.delay_before_media)
             
             # Enviar resposta com timing humanizado
-            await evolution_client.send_text_message(
-                phone,
-                response,
-                delay=None,  # Deixar o método calcular automaticamente
-                simulate_typing=True
-            )
+            try:
+                await evolution_client.send_text_message(
+                    phone,
+                    response,
+                    delay=None,  # Deixar o método calcular automaticamente
+                    simulate_typing=True
+                )
+                emoji_logger.evolution_send(phone, "text", preview=response[:50])
+                
+            except Exception as send_error:
+                emoji_logger.system_error("Evolution API", f"Erro ao enviar mensagem: {send_error}")
             
             # Delay após mídia se houver
             if media_data and settings.delay_after_media > 0:
@@ -320,9 +345,14 @@ async def process_new_message(data: Dict[str, Any]):
             # Atualiza analytics
             await redis_client.increment_counter("messages_processed")
             await redis_client.increment_counter(f"messages:{phone}")
+            
+            emoji_logger.webhook_process("Mensagem processada com sucesso!")
+        else:
+            emoji_logger.system_warning(f"Nenhuma resposta gerada para {phone}")
         
     except Exception as e:
         emoji_logger.system_error("Webhook Message Processing", str(e))
+        logger.exception("Erro detalhado no processamento:")
         # Não lança exceção para não travar o webhook
 
 def extract_message_content(message: Dict[str, Any]) -> Optional[str]:

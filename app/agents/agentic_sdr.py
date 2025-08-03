@@ -882,27 +882,49 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         return action_map.get(context, "Continuar conversa naturalmente")
     
     async def initialize(self):
-        """Inicializa recursos do agente"""
+        """Inicializa recursos do agente com fallback robusto"""
         try:
-            # Carregar knowledge base
-            await self.knowledge.load_documents([
-                "data/solar_prime_info.txt",
-                "data/produtos_solucoes.txt",
-                "data/objecoes_respostas.txt"
-            ])
+            # Tentar carregar knowledge base se disponível
+            if self.knowledge:
+                try:
+                    # Verificar se arquivos existem antes de carregar
+                    import os
+                    knowledge_files = [
+                        "data/solar_prime_info.txt",
+                        "data/produtos_solucoes.txt",
+                        "data/objecoes_respostas.txt"
+                    ]
+                    
+                    existing_files = [f for f in knowledge_files if os.path.exists(f)]
+                    
+                    if existing_files:
+                        await self.knowledge.load_documents(existing_files)
+                        emoji_logger.system_ready("Knowledge base", files_loaded=len(existing_files))
+                    else:
+                        emoji_logger.system_warning("Knowledge base vazia - arquivos não encontrados")
+                except Exception as kb_error:
+                    emoji_logger.system_warning(f"Knowledge base não carregada: {str(kb_error)[:50]}")
+                    # Continuar sem knowledge base
             
-            # Inicializar SDR Team se necessário
-            if not self.sdr_team:
-                from app.teams.sdr_team import create_sdr_team
-                self.sdr_team = create_sdr_team()
-                await self.sdr_team.initialize()
+            # Inicializar SDR Team se necessário (com fallback)
+            try:
+                if not self.sdr_team:
+                    from app.teams.sdr_team import create_sdr_team
+                    self.sdr_team = create_sdr_team()
+                    await self.sdr_team.initialize()
+                    emoji_logger.system_ready("SDR Team inicializado")
+            except Exception as team_error:
+                emoji_logger.system_warning(f"SDR Team não inicializado: {str(team_error)[:50]}")
+                self.sdr_team = None
+                # Continuar sem SDR Team
             
             self.is_initialized = True
             emoji_logger.system_ready("AGENTIC SDR", startup_time=0.5)
             
         except Exception as e:
-            emoji_logger.system_error("AGENTIC SDR", f"Erro na inicialização: {e}")
-            raise
+            emoji_logger.system_error("AGENTIC SDR", f"Erro crítico na inicialização: {e}")
+            # Marcar como inicializado mesmo com erro para permitir funcionamento básico
+            self.is_initialized = True
     
     async def process_message(
         self,
@@ -926,15 +948,31 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             Resposta do AGENTIC SDR
         """
         try:
+            emoji_logger.agentic_thinking(f"Processando mensagem de {phone}: {message[:50]}...")
+            
             if not self.is_initialized:
                 await self.initialize()
             
-            # 1. SEMPRE fazer análise contextual completa
-            context_analysis = await self.analyze_conversation_context(phone, message)
+            # 1. Tentar análise contextual (com fallback)
+            try:
+                context_analysis = await self.analyze_conversation_context(phone, message)
+            except Exception as ctx_error:
+                emoji_logger.system_warning(f"Análise contextual falhou: {str(ctx_error)[:50]}")
+                # Fallback para contexto básico
+                context_analysis = {
+                    "primary_context": ConversationContext.INITIAL_CONTACT.value,
+                    "lead_engagement_level": "medium",
+                    "decision_stage": "awareness",
+                    "recommended_action": "Continuar conversa naturalmente"
+                }
             
-            # 2. Detectar gatilhos emocionais
-            messages_history = await self.get_last_100_messages(phone)
-            emotional_triggers = await self.detect_emotional_triggers(messages_history)
+            # 2. Detectar gatilhos emocionais (com fallback)
+            try:
+                messages_history = await self.get_last_100_messages(phone)
+                emotional_triggers = await self.detect_emotional_triggers(messages_history)
+            except Exception as emo_error:
+                emoji_logger.system_warning(f"Análise emocional falhou: {str(emo_error)[:50]}")
+                emotional_triggers = {"dominant_emotion": "neutral", "enabled": False}
             
             # 3. Processar multimodal se necessário
             multimodal_result = None
@@ -949,93 +987,141 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 context_analysis["has_media"] = True
                 context_analysis["media_analysis"] = multimodal_result
             
-            # 4. Decidir inteligentemente sobre SDR Team
-            should_call, recommended_agent, reasoning = await self.should_call_sdr_team(
-                context_analysis,
-                message
-            )
+            # 4. Decidir inteligentemente sobre SDR Team (com fallback)
+            try:
+                should_call, recommended_agent, reasoning = await self.should_call_sdr_team(
+                    context_analysis,
+                    message
+                )
+            except Exception as decision_error:
+                emoji_logger.system_warning(f"Decisão SDR Team falhou: {str(decision_error)[:50]}")
+                should_call = False
+                recommended_agent = None
+                reasoning = "Processamento direto devido a erro"
             
             # 5. Se precisar do SDR Team E contexto justificar
-            if should_call and recommended_agent:
-                emoji_logger.team_delegate(recommended_agent, reasoning)
+            if should_call and recommended_agent and self.sdr_team:
+                try:
+                    emoji_logger.team_delegate(recommended_agent, reasoning)
+                    
+                    # Preparar contexto enriquecido para o Team
+                    enriched_context = {
+                        "phone": phone,
+                        "message": message,
+                        "lead_data": lead_data,
+                        "conversation_id": conversation_id,
+                        "context_analysis": context_analysis,
+                        "emotional_triggers": emotional_triggers,
+                        "recommended_agent": recommended_agent,
+                        "reasoning": reasoning,
+                        "multimodal_result": multimodal_result
+                    }
+                    
+                    # Chamar SDR Team com contexto completo
+                    team_response = await self.sdr_team.process_message_with_context(
+                        enriched_context
+                    )
+                    
+                    # AGENTIC SDR ainda personaliza a resposta final
+                    response = await self._personalize_team_response(
+                        team_response,
+                        emotional_triggers
+                    )
+                except Exception as team_error:
+                    emoji_logger.system_warning(f"SDR Team falhou: {str(team_error)[:50]}")
+                    # Fallback para resposta direta
+                    response = None
                 
-                # Preparar contexto enriquecido para o Team
-                enriched_context = {
-                    "phone": phone,
-                    "message": message,
-                    "lead_data": lead_data,
-                    "conversation_id": conversation_id,
-                    "context_analysis": context_analysis,
-                    "emotional_triggers": emotional_triggers,
-                    "recommended_agent": recommended_agent,
-                    "reasoning": reasoning,
-                    "multimodal_result": multimodal_result
-                }
-                
-                # Chamar SDR Team com contexto completo
-                team_response = await self.sdr_team.process_message_with_context(
-                    enriched_context
-                )
-                
-                # AGENTIC SDR ainda personaliza a resposta final
-                response = await self._personalize_team_response(
-                    team_response,
-                    emotional_triggers
-                )
-                
-            else:
+            # Se não tem resposta do Team ou não chamou Team
+            if not response:
                 # 6. AGENTIC SDR resolve sozinha (90% dos casos)
                 emoji_logger.agentic_thinking("Processando mensagem diretamente")
                 
-                # Preparar prompt com contexto completo
-                contextual_prompt = f"""
-                Mensagem do lead: {message}
-                
-                Análise Contextual:
-                - Contexto Principal: {context_analysis.get('primary_context')}
-                - Engajamento: {context_analysis.get('lead_engagement_level')}
-                - Estágio: {context_analysis.get('decision_stage')}
-                - Ação Recomendada: {context_analysis.get('recommended_action')}
-                
-                Estado Emocional do Lead:
-                - Emoção Dominante: {emotional_triggers.get('dominant_emotion')}
-                - Urgência: {context_analysis.get('urgency_level')}
-                
-                {"Mídia anexada: " + str(multimodal_result) if multimodal_result else ""}
-                
-                Responda de forma natural, empática e personalizada.
-                """
-                
-                # Usar reasoning para casos complexos
-                if context_analysis.get("complexity_score", 0) > 0.5:
-                    result = await self.reasoning_model.run(contextual_prompt)
+                try:
+                    # Preparar prompt com contexto completo
+                    contextual_prompt = f"""
+                    Mensagem do lead: {message}
+                    
+                    Análise Contextual:
+                    - Contexto Principal: {context_analysis.get('primary_context')}
+                    - Engajamento: {context_analysis.get('lead_engagement_level')}
+                    - Estágio: {context_analysis.get('decision_stage')}
+                    - Ação Recomendada: {context_analysis.get('recommended_action')}
+                    
+                    Estado Emocional do Lead:
+                    - Emoção Dominante: {emotional_triggers.get('dominant_emotion')}
+                    - Urgência: {context_analysis.get('urgency_level')}
+                    
+                    {"Mídia anexada: " + str(multimodal_result) if multimodal_result else ""}
+                    
+                    Responda de forma natural, empática e personalizada.
+                    """
+                    
+                    # Usar reasoning para casos complexos
+                    if self.reasoning_enabled and context_analysis.get("complexity_score", 0) > 0.5:
+                        result = await self.reasoning_model.run(contextual_prompt)
+                    else:
+                        result = await self.agent.run(contextual_prompt)
+                    
+                    response = result.content if hasattr(result, 'content') else str(result)
+                    
+                except Exception as agent_error:
+                    emoji_logger.system_error("AGENTIC SDR", f"Erro ao gerar resposta: {agent_error}")
+                    # Fallback para resposta padrão
+                    response = None
+            
+            # Garantir que SEMPRE temos uma resposta
+            if not response or response.strip() == "":
+                emoji_logger.system_warning("Nenhuma resposta gerada, usando fallback")
+                # Resposta fallback baseada no contexto
+                if "oi" in message.lower() or "olá" in message.lower() or "ola" in message.lower():
+                    response = "Oi! 😊 Tudo bem? Sou a Helen da Solar Prime! Como posso ajudar você hoje?"
+                elif "bom dia" in message.lower():
+                    response = "Bom dia! ☀️ Que legal você entrar em contato! Sou a Helen da Solar Prime. Em que posso ajudar?"
+                elif "boa tarde" in message.lower():
+                    response = "Boa tarde! 😊 Obrigada por entrar em contato com a Solar Prime! Sou a Helen, como posso ajudar?"
+                elif "boa noite" in message.lower():
+                    response = "Boa noite! 🌙 Que bom falar com você! Sou a Helen da Solar Prime. Como posso ajudar?"
                 else:
-                    result = await self.agent.run(contextual_prompt)
-                
-                response = result.content
+                    response = "Olá! Sou a Helen da Solar Prime 😊 Vi sua mensagem e adoraria ajudar! Você tem interesse em economizar na conta de luz com energia solar?"
             
             # 7. Ajustar estado emocional da Helen
-            self._update_emotional_state(emotional_triggers, context_analysis)
+            try:
+                self._update_emotional_state(emotional_triggers, context_analysis)
+            except:
+                pass  # Ignorar erros não críticos
             
-            # 8. Salvar na memória
-            await self.memory.add(
-                message=message,
-                user_id=phone,
-                metadata={
-                    "context_analysis": context_analysis,
-                    "emotional_state": self.emotional_state.value,
-                    "sdr_team_used": should_call
-                }
-            )
+            # 8. Salvar na memória (com fallback)
+            try:
+                await self.memory.add(
+                    message=message,
+                    user_id=phone,
+                    metadata={
+                        "context_analysis": context_analysis,
+                        "emotional_state": self.emotional_state.value,
+                        "sdr_team_used": should_call
+                    }
+                )
+            except Exception as mem_error:
+                emoji_logger.system_warning(f"Erro ao salvar na memória: {str(mem_error)[:50]}")
             
             # 9. Aplicar simulação de digitação natural
             response = self._apply_typing_simulation(response)
             
+            emoji_logger.agentic_response(f"Resposta gerada: {response[:100]}...")
+            
             return response
             
         except Exception as e:
-            emoji_logger.system_error("AGENTIC SDR", f"Erro ao processar mensagem: {e}")
-            return "Oi! Desculpa, tive um probleminha aqui 😅 Você pode repetir?"
+            emoji_logger.system_error("AGENTIC SDR", f"Erro crítico ao processar: {e}")
+            # Resposta de emergência mais natural
+            emergency_responses = [
+                "Oi! 😊 Sou a Helen da Solar Prime! Como posso ajudar você hoje com energia solar?",
+                "Olá! Que bom você entrar em contato! 🌟 Sou a Helen, especialista em energia solar. Em que posso ajudar?",
+                "Oi! Tudo bem? Sou a Helen da Solar Prime! 💚 Você tem interesse em economizar na conta de luz?"
+            ]
+            import random
+            return random.choice(emergency_responses)
     
     async def _personalize_team_response(
         self,
