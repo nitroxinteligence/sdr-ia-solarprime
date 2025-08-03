@@ -12,7 +12,7 @@ from loguru import logger
 from app.utils.logger import emoji_logger
 
 from app.config import settings
-from app.api import health, webhooks, teams
+from app.api import health, webhooks  # teams module not yet implemented
 from app.integrations.supabase_client import supabase_client
 from app.integrations.redis_client import redis_client
 from app.teams import create_sdr_team
@@ -93,7 +93,7 @@ app.add_middleware(
 # Registra rotas
 app.include_router(health.router)
 app.include_router(webhooks.router)
-app.include_router(teams.router)  # Rota principal do Teams
+# app.include_router(teams.router)  # Teams router not yet implemented
 
 # Exception handler global
 @app.exception_handler(Exception)

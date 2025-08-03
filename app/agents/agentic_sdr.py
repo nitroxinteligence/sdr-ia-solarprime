@@ -13,10 +13,10 @@ import base64
 
 from agno.agent import Agent
 from agno.models.google import Gemini
-from agno.models.openai import OpenAI
+# from agno.models.openai import OpenAIChat  # Temporarily disabled due to compatibility issues
 from agno.memory import Memory
 from agno.storage.postgres import PostgresStorage
-from agno.knowledge import Knowledge
+from agno.knowledge import AgentKnowledge
 from agno.vectordb.pgvector import PgVector
 from agno.tools import tool
 from loguru import logger
@@ -110,7 +110,7 @@ class AgenticSDR:
         )
         
         # Knowledge base com RAG
-        self.knowledge = Knowledge(
+        self.knowledge = AgentKnowledge(
             vector_db=self.vector_db,
             search_type="hybrid",  # Busca híbrida (semântica + keyword)
             num_documents=10,
@@ -186,12 +186,12 @@ class AgenticSDR:
                                          primary_model=primary_model,
                                          reasoning_enabled=self.reasoning_enabled)
             else:
-                # OpenAI como modelo primário
-                self.model = OpenAI(
-                    id=primary_model,
-                    api_key=settings.openai_api_key,
-                    temperature=settings.ai_temperature,
-                    max_tokens=settings.ai_max_tokens
+                # OpenAI temporarily disabled - falling back to Gemini
+                emoji_logger.system_warning("OpenAI temporariamente desabilitado, usando Gemini")
+                self.model = Gemini(
+                    id="gemini-2.0-flash-exp",
+                    api_key=settings.google_api_key,
+                    temperature=settings.ai_temperature
                 )
                 self.reasoning_model = self.model
                 
@@ -210,9 +210,11 @@ class AgenticSDR:
                         temperature=settings.ai_temperature
                     )
                 else:
-                    self.model = OpenAI(
-                        id=fallback_model,
-                        api_key=settings.openai_api_key,
+                    # OpenAI fallback disabled - using Gemini instead
+                    emoji_logger.system_warning("OpenAI fallback desabilitado, usando Gemini")
+                    self.model = Gemini(
+                        id="gemini-2.0-flash-exp",
+                        api_key=settings.google_api_key,
                         temperature=settings.ai_temperature
                     )
                 

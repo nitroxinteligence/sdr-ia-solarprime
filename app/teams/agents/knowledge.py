@@ -10,7 +10,7 @@ import hashlib
 
 from agno.agent import Agent
 from agno.tools import tool
-from agno.knowledge import KnowledgeBase
+from agno.knowledge import AgentKnowledge
 from loguru import logger
 
 from app.integrations.supabase_client import supabase_client
@@ -50,7 +50,7 @@ class KnowledgeAgent:
         self.embeddings_manager = EmbeddingsManager()
         
         # Knowledge base do AGnO
-        self.knowledge_base = KnowledgeBase(
+        self.knowledge_base = AgentKnowledge(
             store=storage,
             embedder=self.embeddings_manager.get_embedder()
         )

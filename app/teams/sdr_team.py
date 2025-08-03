@@ -8,9 +8,10 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from enum import Enum
 
-from agno.agent import Team, Agent
+from agno.agent import Agent
+from agno.team import Team
 from agno.models.google import Gemini
-from agno.models.openai import OpenAI
+# from agno.models.openai import OpenAIChat  # Temporarily disabled due to compatibility issues
 from agno.memory import Memory
 from agno.storage.postgres import PostgresStorage
 from loguru import logger
@@ -76,9 +77,10 @@ class SDRTeam:
             emoji_logger.system_ready("SDR Team", model="gemini-2.5-pro")
         except Exception as e:
             emoji_logger.system_warning(f"Erro Gemini, usando fallback: {e}", fallback="openai")
-            self.model = OpenAI(
-                id="o1-mini",
-                api_key=settings.openai_api_key
+            # OpenAI fallback disabled - using Gemini flash instead
+            self.model = Gemini(
+                id="gemini-2.0-flash-exp",
+                api_key=settings.google_api_key
             )
         
         # Team Leader - Helen SDR Master
