@@ -713,6 +713,26 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         
                     emoji_logger.agentic_multimodal("Análise de imagem concluída com sucesso")
                     
+                    # Verificar se é conta de luz através da interpretação do Gemini
+                    bill_keywords = ["conta", "energia", "kwh", "tarifa", "consumo", "fatura"]
+                    is_bill = any(word in analysis_content.lower() for word in bill_keywords)
+                    
+                    if is_bill:
+                        emoji_logger.agentic_multimodal("Conta de luz detectada", media_type="bill_image")
+                        return {
+                            "type": "bill_image",
+                            "needs_analysis": True,
+                            "content": analysis_content
+                        }
+                    else:
+                        # Imagem genérica
+                        return {
+                            "type": "image",
+                            "content": analysis_content,
+                            "caption": caption,
+                            "processed": True
+                        }
+                    
                 except Exception as img_error:
                     emoji_logger.system_error("Vision API", f"Erro ao analisar imagem: {str(img_error)[:100]}")
                     
@@ -732,26 +752,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         "error": error_msg,
                         "status": "error",
                         "is_thumbnail": is_thumbnail
-                    }
-                
-                # Verificar se é conta de luz através da interpretação do Gemini
-                bill_keywords = ["conta", "energia", "kwh", "tarifa", "consumo", "fatura"]
-                is_bill = any(word in analysis_content.lower() for word in bill_keywords)
-                
-                if is_bill:
-                    emoji_logger.agentic_multimodal("Conta de luz detectada", media_type="bill_image")
-                    return {
-                        "type": "bill_image",
-                        "needs_analysis": True,
-                        "content": analysis_content
-                    }
-                else:
-                    # Imagem genérica
-                    return {
-                        "type": "image",
-                        "content": analysis_content,
-                        "caption": caption,
-                        "processed": True
                     }
             
             elif media_type == "audio":

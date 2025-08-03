@@ -52,12 +52,16 @@ async def test_vision_fix():
                 caption="Teste de correção"
             )
             
-            if result.get("status") == "success":
+            if result and result.get("content"):
                 print("✅ SUCESSO! Imagem processada corretamente")
-                print(f"📄 Análise: {result.get('analysis', '')[:200]}...")
+                print(f"📄 Tipo: {result.get('type', 'desconhecido')}")
+                print(f"📄 Análise: {result.get('content', '')[:200]}...")
                 return True
-            else:
+            elif result and result.get("error"):
                 print(f"❌ Erro no processamento: {result.get('error')}")
+                return False
+            else:
+                print(f"❌ Erro no processamento: {result}")
                 return False
         else:
             print("⚠️  Arquivo de teste não encontrado")
