@@ -145,17 +145,50 @@ class KnowledgeAgent:
                 for doc in documents.data:
                     # Adicionar ao knowledge base se tiver conteúdo
                     if doc.get("content"):
-                        self.knowledge_base.load_text(
-                            text=doc["content"],
-                            metadata={
-                                "id": doc["id"],
-                                "title": doc.get("title", ""),
-                                "category": doc.get("category", ""),
-                                "source": doc.get("source"),
-                                "created_at": doc.get("created_at"),
-                                "tags": doc.get("tags", [])
-                            }
-                        )
+                        try:
+                            # Tentar diferentes métodos do AgentKnowledge
+                            if hasattr(self.knowledge_base, 'load_text'):
+                                self.knowledge_base.load_text(
+                                    text=doc["content"],
+                                    metadata={
+                                        "id": doc["id"],
+                                        "title": doc.get("title", ""),
+                                        "category": doc.get("category", ""),
+                                        "source": doc.get("source"),
+                                        "created_at": doc.get("created_at"),
+                                        "tags": doc.get("tags", [])
+                                    }
+                                )
+                            elif hasattr(self.knowledge_base, 'load'):
+                                self.knowledge_base.load(
+                                    content=doc["content"],
+                                    metadata={
+                                        "id": doc["id"],
+                                        "title": doc.get("title", ""),
+                                        "category": doc.get("category", ""),
+                                        "source": doc.get("source"),
+                                        "created_at": doc.get("created_at"),
+                                        "tags": doc.get("tags", [])
+                                    }
+                                )
+                            elif hasattr(self.knowledge_base, 'add'):
+                                self.knowledge_base.add(
+                                    text=doc["content"],
+                                    metadata={
+                                        "id": doc["id"],
+                                        "title": doc.get("title", ""),
+                                        "category": doc.get("category", ""),
+                                        "source": doc.get("source"),
+                                        "created_at": doc.get("created_at"),
+                                        "tags": doc.get("tags", [])
+                                    }
+                                )
+                            else:
+                                # Se nenhum método conhecido funcionar, log warning
+                                logger.warning(f"AgentKnowledge não tem método conhecido para adicionar documentos. Métodos disponíveis: {dir(self.knowledge_base)}")
+                                break
+                        except Exception as e:
+                            logger.warning(f"Erro ao adicionar documento ao knowledge base: {e}")
                 
                 logger.info(f"📚 Carregados {len(documents.data)} documentos na base de conhecimento")
             
@@ -306,16 +339,45 @@ class KnowledgeAgent:
                 
                 # Adicionar ao knowledge base se disponível
                 if self.knowledge_base:
-                    self.knowledge_base.load_text(
-                        text=content,
-                        metadata={
-                            "id": doc_id,
-                            "title": title,
-                            "category": category,
-                            "source": source,
-                            "tags": tags
-                        }
-                    )
+                    try:
+                        # Tentar diferentes métodos do AgentKnowledge
+                        if hasattr(self.knowledge_base, 'load_text'):
+                            self.knowledge_base.load_text(
+                                text=content,
+                                metadata={
+                                    "id": doc_id,
+                                    "title": title,
+                                    "category": category,
+                                    "source": source,
+                                    "tags": tags
+                                }
+                            )
+                        elif hasattr(self.knowledge_base, 'load'):
+                            self.knowledge_base.load(
+                                content=content,
+                                metadata={
+                                    "id": doc_id,
+                                    "title": title,
+                                    "category": category,
+                                    "source": source,
+                                    "tags": tags
+                                }
+                            )
+                        elif hasattr(self.knowledge_base, 'add'):
+                            self.knowledge_base.add(
+                                text=content,
+                                metadata={
+                                    "id": doc_id,
+                                    "title": title,
+                                    "category": category,
+                                    "source": source,
+                                    "tags": tags
+                                }
+                            )
+                        else:
+                            logger.warning(f"AgentKnowledge não tem método conhecido para adicionar documentos")
+                    except Exception as e:
+                        logger.warning(f"Erro ao adicionar documento ao knowledge base: {e}")
                 
                 # Gerar embeddings
                 chunks = self._chunk_text(content)
