@@ -47,7 +47,7 @@ pdf2image==1.17.0
 
 # Audio Processing
 pydub==0.25.1
-speech-recognition==3.11.0
+SpeechRecognition==3.10.3
 moviepy==1.0.3  # Video processing
 
 # Utilities
