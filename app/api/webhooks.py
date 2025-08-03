@@ -2,7 +2,7 @@
 Webhooks API - Recebe eventos da Evolution API
 """
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import asyncio
 import base64
 import json
@@ -14,11 +14,17 @@ from app.integrations.redis_client import redis_client
 from app.integrations.evolution import evolution_client
 from app.agents.agentic_sdr import get_agentic_sdr  # Importa o AGENTIC SDR
 from app.config import settings
+from app.services.message_buffer import MessageBuffer, set_message_buffer
+from app.services.message_splitter import MessageSplitter, set_message_splitter
 
 router = APIRouter(prefix="/webhook", tags=["webhooks"])  # Mudado para /webhook (sem 's')
 
 # Instância global do AGENTIC SDR
 agentic_agent = None
+
+# Instâncias dos serviços de mensagem
+message_buffer = None
+message_splitter = None
 
 async def get_agentic_agent():
     """Obtém ou cria instância do AGENTIC SDR"""
@@ -26,6 +32,34 @@ async def get_agentic_agent():
     if agentic_agent is None:
         agentic_agent = await get_agentic_sdr()
     return agentic_agent
+
+def get_message_buffer_instance():
+    """Obtém instância do Message Buffer (deve ser inicializado no startup)"""
+    from app.services.message_buffer import get_message_buffer
+    buffer = get_message_buffer()
+    if buffer is None:
+        # Fallback para criação se não inicializado (não deveria acontecer)
+        logger.warning("Message Buffer não foi inicializado no startup!")
+        buffer = MessageBuffer(
+            timeout=settings.message_buffer_timeout,
+            max_size=10
+        )
+        set_message_buffer(buffer)
+    return buffer
+
+def get_message_splitter_instance():
+    """Obtém instância do Message Splitter (deve ser inicializado no startup)"""
+    from app.services.message_splitter import get_message_splitter
+    splitter = get_message_splitter()
+    if splitter is None:
+        # Fallback para criação se não inicializado (não deveria acontecer)
+        logger.warning("Message Splitter não foi inicializado no startup!")
+        splitter = MessageSplitter(
+            max_length=settings.message_max_length,
+            add_indicators=settings.message_add_indicators
+        )
+        set_message_splitter(splitter)
+    return splitter
 
 @router.post("/whatsapp/{event_type}")
 async def whatsapp_dynamic_webhook(
@@ -212,6 +246,47 @@ async def process_new_message(data: Dict[str, Any]):
             )
             return
         
+        # Se o buffer está habilitado, adiciona mensagem ao buffer
+        if settings.enable_message_buffer:
+            buffer = get_message_buffer_instance()
+            
+            # Adiciona mensagem ao buffer (sem callback complexo)
+            await buffer.add_message(
+                phone=phone,
+                content=message_content,
+                message_data=message
+            )
+            # O buffer chama process_message_with_agent internamente quando pronto
+        else:
+            # Processa imediatamente sem buffer
+            await process_message_with_agent(
+                phone=phone,
+                message_content=message_content,
+                original_message=message,
+                message_id=message_id
+            )
+            
+    except Exception as e:
+        emoji_logger.system_error("Webhook Message Processing", str(e))
+        logger.exception("Erro detalhado no processamento:")
+        # Não lança exceção para não travar o webhook
+
+async def process_message_with_agent(
+    phone: str,
+    message_content: str,
+    original_message: Dict[str, Any],
+    message_id: str
+):
+    """
+    Processa mensagem com o agente AGENTIC SDR
+    
+    Args:
+        phone: Número do telefone
+        message_content: Conteúdo da mensagem (pode ser combinado)
+        original_message: Dados originais da mensagem
+        message_id: ID da mensagem
+    """
+    try:
         # Busca ou cria lead no banco
         lead = await supabase_client.get_lead_by_phone(phone)
         
@@ -241,7 +316,7 @@ async def process_new_message(data: Dict[str, Any]):
             "sender": "user",
             "media_data": {  # Usar media_data em vez de metadata
                 "message_id": message_id,
-                "raw_data": message
+                "raw_data": original_message
             }
         })
         
@@ -270,24 +345,24 @@ async def process_new_message(data: Dict[str, Any]):
         
         # Preparar mídia se houver
         media_data = None
-        if message.get("message", {}).get("imageMessage"):
-            img_msg = message["message"]["imageMessage"]
+        if original_message.get("message", {}).get("imageMessage"):
+            img_msg = original_message["message"]["imageMessage"]
             media_data = {
                 "type": "image",
                 "mimetype": img_msg.get("mimetype", "image/jpeg"),
                 "caption": img_msg.get("caption", ""),
                 "data": img_msg.get("jpegThumbnail", "")  # Base64 da imagem
             }
-        elif message.get("message", {}).get("documentMessage"):
-            doc_msg = message["message"]["documentMessage"]
+        elif original_message.get("message", {}).get("documentMessage"):
+            doc_msg = original_message["message"]["documentMessage"]
             media_data = {
                 "type": "document",
                 "mimetype": doc_msg.get("mimetype", "application/pdf"),
                 "fileName": doc_msg.get("fileName", "documento"),
                 "data": ""  # Seria necessário baixar o documento
             }
-        elif message.get("message", {}).get("audioMessage"):
-            audio_msg = message["message"]["audioMessage"]
+        elif original_message.get("message", {}).get("audioMessage"):
+            audio_msg = original_message["message"]["audioMessage"]
             media_data = {
                 "type": "audio",
                 "mimetype": audio_msg.get("mimetype", "audio/ogg"),
@@ -321,21 +396,52 @@ async def process_new_message(data: Dict[str, Any]):
             if media_data and settings.delay_before_media > 0:
                 await asyncio.sleep(settings.delay_before_media)
             
-            # Enviar resposta com timing humanizado
-            try:
-                result = await evolution_client.send_text_message(
-                    phone,
-                    response,
-                    delay=None,  # Deixar o método calcular automaticamente
-                    simulate_typing=True
-                )
-                emoji_logger.evolution_send(phone, "text", preview=response[:50])
-                emoji_logger.system_info(f"Mensagem enviada com sucesso. ID: {result.get('key', {}).get('id', 'N/A')}")
+            # Se o splitter está habilitado e a mensagem é longa, divide em chunks
+            if settings.enable_message_splitter and len(response) > settings.message_max_length:
+                splitter = get_message_splitter_instance()
+                chunks = splitter.split_message(response)
                 
-            except Exception as send_error:
-                emoji_logger.system_error("Evolution API", f"Erro ao enviar mensagem: {send_error}")
-                # Re-lançar para não silenciar o erro
-                raise
+                emoji_logger.system_info(
+                    f"Mensagem dividida em {len(chunks)} partes",
+                    phone=phone,
+                    original_length=len(response)
+                )
+                
+                # Envia cada chunk com delay entre eles
+                for i, chunk in enumerate(chunks):
+                    try:
+                        # Delay entre chunks (exceto o primeiro)
+                        if i > 0 and settings.message_chunk_delay > 0:
+                            await asyncio.sleep(settings.message_chunk_delay)
+                        
+                        result = await evolution_client.send_text_message(
+                            phone,
+                            chunk,
+                            delay=None,  # Deixar o método calcular automaticamente
+                            simulate_typing=True if i == 0 else False  # Só simula digitação no primeiro
+                        )
+                        emoji_logger.evolution_send(phone, "text", preview=chunk[:50])
+                        emoji_logger.system_info(f"Chunk {i+1}/{len(chunks)} enviado. ID: {result.get('key', {}).get('id', 'N/A')}")
+                        
+                    except Exception as send_error:
+                        emoji_logger.system_error("Evolution API", f"Erro ao enviar chunk {i+1}: {send_error}")
+                        # Continua tentando enviar os próximos chunks
+            else:
+                # Envia mensagem única (sem dividir)
+                try:
+                    result = await evolution_client.send_text_message(
+                        phone,
+                        response,
+                        delay=None,  # Deixar o método calcular automaticamente
+                        simulate_typing=True
+                    )
+                    emoji_logger.evolution_send(phone, "text", preview=response[:50])
+                    emoji_logger.system_info(f"Mensagem enviada com sucesso. ID: {result.get('key', {}).get('id', 'N/A')}")
+                    
+                except Exception as send_error:
+                    emoji_logger.system_error("Evolution API", f"Erro ao enviar mensagem: {send_error}")
+                    # Re-lançar para não silenciar o erro
+                    raise
             
             # Delay após mídia se houver
             if media_data and settings.delay_after_media > 0:
@@ -363,8 +469,8 @@ async def process_new_message(data: Dict[str, Any]):
             emoji_logger.system_warning(f"Nenhuma resposta gerada para {phone}")
         
     except Exception as e:
-        emoji_logger.system_error("Webhook Message Processing", str(e))
-        logger.exception("Erro detalhado no processamento:")
+        emoji_logger.system_error("Agent Message Processing", str(e))
+        logger.exception("Erro detalhado no processamento com agente:")
         # Não lança exceção para não travar o webhook
 
 def extract_message_content(message: Dict[str, Any]) -> Optional[str]:

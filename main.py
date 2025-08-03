@@ -43,6 +43,29 @@ async def lifespan(app: FastAPI):
         await supabase_client.test_connection()
         emoji_logger.system_ready("Supabase")
         
+        # Inicializa Message Buffer
+        from app.services.message_buffer import set_message_buffer, MessageBuffer
+        from app.config import settings
+        
+        if settings.enable_message_buffer:
+            message_buffer = MessageBuffer(
+                timeout=settings.message_buffer_timeout,
+                max_size=10
+            )
+            set_message_buffer(message_buffer)
+            emoji_logger.system_ready("Message Buffer", timeout=f"{settings.message_buffer_timeout}s")
+        
+        # Inicializa Message Splitter
+        from app.services.message_splitter import set_message_splitter, MessageSplitter
+        
+        if settings.enable_message_splitter:
+            message_splitter = MessageSplitter(
+                max_length=settings.message_max_length,
+                add_indicators=settings.message_add_indicators
+            )
+            set_message_splitter(message_splitter)
+            emoji_logger.system_ready("Message Splitter", max_length=settings.message_max_length)
+        
         # Inicializa o Team SDR
         team = create_sdr_team()  # create_sdr_team is not async
         await team.initialize()  # Initialize the team asynchronously
@@ -65,7 +88,13 @@ async def lifespan(app: FastAPI):
     emoji_logger.system_info("Encerrando SDR IA Solar Prime...")
     
     try:
-        # Desconecta do Redis
+        # Cancela tasks do Message Buffer se existir
+        from app.services.message_buffer import message_buffer
+        if message_buffer:
+            await message_buffer.shutdown()
+            emoji_logger.system_info("Message Buffer encerrado")
+        
+        # Desconecta do Redis (já faz close/aclose internamente)
         await redis_client.disconnect()
         emoji_logger.system_info("Redis desconectado")
         

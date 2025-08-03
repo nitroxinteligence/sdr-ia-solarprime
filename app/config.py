@@ -146,6 +146,17 @@ class Settings(BaseSettings):
     reading_speed_wpm: int = Field(default=200, env="READING_SPEED_WPM")
     response_time_variation: float = Field(default=0.3, env="RESPONSE_TIME_VARIATION")
     
+    # ============= MESSAGE BUFFER E SPLITTER =============
+    # Buffer de mensagens
+    enable_message_buffer: bool = Field(default=True, env="ENABLE_MESSAGE_BUFFER")
+    message_buffer_timeout: float = Field(default=30.0, env="MESSAGE_BUFFER_TIMEOUT")  # 30 segundos
+    
+    # Splitter de mensagens
+    enable_message_splitter: bool = Field(default=True, env="ENABLE_MESSAGE_SPLITTER")
+    message_max_length: int = Field(default=150, env="MESSAGE_MAX_LENGTH")  # 150 caracteres para WhatsApp
+    message_chunk_delay: float = Field(default=0.8, env="MESSAGE_CHUNK_DELAY")  # Delay menor entre chunks
+    message_add_indicators: bool = Field(default=False, env="MESSAGE_ADD_INDICATORS")  # Sem indicadores [1/3]
+    
     # ============= FUNCIONALIDADES =============
     # Análise e Contexto
     enable_context_analysis: bool = Field(default=True, env="ENABLE_CONTEXT_ANALYSIS")
