@@ -549,71 +549,346 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         Processa conteúdo multimodal (imagens, áudio, documentos)
         
         Args:
-            media_type: Tipo de mídia
-            media_data: Dados da mídia (base64)
+            media_type: Tipo de mídia (image, audio, document, pdf)
+            media_data: Dados da mídia em base64
             caption: Legenda opcional
             
         Returns:
-            Análise do conteúdo multimodal
+            Análise do conteúdo multimodal com estrutura padronizada
         """
         try:
+            emoji_logger.agentic_multimodal(f"Iniciando processamento: {media_type}",
+                                           media_type=media_type,
+                                           has_caption=bool(caption))
+            
             # Verificar se análise multimodal está habilitada
             if not self.multimodal_enabled:
+                emoji_logger.system_warning("Análise multimodal desabilitada nas configurações")
                 return {
+                    "type": media_type,
                     "enabled": False,
                     "message": "Análise multimodal desabilitada"
                 }
+            
+            # Validar entrada
+            if not media_data:
+                emoji_logger.system_warning(f"Dados de mídia vazios para tipo: {media_type}")
+                return {
+                    "type": media_type,
+                    "error": "Dados de mídia não fornecidos"
+                }
+            
+            # Validar tipo de mídia
+            valid_types = ["image", "audio", "document", "pdf", "video"]
+            if media_type not in valid_types:
+                emoji_logger.system_warning(f"Tipo de mídia inválido: {media_type}")
+                return {
+                    "type": media_type,
+                    "error": f"Tipo de mídia '{media_type}' não suportado"
+                }
             if media_type == "image":
-                # Usar GPT-4 Vision ou Gemini Vision
-                # Em AGNO v1.7.6, usar run()
-                # Usar arun() para suporte assíncrono
-                if hasattr(self.agent, 'arun'):
-                    result = await self.agent.arun(
-                        f"Analise esta imagem: {caption or 'Sem legenda'}",
-                        images=[media_data]
-                    )
-                else:
-                    # Fallback para run() se arun() não estiver disponível
-                    result = await self.agent.run(
-                        f"Analise esta imagem: {caption or 'Sem legenda'}",
-                        images=[media_data]
-                    )
+                # Usar Gemini Vision para análise de imagem
+                # Validar se media_data é base64
+                if not media_data or not isinstance(media_data, str):
+                    emoji_logger.system_warning("Dados de imagem inválidos ou vazios")
+                    return {
+                        "type": "image",
+                        "error": "Dados de imagem inválidos",
+                        "status": "no_data"
+                    }
                 
-                # Verificar se é conta de luz
-                if any(word in result.content.lower() for word in 
-                       ["conta", "energia", "kwh", "tarifa", "consumo"]):
+                # Verificar tamanho da imagem
+                data_size = len(media_data)
+                emoji_logger.agentic_multimodal(f"Processando imagem com {data_size} caracteres base64")
+                
+                # Se a imagem é muito pequena, provavelmente é só thumbnail
+                is_thumbnail = data_size < 50000  # Menos de 50KB em base64
+                
+                # Preparar prompt específico para análise
+                analysis_prompt = f"""Analise esta imagem detalhadamente.
+                {f'Contexto fornecido pelo usuário: {caption}' if caption else ''}
+                
+                {'ATENÇÃO: Esta pode ser apenas uma miniatura de baixa resolução.' if is_thumbnail else ''}
+                
+                Por favor, extraia todas as informações visíveis:
+                
+                Se for uma conta de luz/energia, identifique:
+                - Valor total da conta (R$)
+                - Consumo em kWh
+                - Nome da distribuidora/concessionária
+                - Mês/período de referência
+                - Bandeira tarifária (se visível)
+                - Histórico de consumo (se visível)
+                
+                Se for outro documento (nota fiscal, boleto, etc), extraia:
+                - Tipo do documento
+                - Valores principais
+                - Datas importantes
+                - Informações relevantes
+                
+                Se não conseguir ler claramente, indique o que é visível e o que não é.
+                """
+                
+                try:
+                    # Em AGNO v1.7.6, usar run() com images
+                    # Criar objeto Image com base64
+                    from agno.media import Image
+                    
+                    emoji_logger.agentic_thinking("Enviando imagem para análise Vision API...")
+                    
+                    # Criar imagem com content base64
+                    image_obj = Image(content=media_data)
+                    
+                    if hasattr(self.agent, 'arun'):
+                        result = await self.agent.arun(
+                            analysis_prompt,
+                            images=[image_obj]
+                        )
+                    else:
+                        # Fallback para run() se arun() não estiver disponível
+                        result = await self.agent.run(
+                            analysis_prompt,
+                            images=[image_obj]
+                        )
+                    
+                    # Extrair conteúdo do resultado
+                    if hasattr(result, 'content'):
+                        analysis_content = result.content
+                    elif isinstance(result, dict) and 'content' in result:
+                        analysis_content = result['content']
+                    elif isinstance(result, str):
+                        analysis_content = result
+                    else:
+                        analysis_content = str(result)
+                        
+                    emoji_logger.agentic_multimodal("Análise de imagem concluída com sucesso")
+                    
+                except Exception as img_error:
+                    emoji_logger.system_error("Vision API", f"Erro ao analisar imagem: {str(img_error)[:100]}")
+                    
+                    # Tentar extrair informações do erro para diagnóstico
+                    error_details = str(img_error)
+                    if "quota" in error_details.lower():
+                        error_msg = "Limite de API excedido"
+                    elif "invalid" in error_details.lower():
+                        error_msg = "Formato de imagem inválido"
+                    elif "timeout" in error_details.lower():
+                        error_msg = "Timeout na análise"
+                    else:
+                        error_msg = f"Erro na análise: {str(img_error)[:100]}"
+                    
+                    return {
+                        "type": "image",
+                        "error": error_msg,
+                        "status": "error",
+                        "is_thumbnail": is_thumbnail
+                    }
+                
+                # Verificar se é conta de luz através da interpretação do Gemini
+                bill_keywords = ["conta", "energia", "kwh", "tarifa", "consumo", "fatura"]
+                is_bill = any(word in analysis_content.lower() for word in bill_keywords)
+                
+                if is_bill:
+                    emoji_logger.agentic_multimodal("Conta de luz detectada", media_type="bill_image")
                     return {
                         "type": "bill_image",
                         "needs_analysis": True,
-                        "content": result.content
+                        "content": analysis_content
+                    }
+                else:
+                    # Imagem genérica
+                    return {
+                        "type": "image",
+                        "content": analysis_content,
+                        "caption": caption,
+                        "processed": True
                     }
             
             elif media_type == "audio":
                 # Processar áudio (transcrição)
-                # TODO: Integrar com serviço de transcrição
-                return {
-                    "type": "audio",
-                    "transcription": "Áudio recebido - processamento em desenvolvimento"
-                }
+                emoji_logger.system_info("Processamento de áudio solicitado")
+                
+                # Verificar se transcrição está habilitada
+                if not settings.enable_voice_message_transcription:
+                    return {
+                        "type": "audio",
+                        "status": "disabled",
+                        "message": "Transcrição de áudio desabilitada"
+                    }
+                
+                # Usar o novo AudioTranscriber
+                try:
+                    from app.services.audio_transcriber import audio_transcriber
+                    
+                    emoji_logger.agentic_thinking("Transcrevendo áudio com AudioTranscriber...")
+                    
+                    # Detectar mimetype do áudio (geralmente audio/ogg no WhatsApp)
+                    mimetype = "audio/ogg"  # Padrão do WhatsApp
+                    
+                    # Transcrever
+                    result = await audio_transcriber.transcribe_from_base64(
+                        media_data,
+                        mimetype=mimetype,
+                        language="pt-BR"
+                    )
+                    
+                    if result["status"] == "success":
+                        # Processar transcrição com o agente
+                        transcribed_text = result["text"]
+                        
+                        # Criar contexto para o agente
+                        audio_context = f"""O cliente enviou um áudio dizendo:
+                        
+                        \"{transcribed_text}\"
+                        
+                        Por favor, responda adequadamente ao que foi dito no áudio."""
+                        
+                        # Processar com o agente
+                        if hasattr(self.agent, 'arun'):
+                            agent_response = await self.agent.arun(audio_context)
+                        else:
+                            agent_response = await self.agent.run(audio_context)
+                        
+                        emoji_logger.agentic_multimodal(
+                            f"Audio transcrito com sucesso: {len(transcribed_text)} caracteres",
+                            media_type="audio",
+                            duration=result.get("duration", 0)
+                        )
+                        
+                        return {
+                            "type": "audio",
+                            "transcription": transcribed_text,
+                            "response": agent_response,
+                            "duration": result.get("duration", 0),
+                            "engine": result.get("engine", "unknown"),
+                            "status": "transcribed"
+                        }
+                    elif result["status"] == "unclear":
+                        return {
+                            "type": "audio",
+                            "status": "unclear",
+                            "message": "Não foi possível compreender o áudio claramente",
+                            "transcription": result.get("text", "")
+                        }
+                    else:
+                        return {
+                            "type": "audio",
+                            "status": "error",
+                            "message": f"Erro na transcrição: {result.get('error', 'Erro desconhecido')}"
+                        }
+                        
+                except Exception as e:
+                    emoji_logger.system_warning(f"Erro ao transcrever áudio: {e}")
+                    return {
+                        "type": "audio",
+                        "status": "error",
+                        "message": f"Erro ao processar áudio: {str(e)}"
+                    }
             
             elif media_type in ["document", "pdf"]:
                 # Processar documento
-                from agno.document_reader import PDFReader
-                reader = PDFReader()
-                content = reader.load_data(base64.b64decode(media_data))
-                
+                try:
+                    from app.services.document_extractor import document_extractor
+                    
+                    emoji_logger.agentic_thinking("Extraindo texto do documento com DocumentExtractor...")
+                    
+                    # Detectar mimetype
+                    mimetype = "application/pdf" if media_type == "pdf" else "application/octet-stream"
+                    
+                    # Extrair texto
+                    result = await document_extractor.extract_from_document(
+                        media_data,
+                        mimetype=mimetype,
+                        max_chars=10000
+                    )
+                    
+                    if result["status"] == "success":
+                        extracted_text = result["text"]
+                        doc_type = result.get("document_type", "documento")
+                        
+                        # Criar contexto para o agente
+                        doc_context = f"""O cliente enviou um {doc_type} com o seguinte conteúdo:
+                        
+                        {extracted_text[:3000]}...
+                        
+                        Documento completo: {result.get('pages', 'N/A')} página(s)
+                        Tipo identificado: {doc_type}
+                        
+                        Por favor, analise o documento e:
+                        1. Identifique as informações principais
+                        2. Se for uma conta de luz, extraia valor e consumo
+                        3. Se for outro documento, resuma os pontos importantes"""
+                        
+                        # Processar com o agente
+                        if hasattr(self.agent, 'arun'):
+                            agent_response = await self.agent.arun(doc_context)
+                        else:
+                            agent_response = await self.agent.run(doc_context)
+                        
+                        emoji_logger.agentic_multimodal(
+                            f"Documento processado: {doc_type}, {len(extracted_text)} caracteres",
+                            media_type="document",
+                            pages=result.get("pages", 0)
+                        )
+                        
+                        return {
+                            "type": "document",
+                            "document_type": doc_type,
+                            "content": extracted_text[:5000],  # Limitar resposta
+                            "analysis": agent_response,
+                            "pages": result.get("pages", 0),
+                            "method": result.get("method", "unknown"),
+                            "status": "processed"
+                        }
+                    elif result["status"] == "no_text":
+                        # PDF escaneado (precisa OCR)
+                        return {
+                            "type": "document",
+                            "status": "scanned",
+                            "message": "Documento parece ser escaneado. Tente enviar como imagem para análise visual.",
+                            "pages": result.get("pages", 0)
+                        }
+                    else:
+                        return {
+                            "type": "document",
+                            "status": "error",
+                            "message": f"Erro ao processar documento: {result.get('error', 'Erro desconhecido')}"
+                        }
+                        
+                except Exception as e:
+                    emoji_logger.system_warning(f"Erro ao processar documento: {e}")
+                    return {
+                        "type": "document",
+                        "status": "error",
+                        "message": f"Erro ao processar documento: {str(e)}"
+                    }
+            
+            elif media_type == "video":
+                # Processar vídeo
+                emoji_logger.system_info("Processamento de vídeo solicitado")
                 return {
-                    "type": "document",
-                    "content": content,
-                    "pages": len(content)
+                    "type": "video",
+                    "status": "not_supported",
+                    "message": "Processamento de vídeo não implementado"
                 }
             
-            return {"type": media_type, "processed": True}
+            # Tipo desconhecido (não deveria chegar aqui devido à validação)
+            return {
+                "type": media_type,
+                "processed": False,
+                "message": f"Tipo {media_type} não tem processamento específico"
+            }
             
         except Exception as e:
-            emoji_logger.agentic_multimodal(f"Erro no processamento: {e}",
-                                           media_type=media_data.get('type') if media_data else 'unknown')
-            return {"type": media_type, "error": str(e)}
+            emoji_logger.system_error("Multimodal Processing", f"Erro ao processar {media_type}: {str(e)[:200]}")
+            logger.exception(f"Erro completo no processamento multimodal de {media_type}:")
+            
+            return {
+                "type": media_type,
+                "error": str(e),
+                "status": "error",
+                "message": f"Erro ao processar {media_type}"
+            }
     
     async def search_knowledge_base(
         self,

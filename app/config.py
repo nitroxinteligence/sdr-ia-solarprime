@@ -171,7 +171,7 @@ class Settings(BaseSettings):
     # Recursos Avançados
     enable_multimodal_analysis: bool = Field(default=True, env="ENABLE_MULTIMODAL_ANALYSIS")
     enable_bill_photo_analysis: bool = Field(default=True, env="ENABLE_BILL_PHOTO_ANALYSIS")
-    enable_voice_message_transcription: bool = Field(default=False, env="ENABLE_VOICE_MESSAGE_TRANSCRIPTION")
+    enable_voice_message_transcription: bool = Field(default=True, env="ENABLE_VOICE_MESSAGE_TRANSCRIPTION")
     enable_auto_translation: bool = Field(default=False, env="ENABLE_AUTO_TRANSLATION")
     
     # Integrações

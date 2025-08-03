@@ -834,24 +834,56 @@ class EvolutionAPIClient:
     
     async def download_media(self, message_data: Dict[str, Any]) -> Optional[bytes]:
         """
-        Baixa mídia de uma mensagem
+        Baixa mídia de uma mensagem do WhatsApp
         
         Args:
-            message_data: Dados da mensagem com mídia
+            message_data: Dados da mensagem com mídia (deve conter 'mediaUrl' ou 'url')
             
         Returns:
-            Bytes da mídia ou None
+            Bytes da mídia ou None se falhar
         """
         try:
-            if "mediaUrl" not in message_data:
+            # Procurar URL da mídia em diferentes campos possíveis
+            media_url = message_data.get("mediaUrl") or message_data.get("url")
+            
+            if not media_url:
+                logger.warning("URL da mídia não encontrada nos dados")
                 return None
             
-            async with httpx.AsyncClient() as client:
-                response = await client.get(message_data["mediaUrl"])
-                return response.content
+            logger.info(f"Baixando mídia de: {media_url[:50]}...")
+            
+            # Configurar cliente HTTP com timeout maior para arquivos grandes
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(30.0),  # 30 segundos de timeout
+                follow_redirects=True,  # Seguir redirecionamentos
+                limits=httpx.Limits(max_connections=5)  # Limitar conexões
+            ) as client:
                 
+                # Headers para simular requisição do WhatsApp
+                headers = {
+                    "User-Agent": "WhatsApp/2.23.0",
+                    "Accept": "*/*"
+                }
+                
+                response = await client.get(media_url, headers=headers)
+                
+                # Verificar se a resposta foi bem-sucedida
+                if response.status_code == 200:
+                    content = response.content
+                    logger.info(f"Mídia baixada com sucesso: {len(content)} bytes")
+                    return content
+                else:
+                    logger.error(f"Erro HTTP ao baixar mídia: {response.status_code}")
+                    return None
+                    
+        except httpx.TimeoutException:
+            logger.error("Timeout ao baixar mídia")
+            return None
+        except httpx.RequestError as e:
+            logger.error(f"Erro de requisição ao baixar mídia: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Erro ao baixar mídia: {e}")
+            logger.error(f"Erro inesperado ao baixar mídia: {e}")
             return None
     
     async def check_number_exists(self, phone: str) -> bool:

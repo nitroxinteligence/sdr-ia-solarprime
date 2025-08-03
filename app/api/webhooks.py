@@ -347,27 +347,105 @@ async def process_message_with_agent(
         media_data = None
         if original_message.get("message", {}).get("imageMessage"):
             img_msg = original_message["message"]["imageMessage"]
+            
+            # Tentar baixar a imagem completa primeiro
+            image_base64 = None
+            
+            # Verificar se há URL para download
+            if img_msg.get("url"):
+                try:
+                    emoji_logger.webhook_process(f"Baixando imagem completa de: {img_msg['url'][:50]}...")
+                    
+                    # Baixar imagem completa usando Evolution API
+                    image_bytes = await evolution_client.download_media({"mediaUrl": img_msg["url"]})
+                    
+                    if image_bytes:
+                        # Converter bytes para base64
+                        import base64
+                        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                        emoji_logger.webhook_process(f"Imagem completa baixada: {len(image_base64)} caracteres")
+                    else:
+                        emoji_logger.system_warning("Falha ao baixar imagem completa, usando thumbnail")
+                        
+                except Exception as download_error:
+                    emoji_logger.system_warning(f"Erro ao baixar imagem: {download_error}")
+                    # Fallback para thumbnail se falhar
+            
+            # Se não conseguiu baixar, usar thumbnail como fallback
+            if not image_base64:
+                image_base64 = img_msg.get("jpegThumbnail", "")
+                if image_base64:
+                    emoji_logger.system_info("Usando thumbnail como fallback")
+                    
             media_data = {
                 "type": "image",
                 "mimetype": img_msg.get("mimetype", "image/jpeg"),
                 "caption": img_msg.get("caption", ""),
-                "data": img_msg.get("jpegThumbnail", "")  # Base64 da imagem
+                "data": image_base64,  # Imagem completa ou thumbnail
+                "has_full_image": bool(image_base64 and img_msg.get("url")),  # Indica se é imagem completa
+                "file_size": img_msg.get("fileLength", 0)
             }
         elif original_message.get("message", {}).get("documentMessage"):
             doc_msg = original_message["message"]["documentMessage"]
+            
+            # Tentar baixar o documento completo
+            document_base64 = None
+            
+            if doc_msg.get("url"):
+                try:
+                    emoji_logger.webhook_process(f"Baixando documento: {doc_msg.get('fileName', 'documento')}")
+                    
+                    # Baixar documento usando Evolution API
+                    doc_bytes = await evolution_client.download_media({"mediaUrl": doc_msg["url"]})
+                    
+                    if doc_bytes:
+                        import base64
+                        document_base64 = base64.b64encode(doc_bytes).decode('utf-8')
+                        emoji_logger.webhook_process(f"Documento baixado: {len(document_base64)} caracteres")
+                    else:
+                        emoji_logger.system_warning("Falha ao baixar documento")
+                        
+                except Exception as download_error:
+                    emoji_logger.system_warning(f"Erro ao baixar documento: {download_error}")
+            
             media_data = {
                 "type": "document",
                 "mimetype": doc_msg.get("mimetype", "application/pdf"),
                 "fileName": doc_msg.get("fileName", "documento"),
-                "data": ""  # Seria necessário baixar o documento
+                "data": document_base64 or "",  # Documento completo ou vazio
+                "has_content": bool(document_base64),
+                "file_size": doc_msg.get("fileLength", 0)
             }
         elif original_message.get("message", {}).get("audioMessage"):
             audio_msg = original_message["message"]["audioMessage"]
+            
+            # Tentar baixar o áudio completo
+            audio_base64 = None
+            
+            if audio_msg.get("url"):
+                try:
+                    emoji_logger.webhook_process(f"Baixando áudio/nota de voz")
+                    
+                    # Baixar áudio usando Evolution API
+                    audio_bytes = await evolution_client.download_media({"mediaUrl": audio_msg["url"]})
+                    
+                    if audio_bytes:
+                        import base64
+                        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                        emoji_logger.webhook_process(f"Áudio baixado: {len(audio_base64)} caracteres")
+                    else:
+                        emoji_logger.system_warning("Falha ao baixar áudio")
+                        
+                except Exception as download_error:
+                    emoji_logger.system_warning(f"Erro ao baixar áudio: {download_error}")
+            
             media_data = {
                 "type": "audio",
                 "mimetype": audio_msg.get("mimetype", "audio/ogg"),
                 "ptt": audio_msg.get("ptt", False),
-                "data": ""  # Seria necessário baixar o áudio
+                "data": audio_base64 or "",  # Áudio completo ou vazio
+                "has_content": bool(audio_base64),
+                "duration": audio_msg.get("seconds", 0)
             }
         
         # Processa mensagem com análise contextual inteligente
