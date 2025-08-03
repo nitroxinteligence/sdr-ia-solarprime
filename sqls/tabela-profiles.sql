@@ -15,7 +15,6 @@ create table public.profiles (
   constraint profiles_phone_number_key unique (phone_number)
 ) TABLESPACE pg_default;
 
--- Índices para otimizar consultas
 create index IF not exists idx_profiles_phone on public.profiles using btree (phone_number) TABLESPACE pg_default;
 
 create index IF not exists idx_profiles_name on public.profiles using btree (name) TABLESPACE pg_default;
@@ -26,10 +25,10 @@ create index IF not exists idx_profiles_last_interaction on public.profiles usin
 
 create index IF not exists idx_profiles_created on public.profiles using btree (created_at desc) TABLESPACE pg_default;
 
--- Índice para busca full-text no nome
-create index IF not exists idx_profiles_name_search on public.profiles using gin (to_tsvector('portuguese', name)) TABLESPACE pg_default;
+create index IF not exists idx_profiles_name_search on public.profiles using gin (
+  to_tsvector('portuguese'::regconfig, (name)::text)
+) TABLESPACE pg_default;
 
--- Trigger para atualizar updated_at automaticamente
 create trigger update_profiles_updated_at BEFORE
 update on profiles for EACH row
 execute FUNCTION update_updated_at_column ();

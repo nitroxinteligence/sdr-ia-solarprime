@@ -570,7 +570,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 }
             if media_type == "image":
                 # Usar GPT-4 Vision ou Gemini Vision
-                result = await self.agent.run(
+                # Em AGNO v1.7.6, usar response() ao invés de run()
+                result = await self.agent.response(
                     f"Analise esta imagem: {caption or 'Sem legenda'}",
                     images=[media_data]
                 )
@@ -1008,6 +1009,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         Returns:
             Resposta do AGENTIC SDR
         """
+        # Inicializar response para evitar erro de variável não definida
+        response = None
+        
         try:
             emoji_logger.agentic_thinking(f"Processando mensagem de {phone}: {message[:50]}...")
             
@@ -1119,10 +1123,11 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     """
                     
                     # Usar reasoning para casos complexos
+                    # Em AGNO v1.7.6, usar response() ao invés de run()
                     if self.reasoning_enabled and context_analysis.get("complexity_score", 0) > 0.5:
-                        result = await self.reasoning_model.run(contextual_prompt)
+                        result = await self.reasoning_model.response(contextual_prompt)
                     else:
-                        result = await self.agent.run(contextual_prompt)
+                        result = await self.agent.response(contextual_prompt)
                     
                     response = result.content if hasattr(result, 'content') else str(result)
                     
@@ -1167,7 +1172,12 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 emoji_logger.system_warning(f"Erro ao salvar na memória: {str(mem_error)[:50]}")
             
             # 9. Aplicar simulação de digitação natural
-            response = self._apply_typing_simulation(response)
+            # Garantir que response tem um valor antes de aplicar simulação
+            if response:
+                response = self._apply_typing_simulation(response)
+            else:
+                # Fallback final se ainda não houver resposta
+                response = "Oi! 😊 Sou a Helen da Solar Prime. Como posso ajudar você hoje?"
             
             emoji_logger.agentic_response(f"Resposta gerada: {response[:100]}...")
             
@@ -1202,8 +1212,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         empatia e naturalidade. Mantenha breve e direto.
         """
         
-        result = await self.agent.run(personalization_prompt)
-        return result.content
+        # Em AGNO v1.7.6, usar response() ao invés de run()
+        result = await self.agent.response(personalization_prompt)
+        return result.content if hasattr(result, 'content') else str(result)
     
     def _update_emotional_state(
         self,

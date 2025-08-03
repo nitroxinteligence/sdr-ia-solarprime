@@ -170,7 +170,7 @@ class SupabaseClient:
         """Atualiza dados da conversa"""
         try:
             update_data['updated_at'] = datetime.now().isoformat()
-            update_data['last_message_at'] = datetime.now().isoformat()
+            # Removido last_message_at que não existe na tabela
             
             result = self.client.table('conversations').update(update_data).eq(
                 'id', conversation_id
@@ -238,7 +238,7 @@ class SupabaseClient:
                 # Atualiza contador
                 self.client.table('conversations').update({
                     'total_messages': current_count + 1,
-                    'last_message_at': datetime.now().isoformat()
+                    'updated_at': datetime.now().isoformat()  # Usar updated_at em vez de last_message_at
                 }).eq('id', conversation_id).execute()
                 
         except Exception as e:
