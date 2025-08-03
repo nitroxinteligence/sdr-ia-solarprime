@@ -218,11 +218,12 @@ async def process_new_message(data: Dict[str, Any]):
         if not lead:
             # Cria novo lead
             lead = await supabase_client.create_lead({
-                "phone": phone,
-                "first_message": message_content,
-                "source": "whatsapp",
-                "status": "new",
-                "created_at": datetime.now().isoformat()
+                "phone_number": phone,
+                "current_stage": "INITIAL_CONTACT",
+                "qualification_status": "PENDING",
+                "interested": True,
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat()
             })
             
             emoji_logger.supabase_insert("leads", 1, phone=phone)
