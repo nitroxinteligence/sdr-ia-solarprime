@@ -49,6 +49,10 @@ WORKDIR /app
 # Copy application code
 COPY . .
 
+# Copy .env file if exists (can be overridden by docker-compose volume)
+# Using shell to handle if file doesn't exist
+RUN if [ -f .env ]; then cp .env /app/.env; fi
+
 # Create necessary directories
 RUN mkdir -p /app/logs /app/uploads /app/temp
 

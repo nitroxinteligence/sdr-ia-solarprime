@@ -96,12 +96,22 @@ class AgenticSDR:
         )
         
         # Memory v2 com multi-usuário e persistência
-        self.memory = Memory(
-            memory=self.storage,  # Parâmetro correto é 'memory'
-            create_user_memories=True,
-            create_session_summary=True,
-            add_datetime_to_messages=True
-        )
+        # Tenta criar Memory com storage, fallback para sem persistência
+        try:
+            self.memory = Memory(
+                db=self.storage,  # db é o parâmetro correto para storage
+                create_user_memories=True,
+                create_session_summary=True,
+                add_datetime_to_messages=True
+            )
+            emoji_logger.system_ready("Memory", status="com persistência")
+        except Exception as e:
+            emoji_logger.system_warning(f"Memory sem persistência: {str(e)[:50]}...")
+            self.memory = Memory(
+                create_user_memories=True,
+                create_session_summary=True,
+                add_datetime_to_messages=True
+            )
         
         # PgVector para embeddings e busca semântica (opcional)
         try:

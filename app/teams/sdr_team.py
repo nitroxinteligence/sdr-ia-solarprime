@@ -63,11 +63,20 @@ class SDRTeam:
         )
         
         # Memory compartilhada do Team
-        self.memory = Memory(
-            memory=self.storage,  # Parâmetro correto é 'memory'
-            create_user_memories=True,
-            create_session_summary=True
-        )
+        # Tenta criar Memory com storage, fallback para sem persistência
+        try:
+            self.memory = Memory(
+                db=self.storage,  # db é o parâmetro correto para storage
+                create_user_memories=True,
+                create_session_summary=True
+            )
+            logger.info("Memory configurado com persistência")
+        except Exception as e:
+            logger.warning(f"Memory sem persistência: {str(e)[:50]}...")
+            self.memory = Memory(
+                create_user_memories=True,
+                create_session_summary=True
+            )
         
         # Modelo principal - Gemini 2.5 Pro
         try:
