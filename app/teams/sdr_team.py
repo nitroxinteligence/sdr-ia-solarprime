@@ -64,7 +64,7 @@ class SDRTeam:
         
         # Memory compartilhada do Team
         self.memory = Memory(
-            db=self.storage,  # Usar 'db' ao invés de 'store'
+            memory=self.storage,  # Parâmetro correto é 'memory'
             create_user_memories=True,
             create_session_summary=True
         )

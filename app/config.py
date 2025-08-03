@@ -8,15 +8,24 @@ from pydantic import Field, validator
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Carrega variáveis de ambiente - força override de variáveis existentes
-env_path = Path(__file__).parent.parent / '.env'
-load_dotenv(env_path, override=True)
+# Carrega variáveis de ambiente - procura em múltiplos lugares
+# Tenta primeiro no diretório pai (local) e depois no container
+possible_paths = [
+    Path(__file__).parent.parent / '.env',  # Local: projeto/app/../.env
+    Path('/app/.env'),  # Container Docker
+    Path('.env'),  # Diretório atual
+]
 
-# Debug: mostra se .env foi encontrado
-if env_path.exists():
-    print(f"✅ Arquivo .env encontrado: {env_path}")
-else:
-    print(f"⚠️ Arquivo .env NÃO encontrado: {env_path}")
+env_loaded = False
+for env_path in possible_paths:
+    if env_path.exists():
+        load_dotenv(env_path, override=True)
+        print(f"✅ Arquivo .env encontrado: {env_path}")
+        env_loaded = True
+        break
+
+if not env_loaded:
+    print("⚠️ Arquivo .env NÃO encontrado em nenhum dos caminhos esperados")
 
 class Settings(BaseSettings):
     """Configurações do sistema"""
