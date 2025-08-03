@@ -61,7 +61,9 @@ async def lifespan(app: FastAPI):
         if settings.enable_message_splitter:
             message_splitter = MessageSplitter(
                 max_length=settings.message_max_length,
-                add_indicators=settings.message_add_indicators
+                add_indicators=settings.message_add_indicators,
+                enable_smart_splitting=settings.enable_smart_splitting,
+                smart_splitting_fallback=settings.smart_splitting_fallback
             )
             set_message_splitter(message_splitter)
             emoji_logger.system_ready("Message Splitter", max_length=settings.message_max_length)

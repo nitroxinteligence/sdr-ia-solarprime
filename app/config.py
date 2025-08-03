@@ -157,6 +157,10 @@ class Settings(BaseSettings):
     message_chunk_delay: float = Field(default=0.8, env="MESSAGE_CHUNK_DELAY")  # Delay menor entre chunks
     message_add_indicators: bool = Field(default=False, env="MESSAGE_ADD_INDICATORS")  # Sem indicadores [1/3]
     
+    # Smart Splitting (novo)
+    enable_smart_splitting: bool = Field(default=True, env="ENABLE_SMART_SPLITTING")  # Divisão inteligente por frases
+    smart_splitting_fallback: bool = Field(default=True, env="SMART_SPLITTING_FALLBACK")  # Fallback se NLTK falhar
+    
     # ============= FUNCIONALIDADES =============
     # Análise e Contexto
     enable_context_analysis: bool = Field(default=True, env="ENABLE_CONTEXT_ANALYSIS")
