@@ -237,8 +237,9 @@ async def process_new_message(data: Dict[str, Any]):
         await supabase_client.save_message({
             "conversation_id": conversation["id"],
             "content": message_content,
+            "role": "user",  # Campo obrigatório
             "sender": "user",
-            "metadata": {
+            "media_data": {  # Usar media_data em vez de metadata
                 "message_id": message_id,
                 "raw_data": message
             }
@@ -341,8 +342,9 @@ async def process_new_message(data: Dict[str, Any]):
             await supabase_client.save_message({
                 "conversation_id": conversation["id"],
                 "content": response,
+                "role": "assistant",  # Campo obrigatório
                 "sender": "assistant",
-                "metadata": {
+                "media_data": {  # Usar media_data em vez de metadata
                     "agent": "agentic_sdr",
                     "context_analyzed": True,
                     "messages_analyzed": 100
