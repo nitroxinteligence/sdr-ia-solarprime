@@ -53,17 +53,17 @@ class SDRTeam:
         self.is_initialized = False
         
         # Configuração do PostgreSQL/Supabase
-        postgres_config = {
-            "db_url": settings.get_postgres_url(),
-            "service_key": settings.supabase_service_key
-        }
-        
-        # Storage persistente
-        self.storage = PostgresStorage(**postgres_config)
+        # Storage persistente com table_name obrigatório
+        self.storage = PostgresStorage(
+            table_name="sdr_team_sessions",  # Nome da tabela para sessões do team
+            db_url=settings.get_postgres_url(),  # URL já inclui autenticação
+            schema="public",  # Schema do Supabase
+            auto_upgrade_schema=True  # Auto-atualiza schema se necessário
+        )
         
         # Memory compartilhada do Team
         self.memory = Memory(
-            store=self.storage,
+            db=self.storage,  # Usar 'db' ao invés de 'store'
             create_user_memories=True,
             create_session_summary=True
         )

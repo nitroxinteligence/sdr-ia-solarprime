@@ -51,7 +51,7 @@ class KnowledgeAgent:
         
         # Knowledge base do AGnO
         self.knowledge_base = AgentKnowledge(
-            store=storage,
+            vector_db=storage,  # Usar 'vector_db' ao invés de 'store'
             embedder=self.embeddings_manager.get_embedder()
         )
         
