@@ -122,10 +122,17 @@ class SupabaseClient:
     async def create_conversation(self, phone: str, lead_id: Optional[str] = None) -> Dict[str, Any]:
         """Cria uma nova conversa"""
         try:
+            # Gerar session_id único para a conversa
+            session_id = f"session_{uuid4().hex}"
+            
             conversation_data = {
                 'phone_number': phone,
                 'lead_id': lead_id,
+                'session_id': session_id,  # Campo obrigatório
                 'status': 'ACTIVE',
+                'channel': 'whatsapp',
+                'sentiment': 'neutro',
+                'is_active': True,
                 'total_messages': 0,
                 'created_at': datetime.now().isoformat(),
                 'updated_at': datetime.now().isoformat()
