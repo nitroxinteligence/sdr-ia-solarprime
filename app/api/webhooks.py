@@ -50,10 +50,12 @@ async def whatsapp_dynamic_webhook(
         
         # Processa eventos específicos baseado no tipo
         if event == "MESSAGES_UPSERT":
-            # Nova mensagem recebida
+            # Nova mensagem recebida - passar apenas o 'data' interno
+            # Evolution API v2: event está no nível superior, dados em 'data'
+            actual_data = data.get("data", data)  # Pega 'data' se existir, senão usa o próprio data
             background_tasks.add_task(
                 process_new_message,
-                data
+                actual_data
             )
             
         elif event == "CONNECTION_UPDATE":
@@ -113,10 +115,11 @@ async def evolution_webhook(
         
         # Processa eventos específicos
         if event == "MESSAGES_UPSERT":
-            # Nova mensagem recebida
+            # Nova mensagem recebida - Evolution API v2
+            actual_data = data.get("data", data)
             background_tasks.add_task(
                 process_new_message,
-                data.get("data", {})
+                actual_data
             )
             
         elif event == "CONNECTION_UPDATE":
@@ -146,18 +149,19 @@ async def process_new_message(data: Dict[str, Any]):
     Processa nova mensagem recebida
     
     Args:
-        data: Dados da mensagem
+        data: Dados da mensagem (Evolution API v2)
     """
     try:
         emoji_logger.webhook_process("Iniciando processamento de nova mensagem")
         
-        # Extrai informações da mensagem
-        messages = data.get("messages", [])
-        if not messages:
-            emoji_logger.system_warning("Nenhuma mensagem no payload")
+        # Evolution API v2: mensagem vem diretamente em 'data'
+        # Não é mais um array 'messages', é um objeto direto
+        if not data:
+            emoji_logger.system_warning("Payload vazio")
             return
         
-        message = messages[0]  # Pega primeira mensagem
+        # A mensagem ESTÁ diretamente no data (não em data.messages)
+        message = data
         emoji_logger.webhook_process(f"Mensagem extraída: {message.get('key', {}).get('id', 'unknown')}")
         
         # Informações básicas
@@ -188,6 +192,8 @@ async def process_new_message(data: Dict[str, Any]):
         
         if not message_content:
             emoji_logger.system_warning(f"Mensagem sem conteúdo de {phone}")
+            # Log do payload para debug
+            logger.debug(f"Payload completo: {message}")
             return
         
         emoji_logger.evolution_receive(phone, "text", preview=message_content[:100])
@@ -357,7 +363,7 @@ async def process_new_message(data: Dict[str, Any]):
 
 def extract_message_content(message: Dict[str, Any]) -> Optional[str]:
     """
-    Extrai conteúdo da mensagem baseado no tipo
+    Extrai conteúdo da mensagem baseado no tipo (Evolution API v2)
     
     Args:
         message: Dados da mensagem
@@ -366,6 +372,7 @@ def extract_message_content(message: Dict[str, Any]) -> Optional[str]:
         Conteúdo extraído ou None
     """
     try:
+        # Evolution API v2: message já está no nível correto
         msg = message.get("message", {})
         
         # Texto simples
