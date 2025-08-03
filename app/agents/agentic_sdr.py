@@ -647,8 +647,38 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     original_size = len(image_bytes)
                     emoji_logger.agentic_multimodal(f"Imagem decodificada: {original_size:,} bytes")
                     
-                    # Abrir imagem com PIL
-                    img = PILImage.open(BytesIO(image_bytes))
+                    # Validar magic bytes para confirmar que é uma imagem
+                    magic_bytes = image_bytes[:12] if len(image_bytes) >= 12 else image_bytes
+                    
+                    # Verificar formatos comuns de imagem
+                    is_jpeg = magic_bytes[:3] == b'\xff\xd8\xff'
+                    is_png = magic_bytes[:8] == b'\x89PNG\r\n\x1a\n'
+                    is_gif = magic_bytes[:6] in [b'GIF87a', b'GIF89a']
+                    is_webp = magic_bytes[:4] == b'RIFF' and magic_bytes[8:12] == b'WEBP'
+                    is_bmp = magic_bytes[:2] == b'BM'
+                    
+                    # Validar se é um formato de imagem suportado
+                    if not (is_jpeg or is_png or is_gif or is_webp or is_bmp):
+                        emoji_logger.system_warning(f"Formato de imagem não reconhecido. Magic bytes: {magic_bytes[:20].hex()}")
+                        return {
+                            "type": "image",
+                            "error": "Formato de imagem não suportado",
+                            "status": "error",
+                            "fallback": "Por favor, envie a imagem em formato JPEG, PNG, GIF, WEBP ou BMP."
+                        }
+                    
+                    # Abrir imagem com PIL (com tratamento de erro)
+                    try:
+                        img = PILImage.open(BytesIO(image_bytes))
+                    except Exception as pil_error:
+                        emoji_logger.system_error("PIL", f"Não foi possível abrir imagem: {str(pil_error)}")
+                        # Fallback: tentar analisar como documento
+                        return {
+                            "type": "image",
+                            "error": f"Não foi possível processar a imagem: {str(pil_error)}",
+                            "status": "error",
+                            "fallback": "Por favor, envie a imagem em outro formato ou descreva o que você precisa."
+                        }
                     emoji_logger.agentic_thinking(f"Dimensões originais: {img.width}x{img.height}")
                     
                     # Otimizar imagem para Gemini
@@ -1362,9 +1392,12 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     "recommended_action": "Continuar conversa naturalmente"
                 }
             
-            # 2. Detectar gatilhos emocionais (com fallback)
+            # 2. Detectar gatilhos emocionais e obter histórico (com fallback)
+            messages_history = []
             try:
-                messages_history = await self.get_last_100_messages(phone)
+                # Buscar histórico de mensagens (será usado para contexto e análise emocional)
+                messages_history = await self.get_last_100_messages(conversation_id) if conversation_id else []
+                emoji_logger.system_info(f"Histórico carregado: {len(messages_history)} mensagens")
                 emotional_triggers = await self.detect_emotional_triggers(messages_history)
             except Exception as emo_error:
                 emoji_logger.system_warning(f"Análise emocional falhou: {str(emo_error)[:50]}")
@@ -1434,9 +1467,49 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 emoji_logger.agentic_thinking("Processando mensagem diretamente")
                 
                 try:
-                    # Preparar prompt com contexto completo
+                    # Formatar histórico de mensagens para o contexto
+                    formatted_history = ""
+                    if messages_history:
+                        # Limitar a 50 mensagens mais recentes para não sobrecarregar
+                        recent_messages = messages_history[-50:] if len(messages_history) > 50 else messages_history
+                        
+                        if recent_messages:
+                            formatted_history = "\n\nHISTÓRICO DA CONVERSA (últimas mensagens):\n"
+                            for msg in recent_messages:
+                                role = "Cliente" if msg.get('sender') == 'user' else "Assistente"
+                                content = msg.get('content', '').strip()
+                                # Truncar mensagens muito longas
+                                if len(content) > 150:
+                                    content = content[:147] + "..."
+                                formatted_history += f"{role}: {content}\n"
+                    
+                    # Formatar conteúdo multimodal se houver
+                    multimodal_context = ""
+                    if multimodal_result:
+                        if isinstance(multimodal_result, dict):
+                            if multimodal_result.get('type') == 'document' and multimodal_result.get('content'):
+                                multimodal_context = f"\n\nDOCUMENTO ANEXADO ({multimodal_result.get('filename', 'documento.pdf')}):\n"
+                                multimodal_context += multimodal_result['content'][:1500]  # Limitar conteúdo do PDF
+                                if len(multimodal_result['content']) > 1500:
+                                    multimodal_context += "\n[... documento truncado ...]"
+                            elif multimodal_result.get('type') == 'image' and multimodal_result.get('content'):
+                                multimodal_context = f"\n\nIMAGEM ANEXADA - Análise:\n{multimodal_result['content']}"
+                            elif multimodal_result.get('error'):
+                                multimodal_context = f"\n\nERRO AO PROCESSAR ANEXO: {multimodal_result.get('error')}"
+                        else:
+                            multimodal_context = f"\n\nCONTEÚDO ANEXADO: {str(multimodal_result)[:500]}"
+                    
+                    # Preparar prompt com contexto completo incluindo histórico
                     contextual_prompt = f"""
-                    Mensagem do lead: {message}
+                    CONTEXTO DO LEAD:
+                    - Nome: {lead_data.get('name', 'Não informado') if lead_data else 'Não informado'}
+                    - Telefone: {phone}
+                    - Estágio: {lead_data.get('current_stage', 'INITIAL_CONTACT') if lead_data else 'INITIAL_CONTACT'}
+                    - Status: {lead_data.get('qualification_status', 'PENDING') if lead_data else 'PENDING'}
+                    {formatted_history}
+                    
+                    MENSAGEM ATUAL DO CLIENTE: {message}
+                    {multimodal_context}
                     
                     Análise Contextual:
                     - Contexto Principal: {context_analysis.get('primary_context')}
@@ -1448,9 +1521,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     - Emoção Dominante: {emotional_triggers.get('dominant_emotion')}
                     - Urgência: {context_analysis.get('urgency_level')}
                     
-                    {"Mídia anexada: " + str(multimodal_result) if multimodal_result else ""}
-                    
-                    Responda de forma natural, empática e personalizada.
+                    Responda de forma natural, empática e personalizada, levando em conta todo o contexto e histórico da conversa.
                     """
                     
                     # Usar reasoning para casos complexos
