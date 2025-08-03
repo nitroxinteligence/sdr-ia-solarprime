@@ -44,6 +44,7 @@ pypdf==3.17.4  # PDF reading
 docx2txt==0.8  # DOCX reading
 pdfplumber==0.10.3  # Advanced PDF extraction
 markdown==3.5.1  # Markdown processing
+nltk==3.8.1  # Natural Language Processing for smart text splitting
 
 # Image Processing & OCR
 pytesseract==0.3.13
@@ -85,7 +86,8 @@ urllib3==2.2.3
 
 # Data Processing
 pandas==2.2.3
-numpy==2.1.3
+numpy==1.26.4  # Versão compatível com scipy e NLTK
+scipy==1.11.4  # Para funcionalidades estatísticas do NLTK
 
 # Logging
 loguru==0.7.2

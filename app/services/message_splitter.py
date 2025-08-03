@@ -12,18 +12,35 @@ except ImportError:
 try:
     from nltk.tokenize import sent_tokenize
     import nltk
+    import os
+    
+    # Configurar diretório de dados do NLTK
+    nltk_data_dir = os.path.expanduser('~/nltk_data')
+    if not os.path.exists(nltk_data_dir):
+        os.makedirs(nltk_data_dir, exist_ok=True)
+    
+    # Adicionar diretório aos caminhos do NLTK
+    if nltk_data_dir not in nltk.data.path:
+        nltk.data.path.append(nltk_data_dir)
+    
     # Verificar se os dados necessários estão disponíveis
     try:
         nltk.data.find('tokenizers/punkt')
     except LookupError:
         # Tentar baixar os dados necessários
         try:
-            nltk.download('punkt', quiet=True)
-        except:
-            pass
+            # Baixar apenas o tokenizer punkt (específico para sentenças)
+            nltk.download('punkt', quiet=True, download_dir=nltk_data_dir)
+            # Verificar novamente
+            nltk.data.find('tokenizers/punkt')
+        except Exception as e:
+            print(f"Erro ao baixar dados do NLTK: {e}")
+            raise ImportError(f"Não foi possível configurar NLTK: {e}")
+    
     HAS_NLTK = True
-except ImportError:
+except ImportError as e:
     HAS_NLTK = False
+    print(f"NLTK não disponível: {e}")
     
 from typing import List, Optional
 from app.utils.logger import emoji_logger

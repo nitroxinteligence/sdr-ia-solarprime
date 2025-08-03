@@ -153,7 +153,7 @@ class Settings(BaseSettings):
     
     # Splitter de mensagens
     enable_message_splitter: bool = Field(default=True, env="ENABLE_MESSAGE_SPLITTER")
-    message_max_length: int = Field(default=150, env="MESSAGE_MAX_LENGTH")  # 150 caracteres para WhatsApp
+    message_max_length: int = Field(default=250, env="MESSAGE_MAX_LENGTH")  # 250 caracteres para WhatsApp (melhor para frases em português)
     message_chunk_delay: float = Field(default=0.8, env="MESSAGE_CHUNK_DELAY")  # Delay menor entre chunks
     message_add_indicators: bool = Field(default=False, env="MESSAGE_ADD_INDICATORS")  # Sem indicadores [1/3]
     
