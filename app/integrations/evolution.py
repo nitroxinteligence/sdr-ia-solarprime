@@ -326,21 +326,21 @@ class EvolutionAPIClient:
             emoji_logger.evolution_error(f"Erro ao enviar mensagem: {e}")
             raise
     
-    async def send_typing(self, phone: str, message_length: int = 0, custom_duration: Optional[float] = None):
+    async def send_typing(self, phone: str, message_length: int = 0, duration_seconds: Optional[float] = None):
         """
         Simula digitação com timing dinâmico baseado no tamanho da mensagem
         
         Args:
             phone: Número do WhatsApp
             message_length: Tamanho da mensagem para calcular duração
-            custom_duration: Duração customizada (sobrescreve cálculo)
+            duration_seconds: Duração customizada em segundos (sobrescreve cálculo)
         """
         try:
             phone = self._format_phone(phone)
             
             # Calcular duração baseada no tamanho da mensagem
-            if custom_duration:
-                duration = custom_duration
+            if duration_seconds:
+                duration = duration_seconds
             else:
                 # Determinar duração base
                 if message_length < 50:

@@ -373,6 +373,19 @@ async def process_message_with_agent(
         # Processa mensagem com análise contextual inteligente
         emoji_logger.webhook_process(f"Chamando AGENTIC SDR para processar: {message_content[:50]}...")
         
+        # IMPORTANTE: Enviar typing ANTES de processar (mostra que está "pensando")
+        try:
+            # Estima tempo de processamento baseado no tamanho da mensagem
+            estimated_processing_time = max(3.0, min(len(message_content) * 0.05, 10.0))
+            emoji_logger.webhook_process(f"Enviando typing por ~{estimated_processing_time:.1f}s enquanto processa...")
+            
+            # Envia typing sem bloquear o processamento
+            asyncio.create_task(evolution_client.send_typing(phone, duration_seconds=estimated_processing_time))
+            
+        except Exception as typing_error:
+            emoji_logger.system_warning(f"Erro ao enviar typing inicial: {typing_error}")
+            # Continua mesmo se falhar o typing
+        
         try:
             response = await agentic.process_message(
                 phone=phone,
@@ -418,7 +431,7 @@ async def process_message_with_agent(
                             phone,
                             chunk,
                             delay=None,  # Deixar o método calcular automaticamente
-                            simulate_typing=True if i == 0 else False  # Só simula digitação no primeiro
+                            simulate_typing=False  # Já enviamos typing antes, não precisa mais
                         )
                         emoji_logger.evolution_send(phone, "text", preview=chunk[:50])
                         emoji_logger.system_info(f"Chunk {i+1}/{len(chunks)} enviado. ID: {result.get('key', {}).get('id', 'N/A')}")
@@ -433,7 +446,7 @@ async def process_message_with_agent(
                         phone,
                         response,
                         delay=None,  # Deixar o método calcular automaticamente
-                        simulate_typing=True
+                        simulate_typing=False  # Já enviamos typing antes, não precisa mais
                     )
                     emoji_logger.evolution_send(phone, "text", preview=response[:50])
                     emoji_logger.system_info(f"Mensagem enviada com sucesso. ID: {result.get('key', {}).get('id', 'N/A')}")
