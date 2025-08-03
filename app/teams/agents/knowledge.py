@@ -136,10 +136,9 @@ class KnowledgeAgent:
     async def load_knowledge_base(self):
         """Carrega base de conhecimento do Supabase"""
         try:
-            # Buscar documentos do banco
+            # Buscar documentos do banco (removido filtro is_active que não existe)
             documents = await supabase_client.client.table("knowledge_base")\
                 .select("*")\
-                .eq("is_active", True)\
                 .execute()
             
             if documents.data:
@@ -287,7 +286,6 @@ class KnowledgeAgent:
                 "source": source or "manual_upload",
                 "tags": tags or [],
                 "content_hash": content_hash,
-                "is_active": True,
                 "created_at": datetime.now().isoformat()
             }
             
@@ -705,7 +703,7 @@ class KnowledgeAgent:
             elif action == "remove":
                 # Desativar documentos da categoria
                 result = await supabase_client.client.table("knowledge_base")\
-                    .update({"is_active": False})\
+                    .delete()\
                     .eq("category", category_name)\
                     .execute()
                 

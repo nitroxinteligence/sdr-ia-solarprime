@@ -41,6 +41,22 @@ class RedisClient:
             await self.redis_client.close()
             logger.info("Desconectado do Redis")
     
+    async def ping(self) -> bool:
+        """
+        Verifica se o Redis está acessível
+        
+        Returns:
+            True se Redis está disponível, False caso contrário
+        """
+        if not self.redis_client:
+            return False
+        
+        try:
+            await self.redis_client.ping()
+            return True
+        except Exception:
+            return False
+    
     # ==================== CACHE ====================
     
     async def get(self, key: str) -> Optional[Any]:
