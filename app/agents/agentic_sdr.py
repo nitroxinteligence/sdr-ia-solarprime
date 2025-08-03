@@ -630,40 +630,79 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 """
                 
                 try:
-                    # Em AGNO v1.7.6, usar run() com images
-                    # Criar objeto Image com base64
-                    from agno.media import Image
+                    # Solução definitiva: usar PIL Image diretamente com Gemini nativo
                     import base64
+                    from io import BytesIO
+                    from PIL import Image as PILImage
+                    import google.generativeai as genai
                     
-                    emoji_logger.agentic_thinking("Enviando imagem para análise Vision API...")
+                    emoji_logger.agentic_thinking("Processando imagem para Vision API...")
                     
-                    # Validar e decodificar base64 para bytes
+                    # Validar dados
                     if not media_data:
                         raise ValueError("Dados da imagem vazios")
                     
-                    try:
-                        # Decodificar base64 para bytes antes de criar o objeto Image
-                        image_bytes = base64.b64decode(media_data)
-                        emoji_logger.agentic_multimodal(f"Imagem decodificada: {len(image_bytes)} bytes")
-                    except Exception as decode_error:
-                        raise ValueError(f"Erro ao decodificar base64: {decode_error}")
+                    # Decodificar base64
+                    image_bytes = base64.b64decode(media_data)
+                    original_size = len(image_bytes)
+                    emoji_logger.agentic_multimodal(f"Imagem decodificada: {original_size:,} bytes")
                     
-                    image_obj = Image(content=image_bytes)
+                    # Abrir imagem com PIL
+                    img = PILImage.open(BytesIO(image_bytes))
+                    emoji_logger.agentic_thinking(f"Dimensões originais: {img.width}x{img.height}")
                     
-                    if hasattr(self.agent, 'arun'):
-                        result = await self.agent.arun(
-                            analysis_prompt,
-                            images=[image_obj]
-                        )
+                    # Otimizar imagem para Gemini
+                    max_dimension = 768  # Tamanho seguro para Gemini
+                    
+                    if img.width > max_dimension or img.height > max_dimension:
+                        ratio = min(max_dimension / img.width, max_dimension / img.height)
+                        new_size = (int(img.width * ratio), int(img.height * ratio))
+                        img = img.resize(new_size, PILImage.Resampling.LANCZOS)
+                        emoji_logger.agentic_multimodal(f"Imagem redimensionada: {img.width}x{img.height}")
+                    
+                    # Converter para RGB se necessário
+                    if img.mode != 'RGB':
+                        if img.mode == 'RGBA':
+                            # Criar fundo branco para transparência
+                            rgb_img = PILImage.new('RGB', img.size, (255, 255, 255))
+                            rgb_img.paste(img, mask=img.split()[-1])
+                            img = rgb_img
+                        else:
+                            img = img.convert('RGB')
+                    
+                    # Otimizar como JPEG
+                    output = BytesIO()
+                    img.save(output, format='JPEG', quality=80, optimize=True)
+                    optimized_bytes = output.getvalue()
+                    
+                    # Reabrir imagem otimizada
+                    img = PILImage.open(BytesIO(optimized_bytes))
+                    emoji_logger.agentic_multimodal(f"Imagem otimizada: {len(optimized_bytes):,} bytes ({len(optimized_bytes)/original_size*100:.1f}%)")
+                    
+                    # Usar Gemini nativo diretamente
+                    emoji_logger.agentic_thinking("Enviando para Gemini Vision...")
+                    
+                    # Configurar Gemini
+                    from app.config import settings
+                    genai.configure(api_key=settings.google_api_key)
+                    model = genai.GenerativeModel('gemini-2.5-pro')
+                    
+                    # Enviar imagem com prompt
+                    response = model.generate_content([
+                        analysis_prompt,
+                        img
+                    ])
+                    
+                    # Extrair resposta
+                    if hasattr(response, 'text'):
+                        result = response
                     else:
-                        # Fallback para run() se arun() não estiver disponível
-                        result = await self.agent.run(
-                            analysis_prompt,
-                            images=[image_obj]
-                        )
+                        result = response
                     
                     # Extrair conteúdo do resultado
-                    if hasattr(result, 'content'):
+                    if hasattr(result, 'text'):
+                        analysis_content = result.text
+                    elif hasattr(result, 'content'):
                         analysis_content = result.content
                     elif isinstance(result, dict) and 'content' in result:
                         analysis_content = result['content']
