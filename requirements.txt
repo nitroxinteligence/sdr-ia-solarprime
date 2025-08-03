@@ -1,0 +1,88 @@
+# Core Framework
+agno==1.7.6
+agno-phoenix==1.0.0  # AGNO Phoenix for advanced features
+fastapi==0.115.5
+uvicorn[standard]==0.32.0
+pydantic==2.10.1
+pydantic-settings==2.6.0
+
+# AI/LLM
+google-generativeai==0.8.3
+openai==1.54.3
+anthropic==0.39.0
+cohere==5.0.0  # For reranking in Knowledge Search
+tiktoken==0.5.2  # For token counting
+
+# Database
+supabase==2.10.0
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+pgvector==0.3.6
+
+# Cache & Queue
+redis[hiredis]==5.0.1
+celery==5.4.0
+
+# WhatsApp Integration
+httpx==0.27.2
+websockets==13.1
+aiofiles==24.1.0
+
+# Google Services
+google-auth==2.36.0
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+google-api-python-client==2.150.0
+
+# Document Processing
+pypdf==3.17.4  # PDF reading for AGNO
+docx2txt==0.8.1  # DOCX reading for AGNO
+pdfplumber==0.10.3  # Advanced PDF extraction
+markdown==3.5.1  # Markdown processing
+
+# Image Processing & OCR
+pillow==11.0.0
+pytesseract==0.3.13
+opencv-python==4.10.0.84
+pdf2image==1.17.0
+
+# Audio Processing
+pydub==0.25.1
+speech-recognition==3.11.0
+moviepy==1.0.3  # Video processing
+
+# Utilities
+python-dotenv==1.0.1
+python-multipart==0.0.12
+python-dateutil==2.9.0
+pytz==2024.2
+croniter==3.0.3
+tenacity==9.0.0
+
+# Monitoring & Logging
+loguru==0.7.2
+sentry-sdk[fastapi]==2.18.0
+prometheus-client==0.21.0
+
+# Development & Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+black==24.10.0
+flake8==7.1.1
+mypy==1.13.0
+
+# Security
+cryptography==43.0.3
+bcrypt==4.2.0
+python-jose[cryptography]==3.3.0
+passlib==1.7.4
+
+# HTTP & API
+aiohttp==3.10.10
+requests==2.32.3
+urllib3==2.2.3
+
+# Data Processing
+pandas==2.2.3
+numpy==2.1.3

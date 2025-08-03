@@ -1,0 +1,110 @@
+# =============================================================================
+# SDR IA SolarPrime v0.2 - AGENTIC SDR - EasyPanel Configuration
+# =============================================================================
+# Configuração específica para Easypanel - AGENTIC SDR Production
+# Este arquivo é usado pelo Easypanel para configurar o serviço
+# =============================================================================
+
+# Nome do serviço (será usado internamente)
+name: sdr-agentic
+
+# Configuração de build
+build:
+  # Usar Dockerfile do projeto
+  type: dockerfile
+  context: .
+  dockerfile: Dockerfile
+
+# Configuração de runtime
+runtime:
+  # Porta que a aplicação escuta internamente
+  port: 8000
+  
+  # Health check endpoint
+  healthcheck:
+    path: /health
+    interval: 30s
+    timeout: 10s
+    retries: 3
+
+# Recursos otimizados para AGENTIC SDR
+# AGENTIC SDR precisa de mais recursos para processamento de contexto e reasoning
+resources:
+  # Limites de recursos para AGENTIC SDR
+  limits:
+    cpu: 2000m      # 2 CPU (AGENTIC SDR + Reasoning)
+    memory: 4096Mi  # 4GB RAM (Context Analysis + Embeddings)
+  
+  # Recursos mínimos reservados
+  requests:
+    cpu: 1000m      # 1 CPU
+    memory: 2048Mi  # 2GB RAM
+
+# Volumes persistentes para AGENTIC SDR
+volumes:
+  - name: data
+    path: /app/data
+    size: 10Gi  # Maior para embeddings e contexto
+  
+  - name: logs
+    path: /app/logs
+    size: 2Gi   # Logs detalhados do AGENTIC SDR
+    
+  - name: media
+    path: /app/media
+    size: 5Gi   # Arquivos multimodal (imagens, áudio)
+    
+  - name: temp
+    path: /app/temp
+    size: 3Gi   # Processamento temporário
+
+# Variáveis de ambiente para AGENTIC SDR
+# Estas devem ser configuradas no painel do Easypanel
+# Veja .env para a lista completa
+env:
+  # Conexões internas no Easypanel
+  - name: REDIS_URL
+    value: redis://redis:6379/0
+  
+  - name: EVOLUTION_API_URL
+    value: http://evolution-api:8080
+  
+  # AGENTIC SDR específicas
+  - name: AGENTIC_SDR_MODE
+    value: "production"
+    
+  - name: CONTEXT_ANALYSIS_ENABLED
+    value: "true"
+    
+  - name: REASONING_ENABLED
+    value: "true"
+    
+  - name: MULTIMODAL_ENABLED
+    value: "true"
+  
+  # Python otimizado para AGENTIC SDR
+  - name: PYTHONUNBUFFERED
+    value: "1"
+    
+  - name: PYTHONPATH
+    value: "/app:$PYTHONPATH"
+  
+  - name: ENVIRONMENT
+    value: production
+    
+  # Uvicorn Workers (1 para AGENTIC SDR state management)
+  - name: UVICORN_WORKERS
+    value: "1"
+
+# Rede
+network:
+  # Usar rede padrão do Easypanel para comunicação entre serviços
+  name: easypanel
+
+# Auto-deploy do GitHub
+deploy:
+  # Branch para auto-deploy
+  branch: main
+  
+  # Ativar auto-deploy
+  auto: true
