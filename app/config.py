@@ -8,8 +8,15 @@ from pydantic import Field, validator
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Carrega variáveis de ambiente
-load_dotenv()
+# Carrega variáveis de ambiente - força override de variáveis existentes
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(env_path, override=True)
+
+# Debug: mostra se .env foi encontrado
+if env_path.exists():
+    print(f"✅ Arquivo .env encontrado: {env_path}")
+else:
+    print(f"⚠️ Arquivo .env NÃO encontrado: {env_path}")
 
 class Settings(BaseSettings):
     """Configurações do sistema"""
@@ -210,12 +217,19 @@ class Settings(BaseSettings):
     
     def get_postgres_url(self) -> str:
         """Retorna a URL de conexão PostgreSQL do Supabase"""
-        # Se tiver uma URL PostgreSQL direta configurada, usar ela
-        if self.supabase_db_url:
-            return self.supabase_db_url
+        import os
+        
+        # Tenta pegar direto do ambiente primeiro
+        db_url = os.getenv('SUPABASE_DB_URL') or self.supabase_db_url
+        
+        if db_url and db_url != "":
+            # Oculta senha para log
+            safe_url = db_url.split('@')[1] if '@' in db_url else db_url
+            print(f"✅ PostgreSQL URL configurada: ...@{safe_url}")
+            return db_url
         
         # Fallback para localhost se não estiver configurada
-        # IMPORTANTE: Sempre configure SUPABASE_DB_URL no .env
+        print("⚠️ SUPABASE_DB_URL não encontrada, usando localhost (desenvolvimento)")
         return "postgresql://postgres:postgres@localhost:5432/postgres"
     
     def is_business_hours(self) -> bool:

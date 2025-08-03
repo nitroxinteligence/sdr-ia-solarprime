@@ -21,6 +21,7 @@ from agno.vectordb.pgvector import PgVector
 from agno.tools import tool
 from loguru import logger
 from app.utils.logger import emoji_logger
+from app.utils.optional_storage import OptionalStorage
 
 from app.config import settings
 from app.integrations.supabase_client import supabase_client
@@ -85,9 +86,9 @@ class AgenticSDR:
         self.conversations_today = 0
         self.last_break_time = datetime.now()
         
-        # Configuração do PostgreSQL/Supabase para storage
-        # Storage persistente com table_name obrigatório
-        self.storage = PostgresStorage(
+        # Configuração do PostgreSQL/Supabase para storage com fallback
+        # Storage persistente com fallback para memória se PostgreSQL não disponível
+        self.storage = OptionalStorage(
             table_name="agentic_sdr_sessions",  # Nome da tabela para sessões do agente
             db_url=settings.get_postgres_url(),  # URL já inclui autenticação
             schema="public",  # Schema do Supabase
@@ -102,21 +103,27 @@ class AgenticSDR:
             add_datetime_to_messages=True
         )
         
-        # PgVector para embeddings e busca semântica
-        self.vector_db = PgVector(
-            db_url=settings.get_postgres_url(),
-            collection="agentic_knowledge",
-            embedder={"provider": "openai", "model": "text-embedding-3-small"}
-        )
-        
-        # Knowledge base com RAG
-        self.knowledge = AgentKnowledge(
-            vector_db=self.vector_db,
-            search_type="hybrid",  # Busca híbrida (semântica + keyword)
-            num_documents=10,
-            rerank=True,
-            reranker={"provider": "cohere", "model": "rerank-v3.5"}
-        )
+        # PgVector para embeddings e busca semântica (opcional)
+        try:
+            self.vector_db = PgVector(
+                db_url=settings.get_postgres_url(),
+                collection="agentic_knowledge",
+                embedder={"provider": "openai", "model": "text-embedding-3-small"}
+            )
+            
+            # Knowledge base com RAG
+            self.knowledge = AgentKnowledge(
+                vector_db=self.vector_db,
+                search_type="hybrid",  # Busca híbrida (semântica + keyword)
+                num_documents=10,
+                rerank=True,
+                reranker={"provider": "cohere", "model": "rerank-v3.5"}
+            )
+            emoji_logger.system_ready("Knowledge base", status="ativo")
+        except Exception as e:
+            emoji_logger.system_warning(f"Knowledge base não disponível: {str(e)[:50]}...")
+            self.vector_db = None
+            self.knowledge = None
         
         # Configurar modelo principal com fallback
         self._setup_models()

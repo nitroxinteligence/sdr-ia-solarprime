@@ -16,6 +16,7 @@ from agno.memory import Memory
 from agno.storage.postgres import PostgresStorage
 from loguru import logger
 from app.utils.logger import emoji_logger
+from app.utils.optional_storage import OptionalStorage
 
 from app.config import settings
 from app.integrations.supabase_client import supabase_client
@@ -52,9 +53,9 @@ class SDRTeam:
         """Inicializa o Team SDR com todos os componentes"""
         self.is_initialized = False
         
-        # Configuração do PostgreSQL/Supabase
-        # Storage persistente com table_name obrigatório
-        self.storage = PostgresStorage(
+        # Configuração do PostgreSQL/Supabase com fallback
+        # Storage persistente com fallback para memória se PostgreSQL não disponível
+        self.storage = OptionalStorage(
             table_name="sdr_team_sessions",  # Nome da tabela para sessões do team
             db_url=settings.get_postgres_url(),  # URL já inclui autenticação
             schema="public",  # Schema do Supabase
