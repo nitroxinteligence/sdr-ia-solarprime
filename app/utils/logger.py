@@ -172,6 +172,10 @@ class EmojiLogger:
             kwargs["media_type"] = media_type
         cls.log_with_emoji("DEBUG", "agentic_multimodal", f"Multimodal: {message}", **kwargs)
     
+    @classmethod
+    def agentic_response(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "agentic_response", f"Resposta: {message}", **kwargs)
+    
     # Métodos para SDR TEAMS
     @classmethod
     def team_start(cls, team_name: str, message: str, **kwargs):

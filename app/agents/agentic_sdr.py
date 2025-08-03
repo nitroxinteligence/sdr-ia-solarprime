@@ -301,7 +301,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             }
         )
     
-    @tool
     async def analyze_conversation_context(
         self,
         phone: str,
@@ -398,7 +397,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                                        table="conversations")
             return []
     
-    @tool
     async def detect_emotional_triggers(
         self,
         messages: List[Dict[str, Any]]
@@ -463,7 +461,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         
         return triggers
     
-    @tool
     async def should_call_sdr_team(
         self,
         context_analysis: Dict[str, Any],
@@ -570,8 +567,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 }
             if media_type == "image":
                 # Usar GPT-4 Vision ou Gemini Vision
-                # Em AGNO v1.7.6, usar response() ao invés de run()
-                result = await self.agent.response(
+                # Em AGNO v1.7.6, usar run()
+                result = await self.agent.run(
                     f"Analise esta imagem: {caption or 'Sem legenda'}",
                     images=[media_data]
                 )
@@ -1123,11 +1120,11 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     """
                     
                     # Usar reasoning para casos complexos
-                    # Em AGNO v1.7.6, usar response() ao invés de run()
+                    # Em AGNO v1.7.6, usar run()
                     if self.reasoning_enabled and context_analysis.get("complexity_score", 0) > 0.5:
-                        result = await self.reasoning_model.response(contextual_prompt)
+                        result = await self.reasoning_model.run(contextual_prompt)
                     else:
-                        result = await self.agent.response(contextual_prompt)
+                        result = await self.agent.run(contextual_prompt)
                     
                     response = result.content if hasattr(result, 'content') else str(result)
                     
@@ -1157,19 +1154,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             except:
                 pass  # Ignorar erros não críticos
             
-            # 8. Salvar na memória (com fallback)
-            try:
-                await self.memory.add(
-                    message=message,
-                    user_id=phone,
-                    metadata={
-                        "context_analysis": context_analysis,
-                        "emotional_state": self.emotional_state.value,
-                        "sdr_team_used": should_call
-                    }
-                )
-            except Exception as mem_error:
-                emoji_logger.system_warning(f"Erro ao salvar na memória: {str(mem_error)[:50]}")
+            # 8. Memória é gerenciada automaticamente pelo Agent no AGNO v1.7.6
+            # O Agent salva automaticamente as interações quando configurado com memory
+            # Não precisa chamar explicitamente memory.add()
             
             # 9. Aplicar simulação de digitação natural
             # Garantir que response tem um valor antes de aplicar simulação
@@ -1212,8 +1199,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         empatia e naturalidade. Mantenha breve e direto.
         """
         
-        # Em AGNO v1.7.6, usar response() ao invés de run()
-        result = await self.agent.response(personalization_prompt)
+        # Em AGNO v1.7.6, usar run()
+        result = await self.agent.run(personalization_prompt)
         return result.content if hasattr(result, 'content') else str(result)
     
     def _update_emotional_state(
