@@ -35,7 +35,7 @@ google-api-python-client==2.150.0
 
 # Document Processing
 pypdf==3.17.4  # PDF reading
-docx2txt==0.8.1  # DOCX reading
+docx2txt==0.8  # DOCX reading
 pdfplumber==0.10.3  # Advanced PDF extraction
 markdown==3.5.1  # Markdown processing
 
