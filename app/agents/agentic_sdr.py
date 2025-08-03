@@ -633,11 +633,22 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     # Em AGNO v1.7.6, usar run() com images
                     # Criar objeto Image com base64
                     from agno.media import Image
+                    import base64
                     
                     emoji_logger.agentic_thinking("Enviando imagem para análise Vision API...")
                     
-                    # Criar imagem com content base64
-                    image_obj = Image(content=media_data)
+                    # Validar e decodificar base64 para bytes
+                    if not media_data:
+                        raise ValueError("Dados da imagem vazios")
+                    
+                    try:
+                        # Decodificar base64 para bytes antes de criar o objeto Image
+                        image_bytes = base64.b64decode(media_data)
+                        emoji_logger.agentic_multimodal(f"Imagem decodificada: {len(image_bytes)} bytes")
+                    except Exception as decode_error:
+                        raise ValueError(f"Erro ao decodificar base64: {decode_error}")
+                    
+                    image_obj = Image(content=image_bytes)
                     
                     if hasattr(self.agent, 'arun'):
                         result = await self.agent.arun(
