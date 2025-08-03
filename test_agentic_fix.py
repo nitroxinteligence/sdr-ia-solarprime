@@ -61,8 +61,7 @@ async def test_agentic_sdr():
             response = await agent.process_message(
                 phone="5511999999999",
                 message="Olá, gostaria de saber sobre economia de energia solar",
-                lead_name="Cliente Teste",
-                lead_data={}
+                lead_data={"name": "Cliente Teste", "source": "test"}
             )
             
             if response:

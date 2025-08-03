@@ -357,7 +357,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 "error": str(e)
             }
     
-    @tool
     async def get_last_100_messages(self, phone: str) -> List[Dict[str, Any]]:
         """
         Busca as últimas 100 mensagens do Supabase
@@ -461,7 +460,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         
         return triggers
     
-    @tool
     async def should_call_sdr_team(
         self,
         context_analysis: Dict[str, Any],
@@ -541,7 +539,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                                      score=decision_factors['complexity_score'])
         return False, None, "AGENTIC SDR pode resolver esta conversa"
     
-    @tool
     async def process_multimodal_content(
         self,
         media_type: str,
@@ -618,7 +615,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                                            media_type=media_data.get('type') if media_data else 'unknown')
             return {"type": media_type, "error": str(e)}
     
-    @tool
     async def search_knowledge_base(
         self,
         query: str,
