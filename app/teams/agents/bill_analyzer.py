@@ -9,7 +9,7 @@ from enum import Enum
 import base64
 import re
 
-from agno import Agent
+from agno.agent import Agent
 from agno.tools import tool
 from loguru import logger
 

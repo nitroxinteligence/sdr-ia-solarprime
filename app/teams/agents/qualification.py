@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from enum import Enum
 
-from agno import Agent
+from agno.agent import Agent
 from agno.tools import tool
 from loguru import logger
 

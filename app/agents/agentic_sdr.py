@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 import base64
 
-from agno import Agent
+from agno.agent import Agent
 from agno.models.google import Gemini
 from agno.models.openai import OpenAI
 from agno.memory import Memory

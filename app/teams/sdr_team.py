@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from enum import Enum
 
-from agno import Team, Agent
+from agno.agent import Team, Agent
 from agno.models.google import Gemini
 from agno.models.openai import OpenAI
 from agno.memory import Memory

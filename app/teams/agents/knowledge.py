@@ -8,7 +8,7 @@ from datetime import datetime
 from enum import Enum
 import hashlib
 
-from agno import Agent
+from agno.agent import Agent
 from agno.tools import tool
 from agno.knowledge import KnowledgeBase
 from loguru import logger
