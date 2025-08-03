@@ -323,16 +323,19 @@ async def process_new_message(data: Dict[str, Any]):
             
             # Enviar resposta com timing humanizado
             try:
-                await evolution_client.send_text_message(
+                result = await evolution_client.send_text_message(
                     phone,
                     response,
                     delay=None,  # Deixar o método calcular automaticamente
                     simulate_typing=True
                 )
                 emoji_logger.evolution_send(phone, "text", preview=response[:50])
+                emoji_logger.system_info(f"Mensagem enviada com sucesso. ID: {result.get('key', {}).get('id', 'N/A')}")
                 
             except Exception as send_error:
                 emoji_logger.system_error("Evolution API", f"Erro ao enviar mensagem: {send_error}")
+                # Re-lançar para não silenciar o erro
+                raise
             
             # Delay após mídia se houver
             if media_data and settings.delay_after_media > 0:

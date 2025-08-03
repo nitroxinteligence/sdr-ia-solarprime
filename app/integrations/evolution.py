@@ -305,8 +305,22 @@ class EvolutionAPIClient:
                 json=payload
             )
             
+            # Verificar status da resposta
+            if response.status_code not in [200, 201]:
+                error_text = response.text
+                emoji_logger.evolution_error(f"Evolution API retornou erro {response.status_code}: {error_text}")
+                raise Exception(f"Erro ao enviar mensagem: Status {response.status_code} - {error_text}")
+            
+            result = response.json()
+            
+            # Verificar se mensagem foi realmente enviada
+            if not result.get("key", {}).get("id"):
+                emoji_logger.evolution_error(f"Mensagem não enviada - sem ID na resposta: {result}")
+                raise Exception(f"Mensagem não foi enviada - resposta inválida da API")
+            
             emoji_logger.evolution_send(phone, "text", message_length=len(message), delay_used=round(delay, 2))
-            return response.json()
+            emoji_logger.system_debug(f"Resposta da Evolution API: {result}")
+            return result
             
         except Exception as e:
             emoji_logger.evolution_error(f"Erro ao enviar mensagem: {e}")
