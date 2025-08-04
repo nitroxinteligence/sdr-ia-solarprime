@@ -445,9 +445,26 @@ async def process_message_with_agent(
                 logger.info(f"📸 jpegThumbnail formato detectado: {format_detected}")
                 
                 if format_detected == "base64":
-                    # É base64 válido, usar direto
-                    image_base64 = jpeg_thumbnail
-                    emoji_logger.system_info(f"✅ jpegThumbnail validado como base64: {len(image_base64)} chars")
+                    # É base64 válido, mas verificar se não está criptografado
+                    try:
+                        import base64 as b64_module
+                        img_bytes = b64_module.b64decode(jpeg_thumbnail)
+                        
+                        # Verificar com AGNO se é mídia válida ou criptografada
+                        detection = agno_detector.detect_media_type(img_bytes)
+                        
+                        if detection.get('detected'):
+                            # Mídia válida, usar thumbnail
+                            image_base64 = jpeg_thumbnail
+                            emoji_logger.system_info(f"✅ jpegThumbnail validado como base64: {len(image_base64)} chars")
+                        else:
+                            # Mídia não reconhecida ou criptografada
+                            logger.warning(f"⚠️ Thumbnail parece estar criptografada: {detection.get('magic_bytes', 'unknown')}")
+                            logger.info("🔄 Forçando download da imagem completa...")
+                            image_base64 = None  # Forçar download completo
+                    except Exception as e:
+                        logger.warning(f"Erro ao validar thumbnail: {e}")
+                        image_base64 = None
                     
                 elif format_detected == "data_url":
                     # É data URL, extrair base64
@@ -537,7 +554,7 @@ async def process_message_with_agent(
                 elif isinstance(thumb, bytes):
                     logger.info(f"Documento tem thumbnail bytes: {len(thumb)} bytes")
             
-            # Tentar baixar o documento completo
+            # SEMPRE baixar o documento completo (thumbnails de PDF não são úteis)
             document_base64 = None
             
             if doc_msg.get("url"):
@@ -601,6 +618,9 @@ async def process_message_with_agent(
                         if audio_detection.get('detected'):
                             detected_audio_format = audio_detection.get('format', 'unknown')
                             logger.info(f"🔍 AGNO validou áudio: {detected_audio_format}")
+                        elif audio_detection.get('is_encrypted'):
+                            logger.warning(f"⚠️ Áudio criptografado detectado: {audio_detection.get('magic_bytes', 'N/A')}")
+                            logger.info("🔓 Áudio do WhatsApp geralmente é Opus criptografado, continuando com processamento...")
                         else:
                             logger.warning(f"⚠️ AGNO não reconheceu formato do áudio: {audio_detection.get('magic_bytes', 'N/A')}, continuando...")
                         

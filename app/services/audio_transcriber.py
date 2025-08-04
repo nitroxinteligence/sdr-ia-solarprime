@@ -141,8 +141,8 @@ class AudioTranscriber:
                     
                     if is_encrypted:
                         logger.warning(f"⚠️ Áudio parece estar criptografado (magic: {magic.hex()})")
-                        # Para áudio criptografado, salvar diretamente e deixar ffmpeg tentar processar
-                        audio_format = "enc"  # Extensão genérica para criptografado
+                        # Para áudio criptografado do WhatsApp, usar extensão opus
+                        audio_format = "opus"  # WhatsApp usa Opus codec
                 
                 # Criar arquivo temporário para o áudio original
                 with tempfile.NamedTemporaryFile(suffix=f".{audio_format}", delete=False) as temp_audio:
@@ -166,14 +166,15 @@ class AudioTranscriber:
                             temp_wav_path = temp_wav.name
                         
                         # Comando ffmpeg para converter para WAV
-                        # Usar -acodec copy primeiro para tentar copiar sem recodificar
+                        # Para áudio criptografado/Opus do WhatsApp, usar configurações específicas
                         cmd = [
                             'ffmpeg',
                             '-i', temp_audio_path,
+                            '-acodec', 'pcm_s16le',  # Forçar codec PCM para WAV
                             '-ar', '16000',  # Taxa de amostragem 16kHz
                             '-ac', '1',      # Mono
                             '-f', 'wav',
-                            '-loglevel', 'warning',  # Reduzir verbosidade
+                            '-loglevel', 'error',  # Mostrar apenas erros
                             '-y',            # Sobrescrever arquivo
                             temp_wav_path
                         ]

@@ -1000,9 +1000,20 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                             "agno_detection": detection_result
                         }
                     
-                    format_hint = detection_result['format']
-                    agno_params = detection_result['recommended_params']
-                    emoji_logger.agentic_thinking(f"AGNO detectou: {format_hint} (confiança: {detection_result['confidence']})")
+                    format_hint = detection_result.get('format', 'unknown')
+                    
+                    # Verificar se recommended_params existe antes de acessar
+                    if 'recommended_params' in detection_result:
+                        agno_params = detection_result['recommended_params']
+                    else:
+                        # Usar parâmetros padrão se não houver recomendação
+                        logger.warning(f"⚠️ Sem recommended_params para formato: {format_hint}")
+                        agno_params = {
+                            'format': 'auto',
+                            'detail': 'high'
+                        }
+                    
+                    emoji_logger.agentic_thinking(f"AGNO detectou: {format_hint} (confiança: {detection_result.get('confidence', 'unknown')})")
                     
                     # Criar objeto AGNO Image com bytes da imagem usando parâmetros detectados
                     try:
@@ -1235,12 +1246,24 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                             "agno_detection": detection_result
                         }
                     
-                    document_type = detection_result['format']
-                    agno_params = detection_result['recommended_params']
+                    document_type = detection_result.get('format', 'unknown')
+                    
+                    # Verificar se recommended_params existe antes de acessar
+                    if 'recommended_params' in detection_result:
+                        agno_params = detection_result['recommended_params']
+                    else:
+                        # Usar parâmetros padrão se não houver recomendação
+                        logger.warning(f"⚠️ Sem recommended_params para documento: {document_type}")
+                        agno_params = {
+                            'reader_class': 'PDFReader',
+                            'ocr_enabled': True,
+                            'max_pages': None
+                        }
+                    
                     is_pdf = document_type == 'pdf'
                     is_docx = document_type == 'docx'
                     
-                    emoji_logger.agentic_thinking(f"AGNO detectou documento: {document_type} (confiança: {detection_result['confidence']})")
+                    emoji_logger.agentic_thinking(f"AGNO detectou documento: {document_type} (confiança: {detection_result.get('confidence', 'unknown')})")
                     
                     # Determinar tipo e usar AGNO reader apropriado
                     extracted_text = ""

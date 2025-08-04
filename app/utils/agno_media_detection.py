@@ -44,6 +44,47 @@ class AGNOMediaDetector:
             b'fLaC': {'format': 'flac', 'agno_class': 'Audio', 'confidence': 'high'},
         }
     
+    def is_encrypted_whatsapp(self, data_bytes: bytes) -> bool:
+        """
+        Detecta mídia criptografada do WhatsApp
+        
+        Args:
+            data_bytes: Bytes do arquivo
+            
+        Returns:
+            True se a mídia parece estar criptografada
+        """
+        # Padrões conhecidos de mídia criptografada do WhatsApp
+        encrypted_patterns = [
+            b'\xcf\xee\x6a\x4e',  # Imagem criptografada
+            b'\x4c\x57\x18\x5d',  # PDF criptografado
+            b'\xaa\x30\x3b\x02',  # Áudio criptografado
+            b'\x03\xae\xae\x12',  # Outro padrão comum
+            b'\xaf\x5c\x08\xb7',  # Áudio Opus criptografado
+            b'\xa3\x03\x3b\x02',  # Variação de áudio
+        ]
+        
+        if not data_bytes or len(data_bytes) < 4:
+            return False
+            
+        # Verificar primeiros 4 bytes
+        first_bytes = data_bytes[:4]
+        for pattern in encrypted_patterns:
+            if first_bytes.startswith(pattern):
+                emoji_logger.system_warning(f"⚠️ Mídia criptografada detectada: {first_bytes.hex()}")
+                return True
+        
+        # Verificar se não corresponde a nenhum formato conhecido
+        # Se não é nenhum formato conhecido E não está vazio, pode ser criptografado
+        if len(data_bytes) > 100:
+            # Verificar entropia dos primeiros bytes (mídia criptografada tem alta entropia)
+            unique_bytes = len(set(data_bytes[:100]))
+            if unique_bytes > 90:  # Alta entropia sugere criptografia
+                emoji_logger.system_warning(f"⚠️ Possível mídia criptografada (alta entropia): {data_bytes[:4].hex()}")
+                return True
+                
+        return False
+    
     def detect_media_type(self, data_bytes: bytes) -> Dict[str, Any]:
         """
         Detecta tipo de mídia usando padrões AGNO
@@ -58,6 +99,19 @@ class AGNOMediaDetector:
             return {
                 'detected': False,
                 'error': 'Dados vazios'
+            }
+        
+        # Verificar PRIMEIRO se está criptografado
+        if self.is_encrypted_whatsapp(data_bytes):
+            return {
+                'detected': False,
+                'format': 'encrypted',
+                'is_encrypted': True,
+                'agno_class': None,
+                'confidence': 'none',
+                'magic_bytes': data_bytes[:12].hex() if data_bytes else '',
+                'error': 'Mídia criptografada do WhatsApp - necessita download completo',
+                'fallback_suggestion': 'Baixar mídia completa via URL do WhatsApp'
             }
         
         # Extrair magic bytes (primeiros 20 bytes para análise completa)
