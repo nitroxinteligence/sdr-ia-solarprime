@@ -169,6 +169,10 @@ app.include_router(health.router)
 app.include_router(webhooks.router)
 # app.include_router(teams.router)  # Teams router not yet implemented
 
+# Registra webhook do Kommo
+from app.api import kommo_webhook
+app.include_router(kommo_webhook.router)
+
 # Rotas de teste (apenas em desenvolvimento)
 if settings.debug:
     from app.api import test_kommo
