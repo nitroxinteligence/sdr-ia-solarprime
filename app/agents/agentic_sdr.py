@@ -1960,8 +1960,13 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         
         # Verificar se está qualificado
         if lead_data:
+            # Corrigir comparação com None - garantir que bill_value é um número
+            bill_value = lead_data.get('bill_value')
+            if bill_value is None:
+                bill_value = 0
+            
             qualificado = all([
-                lead_data.get('bill_value', 0) > 4000,
+                bill_value > 4000,
                 lead_data.get('is_decision_maker') == True,
                 lead_data.get('has_solar_system') == False or lead_data.get('wants_new_solar_system') == True,
                 lead_data.get('has_active_contract') == False
@@ -2209,7 +2214,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 elif "boa noite" in message.lower():
                     response = "Boa noite! Que bom falar com você! Sou a Helen da Solar Prime. Como posso ajudar?"
                 else:
-                    response = "Olá! Sou a Helen da Solar Prime 😊 Vi sua mensagem e adoraria ajudar! Você tem interesse em economizar na conta de luz com energia solar?"
+                    response = "Olá! Sou a Helen da Solar Prime. Vi sua mensagem e adoraria ajudar! Você tem interesse em economizar na conta de luz com energia solar?"
             
             # 7. Ajustar estado emocional da Helen
             try:

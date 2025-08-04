@@ -25,6 +25,13 @@ create table public.leads (
   has_active_contract boolean null,
   contract_end_date timestamp with time zone null,
   solution_interest character varying(100) null default null::character varying,
+  is_qualified boolean GENERATED ALWAYS as (
+    case
+      when ((qualification_status)::text = 'QUALIFIED'::text) then true
+      else false
+    end
+  ) STORED null,
+  last_interaction timestamp with time zone null default now(),
   constraint leads_pkey primary key (id),
   constraint leads_phone_number_key unique (phone_number),
   constraint leads_property_type_check check (
@@ -83,6 +90,16 @@ create index IF not exists idx_leads_qualified on public.leads using btree (
 ) TABLESPACE pg_default
 where
   ((qualification_status)::text = 'QUALIFIED'::text);
+
+create index IF not exists idx_leads_created_brin on public.leads using brin (created_at) TABLESPACE pg_default;
+
+create index IF not exists idx_leads_status_qualified on public.leads using btree (qualification_status, qualification_score) TABLESPACE pg_default
+where
+  ((qualification_status)::text = 'QUALIFIED'::text);
+
+create index IF not exists idx_leads_is_qualified on public.leads using btree (is_qualified) TABLESPACE pg_default
+where
+  (is_qualified = true);
 
 create trigger update_leads_updated_at BEFORE
 update on leads for EACH row
