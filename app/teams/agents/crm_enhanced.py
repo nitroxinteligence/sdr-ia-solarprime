@@ -42,6 +42,39 @@ class KommoEnhancedCRM(CRMAgent):
         
         logger.info("✅ KommoEnhancedCRM inicializado com funcionalidades completas")
     
+    async def _make_request(self, method: str, url: str, **kwargs) -> Optional[Dict[str, Any]]:
+        """
+        Método auxiliar para fazer requisições HTTP ao Kommo
+        
+        Args:
+            method: Método HTTP (GET, POST, PATCH, DELETE)
+            url: URL completa da API
+            **kwargs: Argumentos adicionais para a requisição (json, params, etc)
+            
+        Returns:
+            Resposta da API em JSON ou None se houver erro
+        """
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Adicionar headers padrão se não fornecidos
+                if "headers" not in kwargs:
+                    kwargs["headers"] = self.kommo_config["headers"]
+                
+                # Fazer a requisição
+                async with session.request(method, url, **kwargs) as response:
+                    if response.status in [200, 201]:
+                        return await response.json()
+                    elif response.status == 204:
+                        return {"success": True}
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Erro na requisição {method} {url}: {response.status} - {error_text}")
+                        return None
+                        
+        except Exception as e:
+            logger.error(f"Erro ao fazer requisição para {url}: {e}")
+            return None
+    
     async def create_or_update_lead_direct(self, lead_data: Dict[str, Any], tags: list = None) -> Dict[str, Any]:
         """
         Cria ou atualiza um lead no Kommo (versão direta sem @tool decorator)
@@ -703,6 +736,131 @@ class KommoEnhancedCRM(CRMAgent):
         except Exception as e:
             logger.error(f"Erro ao exportar leads: {e}")
             return {"success": False, "error": str(e)}
+    
+    # ==================== MÉTODOS ADICIONAIS PARA AUTO SYNC ====================
+    
+    async def create_deal(
+        self,
+        lead_id: Union[str, int],
+        value: float,
+        name: str
+    ) -> Dict[str, Any]:
+        """
+        Cria um deal (negócio) para um lead
+        
+        Args:
+            lead_id: ID do lead no Kommo
+            value: Valor do deal
+            name: Nome do deal
+            
+        Returns:
+            Resultado da operação
+        """
+        try:
+            deal_data = {
+                "name": name,
+                "price": int(value),
+                "pipeline_id": int(self.kommo_config["pipeline_id"]),
+                "status_id": self.pipeline_stages.get("novo_lead", 12345678),
+                "_embedded": {
+                    "leads": [{"id": int(lead_id)}]
+                }
+            }
+            
+            response = await self._make_request(
+                "POST",
+                f"{self.kommo_config['base_url']}/api/v4/leads",
+                json=[deal_data]
+            )
+            
+            if response and "_embedded" in response:
+                deal_id = response["_embedded"]["leads"][0]["id"]
+                logger.info(f"✅ Deal criado: {name} - ID: {deal_id}")
+                return {
+                    "success": True,
+                    "deal_id": deal_id,
+                    "message": "Deal criado com sucesso"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Falha ao criar deal"
+                }
+                
+        except Exception as e:
+            logger.error(f"Erro ao criar deal: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def add_task(
+        self,
+        entity_id: Union[str, int],
+        entity_type: str,
+        text: str,
+        complete_till: str
+    ) -> Dict[str, Any]:
+        """
+        Adiciona uma tarefa a uma entidade
+        
+        Args:
+            entity_id: ID da entidade
+            entity_type: Tipo da entidade (leads, contacts, etc)
+            text: Texto da tarefa
+            complete_till: Data/hora de conclusão (ISO format)
+            
+        Returns:
+            Resultado da operação
+        """
+        try:
+            from datetime import datetime
+            
+            # Converter string ISO para timestamp
+            if isinstance(complete_till, str):
+                dt = datetime.fromisoformat(complete_till.replace('Z', '+00:00'))
+                timestamp = int(dt.timestamp())
+            else:
+                timestamp = int(datetime.fromisoformat(complete_till).timestamp())
+            
+            task_data = {
+                "text": text,
+                "complete_till": timestamp,
+                "entity_id": int(entity_id),
+                "entity_type": entity_type,
+                "task_type_id": 1  # 1 = Call
+            }
+            
+            # Adicionar responsável se configurado
+            if hasattr(settings, "kommo_responsible_user_id"):
+                task_data["responsible_user_id"] = int(settings.kommo_responsible_user_id)
+            
+            response = await self._make_request(
+                "POST",
+                f"{self.kommo_config['base_url']}/api/v4/tasks",
+                json=[task_data]
+            )
+            
+            if response and "_embedded" in response:
+                task_id = response["_embedded"]["tasks"][0]["id"]
+                logger.info(f"✅ Tarefa criada: {text}")
+                return {
+                    "success": True,
+                    "task_id": task_id,
+                    "message": "Tarefa criada com sucesso"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Falha ao criar tarefa"
+                }
+                
+        except Exception as e:
+            logger.error(f"Erro ao criar tarefa: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
     # ==================== GESTÃO DE CAMPANHAS ====================
     
