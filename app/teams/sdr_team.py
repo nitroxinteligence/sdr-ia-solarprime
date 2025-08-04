@@ -62,20 +62,47 @@ class SDRTeam:
             auto_upgrade_schema=True  # Auto-atualiza schema se necessário
         )
         
-        # Modelo principal - Gemini 2.5 Pro (MUST be initialized before Memory)
+        # Modelo principal - Gemini com fallback robusto e retry logic
+        self.model = None
+        self.retry_count = 0
+        self.max_retries = 5
+        
+        # Tenta usar Gemini 2.5 Flash (mais estável que Pro)
         try:
             self.model = Gemini(
-                id="gemini-2.5-pro",
-                api_key=settings.google_api_key
+                id="gemini-2.5-flash",  # Usando Flash que é mais estável
+                api_key=settings.google_api_key,
+                max_retries=5,  # Aumentar retries
+                timeout=30  # Timeout maior
             )
-            emoji_logger.system_ready("SDR Team", model="gemini-2.5-pro")
+            emoji_logger.system_ready("SDR Team", model="gemini-2.5-flash")
         except Exception as e:
-            emoji_logger.system_warning(f"Erro Gemini, usando fallback: {e}", fallback="openai")
-            # OpenAI fallback disabled - using Gemini flash instead
-            self.model = Gemini(
-                id="gemini-2.0-flash-exp",
-                api_key=settings.google_api_key
-            )
+            emoji_logger.system_warning(f"Erro Gemini 2.5 Flash, tentando fallback: {e}")
+            
+            # Fallback para Gemini 2.0 Flash (não experimental)
+            try:
+                self.model = Gemini(
+                    id="gemini-2.0-flash",  # Versão estável, não experimental
+                    api_key=settings.google_api_key,
+                    max_retries=5,
+                    timeout=30
+                )
+                emoji_logger.system_ready("SDR Team", model="gemini-2.0-flash (fallback)")
+            except Exception as e2:
+                emoji_logger.system_warning(f"Erro Gemini 2.0 Flash, último fallback: {e2}")
+                
+                # Último fallback para Gemini 1.5 Flash (muito estável)
+                try:
+                    self.model = Gemini(
+                        id="gemini-1.5-flash",
+                        api_key=settings.google_api_key,
+                        max_retries=5,
+                        timeout=30
+                    )
+                    emoji_logger.system_ready("SDR Team", model="gemini-1.5-flash (emergency fallback)")
+                except Exception as e3:
+                    emoji_logger.system_error("SDR Team", f"Todos os modelos Gemini falharam: {e3}")
+                    raise Exception("Impossível inicializar modelo Gemini. Verifique a API key.")
         
         # Memory compartilhada do Team (AFTER model initialization)
         # Tenta criar Memory com storage, fallback para sem persistência

@@ -59,16 +59,8 @@ class CalendarAgent:
             "reminder_minutes": [30, 1440]     # 30 min e 1 dia antes
         }
         
-        # Tools do agente
-        self.tools = [
-            self.schedule_meeting,
-            self.check_availability,
-            self.reschedule_meeting,
-            self.cancel_meeting,
-            self.list_upcoming_meetings,
-            self.send_meeting_reminder,
-            self.find_best_slots
-        ]
+        # Criar funções wrapper para os tools (necessário para AGNO)
+        self._create_tool_wrappers()
         
         # Criar o agente
         self.agent = Agent(
@@ -105,7 +97,96 @@ class CalendarAgent:
         
         logger.info("✅ CalendarAgent inicializado")
     
-    @tool
+    def _create_tool_wrappers(self):
+        """Cria wrappers para os métodos como tools"""
+        # Cria funções que preservam self
+        agent_self = self
+        
+        @tool
+        async def schedule_meeting_tool(
+            lead_id: int,
+            date: str,
+            time: str,
+            duration_minutes: int = 30,
+            meeting_type: str = "presentation",
+            description: str = "",
+            location: str = "Online - Google Meet"
+        ):
+            """Agenda uma reunião no calendário"""
+            return await agent_self.schedule_meeting(
+                lead_id, date, time, duration_minutes,
+                meeting_type, description, location
+            )
+        
+        @tool
+        async def check_availability_tool(
+            date: str,
+            time: str,
+            duration_minutes: int = 30
+        ):
+            """Verifica disponibilidade em um horário"""
+            return await agent_self.check_availability(
+                date, time, duration_minutes
+            )
+        
+        @tool
+        async def reschedule_meeting_tool(
+            event_id: str,
+            new_date: str,
+            new_time: str
+        ):
+            """Reagenda uma reunião existente"""
+            return await agent_self.reschedule_meeting(
+                event_id, new_date, new_time
+            )
+        
+        @tool
+        async def cancel_meeting_tool(
+            event_id: str,
+            reason: str = ""
+        ):
+            """Cancela uma reunião"""
+            return await agent_self.cancel_meeting(event_id, reason)
+        
+        @tool
+        async def list_upcoming_meetings_tool(
+            lead_id: Optional[int] = None,
+            days_ahead: int = 7
+        ):
+            """Lista próximas reuniões"""
+            return await agent_self.list_upcoming_meetings(lead_id, days_ahead)
+        
+        @tool
+        async def send_meeting_reminder_tool(
+            event_id: str,
+            custom_message: str = ""
+        ):
+            """Envia lembrete de reunião"""
+            return await agent_self.send_meeting_reminder(event_id, custom_message)
+        
+        @tool
+        async def find_best_slots_tool(
+            date_start: str,
+            date_end: str,
+            duration_minutes: int = 30,
+            num_slots: int = 3
+        ):
+            """Encontra melhores horários disponíveis"""
+            return await agent_self.find_best_slots(
+                date_start, date_end, duration_minutes, num_slots
+            )
+        
+        # Registra os tools
+        self.tools = [
+            schedule_meeting_tool,
+            check_availability_tool,
+            reschedule_meeting_tool,
+            cancel_meeting_tool,
+            list_upcoming_meetings_tool,
+            send_meeting_reminder_tool,
+            find_best_slots_tool
+        ]
+    
     async def schedule_meeting(
         self,
         lead_id: str,
@@ -291,7 +372,6 @@ class CalendarAgent:
                 "error": str(e)
             }
     
-    @tool
     async def check_availability(
         self,
         date: str,  # formato: DD/MM/YYYY
@@ -316,7 +396,6 @@ class CalendarAgent:
             duration_minutes=duration_minutes
         )
     
-    @tool
     async def reschedule_meeting(
         self,
         event_id: str,
@@ -405,7 +484,6 @@ class CalendarAgent:
                 "error": str(e)
             }
     
-    @tool
     async def cancel_meeting(
         self,
         event_id: str,
@@ -683,7 +761,6 @@ class CalendarAgent:
             business_hours_only=business_hours_only
         )
     
-    @tool
     async def list_upcoming_meetings(
         self,
         lead_id: Optional[str] = None,
@@ -755,7 +832,6 @@ class CalendarAgent:
                 "events": []
             }
     
-    @tool
     async def send_meeting_reminder(
         self,
         event_id: str,
@@ -817,7 +893,6 @@ class CalendarAgent:
                 "error": str(e)
             }
     
-    @tool
     async def find_best_slots(
         self,
         duration_minutes: int = 30,
@@ -1053,7 +1128,6 @@ class CalendarAgent:
         else:
             return "Noite"
     
-    @tool
     async def create_recurring_meeting(
         self,
         title: str,
