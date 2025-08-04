@@ -983,14 +983,21 @@ class CalendarAgent:
         meeting_type: str
     ) -> str:
         """Constrói descrição completa da reunião"""
+        # Se já tem uma descrição personalizada, usa ela
+        if base_description and "Seja muito bem-vindo" in base_description:
+            return base_description
+        
+        # Senão, cria uma descrição padrão bonita
         description_parts = []
         
         if base_description:
             description_parts.append(base_description)
+        else:
+            description_parts.append("🌟 Reunião Solar Prime - Economia e Sustentabilidade")
+            description_parts.append("\nPrepare-se para descobrir como economizar até 95% na sua conta de energia!")
         
-        description_parts.append(f"\n---\nTipo: {meeting_type}")
-        description_parts.append(f"Lead ID: {lead_id}")
-        description_parts.append("Agendado via SDR IA Solar Prime")
+        description_parts.append("\n\n📋 Tenha em mãos sua última conta de energia")
+        description_parts.append("💚 Vamos juntos para um futuro mais sustentável!")
         
         return "\n".join(description_parts)
     
@@ -1003,25 +1010,21 @@ class CalendarAgent:
     ):
         """Salva reunião no banco de dados"""
         try:
-            data = {
-                "lead_id": lead_id,
+            # Atualizar tabela leads com informações da reunião
+            lead_update = {
                 "google_event_id": google_event_id,
-                "title": event_data["title"],
-                "start_time": event_data["start_time"].isoformat(),
-                "end_time": event_data["end_time"].isoformat(),
-                "location": event_data.get("location", ""),
-                "description": event_data.get("description", ""),
-                "event_type": meeting_type,
-                "status": "scheduled",
-                "created_at": datetime.now().isoformat()
+                "meeting_scheduled_at": event_data["start_time"].isoformat(),
+                "meeting_type": meeting_type,
+                "meeting_status": "scheduled",
+                "current_stage": "REUNIAO_AGENDADA"
             }
             
-            supabase_client.client.table("calendar_events")\
-                .insert(data)\
-                .execute()
+            await supabase_client.update_lead(lead_id, lead_update)
+            logger.info(f"✅ Reunião salva no lead {lead_id}")
                 
         except Exception as e:
             logger.error(f"Erro ao salvar reunião no banco: {e}")
+            # Continuar mesmo com erro - reunião já foi criada no Google
     
     async def _update_meeting_in_db(
         self,

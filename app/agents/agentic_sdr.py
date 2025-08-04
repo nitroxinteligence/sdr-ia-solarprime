@@ -6,6 +6,7 @@ Com análise contextual inteligente das últimas 100 mensagens
 import asyncio
 import json
 import random
+import re
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
 from enum import Enum
@@ -1903,6 +1904,88 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             emoji_logger.system_error("Knowledge Base Loader", f"Erro ao carregar do Supabase: {str(e)[:100]}")
             # Não lançar erro - continuar sem knowledge base
     
+    def _extract_name(self, message: str) -> Optional[str]:
+        """Extrai nome do lead da mensagem usando regex simples"""
+        patterns = [
+            r"meu nome é ([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)",
+            r"me chamo ([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)",
+            r"sou o?a? ([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)",
+            r"([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*), prazer"
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, message, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        
+        return None
+    
+    def _extract_email(self, message: str) -> Optional[str]:
+        """Extrai email do lead usando regex"""
+        pattern = r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
+        match = re.search(pattern, message)
+        
+        if match:
+            return match.group(0).lower()
+        
+        return None
+    
+    def _extract_document(self, message: str) -> Optional[str]:
+        """Extrai CPF ou CNPJ da mensagem"""
+        # Remove pontuação para facilitar
+        clean_msg = re.sub(r'[.\-/]', '', message)
+        
+        # CPF: 11 dígitos
+        cpf_pattern = r'\b\d{11}\b'
+        cpf_match = re.search(cpf_pattern, clean_msg)
+        if cpf_match:
+            cpf = cpf_match.group(0)
+            # Formata CPF: XXX.XXX.XXX-XX
+            return f"{cpf[:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:]}"
+        
+        # CNPJ: 14 dígitos
+        cnpj_pattern = r'\b\d{14}\b'
+        cnpj_match = re.search(cnpj_pattern, clean_msg)
+        if cnpj_match:
+            cnpj = cnpj_match.group(0)
+            # Formata CNPJ: XX.XXX.XXX/XXXX-XX
+            return f"{cnpj[:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:]}"
+        
+        return None
+    
+    def _identify_stage(self, message: str, lead_data: Dict) -> str:
+        """Identifica estágio atual baseado na conversa e dados do lead"""
+        
+        message_lower = message.lower()
+        
+        # Verificar se está qualificado
+        if lead_data:
+            qualificado = all([
+                lead_data.get('bill_value', 0) > 4000,
+                lead_data.get('is_decision_maker') == True,
+                lead_data.get('has_solar_system') == False or lead_data.get('wants_new_solar_system') == True,
+                lead_data.get('has_active_contract') == False
+            ])
+            
+            if qualificado:
+                return "QUALIFICADO"
+        
+        # Identificar por palavras-chave
+        if any(word in message_lower for word in ["agendar", "reunião", "marcar", "disponibilidade", "horário"]):
+            return "REUNIAO_AGENDADA"
+        
+        elif any(word in message_lower for word in ["quanto custa", "valor", "preço", "investimento", "orçamento"]):
+            return "EM_NEGOCIACAO"
+        
+        elif any(phrase in message_lower for phrase in ["não tenho interesse", "não quero", "obrigado mas", "desisto"]):
+            return "NAO_INTERESSADO"
+        
+        elif any(word in message_lower for word in ["conta de luz", "energia", "consumo", "kwh"]):
+            return "EM_QUALIFICACAO"
+        
+        # Se não identificou, mantém o atual ou usa default
+        return lead_data.get('current_stage', 'EM_QUALIFICACAO') if lead_data else "INITIAL_CONTACT"
+    
     async def process_message(
         self,
         phone: str,
@@ -1932,6 +2015,44 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             
             if not self.is_initialized:
                 await self.initialize()
+            
+            # EXTRAÇÃO DE DADOS E ATUALIZAÇÃO DE ESTÁGIO
+            # Extrair informações básicas da mensagem
+            nome_extraido = self._extract_name(message)
+            email_extraido = self._extract_email(message)
+            documento_extraido = self._extract_document(message)
+            
+            # Identificar novo estágio
+            novo_stage = self._identify_stage(message, lead_data or {})
+            
+            # Preparar dados para atualização
+            update_data = {}
+            if nome_extraido and (not lead_data or not lead_data.get('name')):
+                update_data['name'] = nome_extraido
+                emoji_logger.system_info(f"Nome extraído: {nome_extraido}")
+            
+            if email_extraido and (not lead_data or not lead_data.get('email')):
+                update_data['email'] = email_extraido
+                emoji_logger.system_info(f"Email extraído: {email_extraido}")
+            
+            if documento_extraido and (not lead_data or not lead_data.get('document')):
+                update_data['document'] = documento_extraido
+                emoji_logger.system_info(f"Documento extraído: {documento_extraido}")
+            
+            if lead_data and novo_stage != lead_data.get('current_stage'):
+                update_data['current_stage'] = novo_stage
+                emoji_logger.system_info(f"Novo estágio identificado: {novo_stage}")
+            
+            # Atualizar no banco se houver mudanças
+            if update_data and lead_data and lead_data.get('id'):
+                try:
+                    await supabase_client.update_lead(lead_data['id'], update_data)
+                    emoji_logger.system_success(f"Lead atualizado: {update_data}")
+                    
+                    # Atualizar lead_data local para uso posterior
+                    lead_data.update(update_data)
+                except Exception as update_error:
+                    emoji_logger.system_warning(f"Erro ao atualizar lead: {str(update_error)[:50]}")
             
             # 1. Tentar análise contextual (com fallback)
             try:
@@ -2060,16 +2181,13 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     """
                     
                     # Usar reasoning para casos complexos
-                    # Em AGNO v1.7.6, usar run()
+                    # IMPORTANTE: Usar intelligent_model.run() para ter retry + fallback OpenAI
                     if self.reasoning_enabled and context_analysis.get("complexity_score", 0) > 0.5:
-                        result = await self.reasoning_model.run(contextual_prompt)
+                        # Usar o wrapper com fallback ao invés do modelo direto
+                        result = await self.intelligent_model.run(contextual_prompt)
                     else:
-                        # Usar arun() para suporte assíncrono
-                        if hasattr(self.agent, 'arun'):
-                            result = await self.agent.arun(contextual_prompt)
-                        else:
-                            # Fallback para run() se arun() não estiver disponível
-                            result = await self.agent.run(contextual_prompt)
+                        # Sempre usar intelligent_model para garantir fallback
+                        result = await self.intelligent_model.run(contextual_prompt)
                     
                     response = result.content if hasattr(result, 'content') else str(result)
                     
@@ -2083,13 +2201,13 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 emoji_logger.system_warning("Nenhuma resposta gerada, usando fallback")
                 # Resposta fallback baseada no contexto
                 if "oi" in message.lower() or "olá" in message.lower() or "ola" in message.lower():
-                    response = "Oi! 😊 Tudo bem? Sou a Helen da Solar Prime! Como posso ajudar você hoje?"
+                    response = "Oi! Tudo bem? Sou a Helen da Solar Prime! Como posso ajudar você hoje?"
                 elif "bom dia" in message.lower():
-                    response = "Bom dia! ☀️ Que legal você entrar em contato! Sou a Helen da Solar Prime. Em que posso ajudar?"
+                    response = "Bom dia! Que legal você entrar em contato! Sou a Helen da Solar Prime. Em que posso ajudar?"
                 elif "boa tarde" in message.lower():
-                    response = "Boa tarde! 😊 Obrigada por entrar em contato com a Solar Prime! Sou a Helen, como posso ajudar?"
+                    response = "Boa tarde! Obrigada por entrar em contato com a Solar Prime! Sou a Helen, como posso ajudar?"
                 elif "boa noite" in message.lower():
-                    response = "Boa noite! 🌙 Que bom falar com você! Sou a Helen da Solar Prime. Como posso ajudar?"
+                    response = "Boa noite! Que bom falar com você! Sou a Helen da Solar Prime. Como posso ajudar?"
                 else:
                     response = "Olá! Sou a Helen da Solar Prime 😊 Vi sua mensagem e adoraria ajudar! Você tem interesse em economizar na conta de luz com energia solar?"
             
