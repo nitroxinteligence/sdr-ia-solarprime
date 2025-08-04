@@ -83,21 +83,42 @@ class KommoEnhancedCRM(CRMAgent):
             # Preparar dados do lead
             kommo_data = {
                 "name": lead_data.get("name", "Sem nome"),
-                "pipeline_id": int(self.kommo_config["pipeline_id"]),
-                "tags": tags or [],
-                "_embedded": {
-                    "tags": tags or []
-                }
+                "pipeline_id": int(self.kommo_config["pipeline_id"])
             }
             
-            # Adicionar telefone se disponível
+            # Adicionar tags corretamente formatadas
+            if tags:
+                # Tags devem ser um array de objetos com nome
+                tag_objects = [{"name": tag} for tag in tags if tag]
+                kommo_data["_embedded"] = {
+                    "tags": tag_objects
+                }
+            
+            # Adicionar campos personalizados corretamente
+            custom_fields = []
+            
+            # Adicionar WhatsApp (campo 392802)
             if lead_data.get("phone"):
-                kommo_data["custom_fields_values"] = [
-                    {
-                        "field_id": self.custom_fields.get("phone", 1234),
-                        "values": [{"value": lead_data["phone"]}]
-                    }
-                ]
+                custom_fields.append({
+                    "field_id": 392802,  # WhatsApp field ID
+                    "values": [{"value": lead_data["phone"]}]
+                })
+            
+            # Adicionar outros campos se disponíveis
+            if lead_data.get("bill_value"):
+                custom_fields.append({
+                    "field_id": 392804,  # Valor Conta Energia
+                    "values": [{"value": str(lead_data["bill_value"])}]
+                })
+            
+            if lead_data.get("qualification_score"):
+                custom_fields.append({
+                    "field_id": 392806,  # Score Qualificação
+                    "values": [{"value": str(lead_data["qualification_score"])}]
+                })
+            
+            if custom_fields:
+                kommo_data["custom_fields_values"] = custom_fields
             
             # Adicionar responsável se configurado
             if hasattr(settings, "kommo_responsible_user_id"):

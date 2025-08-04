@@ -154,11 +154,13 @@ class KommoAutoSyncService:
     async def _sync_single_lead(self, lead: Dict[str, Any]):
         """Sincroniza um único lead com o CRM"""
         try:
-            # Preparar dados do lead
+            # Preparar dados do lead com todos os campos necessários
             lead_data = {
                 "name": lead.get("name") or f"Lead {lead.get('phone_number')}",
                 "phone": lead.get("phone_number"),
                 "email": lead.get("email"),
+                "bill_value": lead.get("bill_value"),
+                "qualification_score": lead.get("qualification_score"),
                 "price": float(lead.get("bill_value") or 0) * 12  # Valor anual
             }
             
