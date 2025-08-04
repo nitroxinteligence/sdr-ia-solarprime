@@ -183,16 +183,16 @@ class IntelligentModelFallback:
     async def _gemini_call_with_retry(self, message: str, **kwargs):
         """Chamada Gemini com retry automático via decorador"""
         if self.primary_model:
-            # SOLUÇÃO DEFINITIVA: usar run() que é o método correto do AGNO
-            return await self.primary_model.run(message, **kwargs)
+            # Gemini usa invoke() no AGNO
+            return self.primary_model.invoke(message, **kwargs)
         raise Exception("Modelo primário Gemini não disponível")
     
     @async_retry(OPENAI_RETRY_CONFIG)
     async def _openai_call_with_retry(self, message: str, **kwargs):
         """Chamada OpenAI com retry automático via decorador"""
         if self.fallback_model:
-            # OpenAI também usa run() no AGNO
-            return await self.fallback_model.run(message, **kwargs)
+            # OpenAI wrapper tem run() implementado
+            return self.fallback_model.run(message, **kwargs)
         raise Exception("Modelo fallback OpenAI não disponível")
     
     async def _retry_with_backoff(self, message: str, **kwargs):
@@ -208,8 +208,8 @@ class IntelligentModelFallback:
             try:
                 emoji_logger.system_info(f"🔄 Retry Gemini - Tentativa {attempt + 1}/{self.max_retry_attempts}")
                 
-                # SOLUÇÃO DEFINITIVA: Usar run() que é o método correto do AGNO
-                response = await self.primary_model.run(message, **kwargs)
+                # Usar invoke() diretamente no modelo Gemini
+                response = self.primary_model.invoke(message, **kwargs)
                 
                 if attempt > 0:
                     emoji_logger.system_ready(f"✅ Gemini recuperado após {attempt + 1} tentativa(s)")
@@ -541,7 +541,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         
         self.agent = Agent(
             name="AGENTIC SDR",
-            model=self.intelligent_model.current_model,
+            model=self.intelligent_model,  # CORREÇÃO: Passar o wrapper, não o modelo direto
             instructions=enhanced_prompt,
             tools=self.tools,
             memory=self.memory,
