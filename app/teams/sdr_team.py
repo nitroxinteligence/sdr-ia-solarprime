@@ -581,9 +581,7 @@ class SDRTeam:
                 emoji_logger.team_delegate(recommended_agent, "Processamento especializado")
                 
                 # Configurar instruções específicas para o Team Leader
-                self.team.instructions.append(
-                    f"PRIORIZE o {recommended_agent} para esta tarefa específica"
-                )
+                self.team.instructions += f"\n\nPRIORIZE o {recommended_agent} para esta tarefa específica"
             
             # Executar Team
             result = await self.team.arun(
