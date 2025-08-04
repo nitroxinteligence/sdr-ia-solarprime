@@ -457,7 +457,8 @@ async def process_message_with_agent(
                 elif format_detected == "bytes":
                     # São bytes, converter para base64
                     try:
-                        image_base64 = base64.b64encode(jpeg_thumbnail).decode('utf-8')
+                        import base64 as b64_module
+                        image_base64 = b64_module.b64encode(jpeg_thumbnail).decode('utf-8')
                         emoji_logger.system_info(f"✅ Convertido bytes para base64: {len(image_base64)} chars")
                     except:
                         logger.warning("Falha ao converter bytes para base64")
@@ -478,7 +479,8 @@ async def process_message_with_agent(
                         
                         # Converter bytes para base64
                         import base64
-                        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                        import base64 as b64_module
+                        image_base64 = b64_module.b64encode(image_bytes).decode('utf-8')
                         emoji_logger.webhook_process(f"Imagem completa baixada: {len(image_base64)} caracteres")
                     else:
                         emoji_logger.system_warning("Falha ao baixar imagem completa")
@@ -490,7 +492,8 @@ async def process_message_with_agent(
             if image_base64:
                 try:
                     # Decodificar base64 para verificar magic bytes
-                    img_bytes = base64.b64decode(image_base64)
+                    import base64 as b64_module
+                    img_bytes = b64_module.b64decode(image_base64)
                     detection_result = agno_detector.detect_media_type(img_bytes)
                     
                     if detection_result.get('detected'):
@@ -541,7 +544,8 @@ async def process_message_with_agent(
                     
                     if doc_bytes:
                         import base64
-                        document_base64 = base64.b64encode(doc_bytes).decode('utf-8')
+                        import base64 as b64_module
+                        document_base64 = b64_module.b64encode(doc_bytes).decode('utf-8')
                         emoji_logger.webhook_process(f"Documento baixado: {len(document_base64)} caracteres")
                     else:
                         emoji_logger.system_warning("Falha ao baixar documento")
@@ -595,8 +599,8 @@ async def process_message_with_agent(
                         else:
                             logger.warning(f"⚠️ AGNO não reconheceu formato do áudio: {audio_detection.get('magic_bytes', 'N/A')}, continuando...")
                         
-                        import base64
-                        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                        import base64 as b64_module
+                        audio_base64 = b64_module.b64encode(audio_bytes).decode('utf-8')
                         emoji_logger.webhook_process(f"Áudio baixado e validado: {len(audio_base64)} caracteres")
                     else:
                         emoji_logger.system_warning("Falha ao baixar áudio")
