@@ -1,6 +1,5 @@
 """
-Audio Transcription Service - Transcreve áudios do WhatsApp usando OpenAI Whisper-1
-Whisper-1 custa apenas $0.006 por minuto e é muito mais preciso que Google Speech
+Audio Transcription Service - Transcreve áudios do WhatsApp usando SpeechRecognition
 """
 import speech_recognition as sr
 from pydub import AudioSegment
@@ -12,8 +11,6 @@ from app.utils.logger import emoji_logger
 import tempfile
 import os
 import subprocess
-from openai import OpenAI
-from app.config import settings
 
 def validate_audio_base64(audio_data: str) -> tuple[bool, str]:
     """
@@ -50,32 +47,19 @@ def validate_audio_base64(audio_data: str) -> tuple[bool, str]:
 
 class AudioTranscriber:
     """
-    Serviço de transcrição de áudio usando OpenAI Whisper-1.
-    Whisper-1 custa apenas $0.006 por minuto (muito mais barato que GPT-4o).
-    Fallback para Google Speech Recognition se Whisper falhar.
+    Serviço de transcrição de áudio usando SpeechRecognition.
+    Suporta múltiplos formatos e tem fallback para diferentes engines.
     """
     
     def __init__(self):
-        """Inicializa o transcriber com Whisper e fallback"""
-        # Tentar inicializar OpenAI Whisper primeiro
-        self.whisper_available = False
-        try:
-            if hasattr(settings, 'openai_api_key') and settings.openai_api_key:
-                self.openai_client = OpenAI(api_key=settings.openai_api_key)
-                self.whisper_available = True
-                emoji_logger.system_info("✅ AudioTranscriber inicializado com OpenAI Whisper-1 ($0.006/min)")
-            else:
-                emoji_logger.system_warning("⚠️ OpenAI API key não encontrada, usando fallback")
-        except Exception as e:
-            emoji_logger.system_warning(f"⚠️ Erro ao inicializar Whisper: {e}")
-        
-        # Fallback para Google Speech Recognition (gratuito)
+        """Inicializa o reconhecedor de fala"""
         self.recognizer = sr.Recognizer()
+        # Ajustar threshold de energia para melhor detecção
         self.recognizer.energy_threshold = 300
+        # Ajustar tempo de pausa
         self.recognizer.pause_threshold = 0.8
         
-        if not self.whisper_available:
-            emoji_logger.system_info("AudioTranscriber usando Google Speech Recognition (fallback)")
+        emoji_logger.system_info("AudioTranscriber inicializado com SpeechRecognition")
         
     async def transcribe_from_base64(
         self, 
@@ -282,33 +266,10 @@ class AudioTranscriber:
                     # Gravar o áudio
                     audio_data = self.recognizer.record(source)
                     
-                    # Tentar Whisper-1 primeiro (mais preciso e barato)
-                    if self.whisper_available:
-                        try:
-                            emoji_logger.system_info("🎙️ Enviando áudio para OpenAI Whisper-1...")
-                            
-                            # Whisper aceita arquivos diretamente
-                            with open(wav_path, "rb") as audio_file:
-                                transcription = self.openai_client.audio.transcriptions.create(
-                                    model="whisper-1",
-                                    file=audio_file,
-                                    language="pt"  # Português
-                                )
-                            
-                            text = transcription.text
-                            emoji_logger.system_info(f"✅ Whisper-1 transcreveu com sucesso ({len(text)} chars)")
-                            
-                        except Exception as whisper_error:
-                            emoji_logger.system_warning(f"⚠️ Whisper falhou, usando fallback: {whisper_error}")
-                            # Fallback para Google
-                            text = self.recognizer.recognize_google(
-                                audio_data, 
-                                language=language,
-                                show_all=False
-                            )
-                    else:
-                        # Usar Google Speech Recognition direto
-                        emoji_logger.system_info("Enviando áudio para Google Speech Recognition...")
+                    emoji_logger.system_info("Enviando áudio para Google Speech Recognition...")
+                    
+                    # Tentar transcrever com Google Speech Recognition
+                    try:
                         text = self.recognizer.recognize_google(
                             audio_data, 
                             language=language,
