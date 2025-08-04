@@ -322,17 +322,4 @@ FOLLOW_UP_TYPES = [
     "CUSTOM"
 ]
 
-# Mensagens padrão da Helen
-HELEN_MESSAGES = {
-    "greeting": "Oii! Seja muito bem-vindo à Solar Prime! 🌞\nMeu nome é Helen Vieira\nSou consultora especialista aqui da Solar Prime em Recife",
-    "ask_name": "Antes de começarmos, como posso chamá-lo?",
-    "identify_need": "{name}, me conte: você está buscando uma forma de economizar na sua energia ou tem interesse em instalar uma usina solar?",
-    "ask_bill_value": "{name}, para eu preparar a melhor proposta para você, preciso saber: qual o valor aproximado da sua conta de luz mensal?",
-    "high_bill_reaction": "Eita... 😳\nPera aí\nR${value} por mês???\nMeu Deus, isso é quase 2 salários mínimos\nTodo mês...",
-    "present_solution": "{name}, com uma conta de *R${value}*, nossa solução traz desconto de *20%* líquido garantido em contrato",
-    "schedule_meeting": "{name}, que tal agendarmos uma apresentação de 30 minutos?",
-    "follow_up_immediate": "Olá, {name}! Vi que nossa conversa ficou pela metade. Posso continuar te ajudando?",
-    "follow_up_daily": "{name}, se ainda tiver interesse em economizar na conta de luz, estarei aqui. Nossa solução realmente pode fazer a diferença",
-    "meeting_confirmation": "Oi {name}! Passando para confirmar nossa reunião de amanhã às {time}. Você confirma presença?",
-    "meeting_reminder": "{name}, nossa reunião é daqui a 2 horas! Estou preparando tudo para te mostrar como economizar na sua conta de luz 💡"
-}
+# Mensagens padrão removidas - agora definidas no prompt em @app/prompts/prompt-agente.md
