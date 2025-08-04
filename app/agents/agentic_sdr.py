@@ -183,17 +183,23 @@ class IntelligentModelFallback:
     async def _gemini_call_with_retry(self, message: str, **kwargs):
         """Chamada Gemini com retry automático via decorador"""
         if self.primary_model:
-            # O Gemini no AGNO precisa ser usado através de um Agent
-            # Criar um agente temporário para fazer a chamada
+            # SOLUÇÃO DEFINITIVA: Usar arun() para async ou asyncio.to_thread para sync
             from agno.agent import Agent
+            import asyncio
             
             temp_agent = Agent(
                 model=self.primary_model,
-                description="Temporary agent for Gemini calls"
+                markdown=True,
+                show_tool_calls=False
             )
             
-            # Usar run() que aceita string diretamente
-            response = temp_agent.run(message, **kwargs)
+            # Verificar se tem arun (async) ou usar run em thread
+            if hasattr(temp_agent, 'arun'):
+                response = await temp_agent.arun(message, **kwargs)
+            else:
+                # Executar run() síncrono em thread para não bloquear
+                response = await asyncio.to_thread(temp_agent.run, message, **kwargs)
+            
             return response
             
         raise Exception("Modelo primário Gemini não disponível")
@@ -223,11 +229,15 @@ class IntelligentModelFallback:
                 # O Gemini no AGNO precisa ser usado através de um Agent
                 temp_agent = Agent(
                     model=self.primary_model,
-                    description="Temporary agent for Gemini retry"
+                    markdown=True,
+                    show_tool_calls=False
                 )
                 
-                # Usar run() que aceita string diretamente
-                response = temp_agent.run(message, **kwargs)
+                # Usar arun se disponível, senão run em thread
+                if hasattr(temp_agent, 'arun'):
+                    response = await temp_agent.arun(message, **kwargs)
+                else:
+                    response = await asyncio.to_thread(temp_agent.run, message, **kwargs)
                 
                 if attempt > 0:
                     emoji_logger.system_ready(f"✅ Gemini recuperado após {attempt + 1} tentativa(s)")
