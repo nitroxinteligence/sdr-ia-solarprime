@@ -49,8 +49,7 @@ class SimpleOpenAIWrapper:
             payload = {
                 "model": self.model_id,
                 "messages": [{"role": "user", "content": str(message)}],
-                "max_completion_tokens": self.max_tokens,  # Corrigir: o3-mini usa max_completion_tokens
-                "temperature": self.temperature
+                "max_completion_tokens": self.max_tokens  # o3-mini usa max_completion_tokens, sem temperature
             }
             
             response = self.session.post(
@@ -184,8 +183,8 @@ class IntelligentModelFallback:
     async def _gemini_call_with_retry(self, message: str, **kwargs):
         """Chamada Gemini com retry automático via decorador"""
         if self.primary_model:
-            # Corrigir: usar run() ao invés de invoke()
-            return self.primary_model.run(message, **kwargs)
+            # Usar invoke() para Gemini
+            return self.primary_model.invoke(message, **kwargs)
         raise Exception("Modelo primário Gemini não disponível")
     
     @async_retry(OPENAI_RETRY_CONFIG)
@@ -2243,9 +2242,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             emoji_logger.system_error("AGENTIC SDR", f"Erro crítico ao processar: {e}")
             # Resposta de emergência mais natural
             emergency_responses = [
-                "Oi! 😊 Sou a Helen da Solar Prime! Como posso ajudar você hoje com energia solar?",
-                "Olá! Que bom você entrar em contato! 🌟 Sou a Helen, especialista em energia solar. Em que posso ajudar?",
-                "Oi! Tudo bem? Sou a Helen da Solar Prime! 💚 Você tem interesse em economizar na conta de luz?"
+                "Oi! Sou a Helen da Solar Prime! Como posso ajudar você hoje com energia solar?",
+                "Olá! Que bom você entrar em contato! Sou a Helen, especialista em energia solar. Em que posso ajudar?",
+                "Oi! Tudo bem? Sou a Helen da Solar Prime! Você tem interesse em economizar na conta de luz?"
             ]
             import random
             return random.choice(emergency_responses)
