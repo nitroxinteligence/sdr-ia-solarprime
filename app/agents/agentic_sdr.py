@@ -987,10 +987,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         emoji_logger.system_warning(f"❌ IMAGEM: Formato não reconhecido")
                         emoji_logger.system_warning(f"  • Magic bytes: {detection_result.get('magic_bytes', 'N/A')}")
                         emoji_logger.system_warning(f"  • Tempo detecção: {detect_time:.2f}s")
-                    else:
-                        emoji_logger.system_info(f"✅ Formato detectado: {detection_result['format'].upper()}")
-                        emoji_logger.system_info(f"  • Confiança: {detection_result.get('confidence', 'N/A')}")
-                        emoji_logger.system_info(f"  • Tempo detecção: {detect_time:.2f}s")
                         # Usar fallback suggestion
                         fallback_msg = detection_result.get('fallback_suggestion', 'Formato não suportado')
                         return {
@@ -999,6 +995,10 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                             "status": "unsupported_format",
                             "agno_detection": detection_result
                         }
+                    else:
+                        emoji_logger.system_info(f"✅ Formato detectado: {detection_result['format'].upper()}")
+                        emoji_logger.system_info(f"  • Confiança: {detection_result.get('confidence', 'N/A')}")
+                        emoji_logger.system_info(f"  • Tempo detecção: {detect_time:.2f}s")
                     
                     format_hint = detection_result.get('format', 'unknown')
                     
