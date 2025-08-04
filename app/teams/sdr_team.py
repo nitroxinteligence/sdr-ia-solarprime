@@ -148,7 +148,10 @@ class SDRTeam:
                 emoji_logger.team_member_skip("QualificationAgent", "⏭️ Desabilitado")
             
             # Agente de Calendário
+            logger.info(f"📅 Verificando CalendarAgent - enable_calendar_agent: {settings.enable_calendar_agent}, enable_calendar_integration: {settings.enable_calendar_integration}")
+            
             if settings.enable_calendar_agent and settings.enable_calendar_integration:
+                logger.info("📅 ATIVANDO CalendarAgent...")
                 self.calendar_agent = CalendarAgent(
                     model=self.model,
                     storage=self.storage
@@ -156,9 +159,11 @@ class SDRTeam:
                 self.agents.append(self.calendar_agent)
                 agents_initialized.append("CalendarAgent")
                 emoji_logger.team_member_ready("CalendarAgent", "✅ Habilitado")
+                logger.info("✅ CalendarAgent ATIVADO com sucesso!")
             else:
                 self.calendar_agent = None
                 emoji_logger.team_member_skip("CalendarAgent", "⏭️ Desabilitado")
+                logger.warning(f"⚠️ CalendarAgent DESABILITADO - enable_calendar_agent: {settings.enable_calendar_agent}, enable_calendar_integration: {settings.enable_calendar_integration}")
             
             # Agente de Follow-up
             if settings.enable_followup_agent:
@@ -549,6 +554,17 @@ class SDRTeam:
             
             # Executar com o agente específico se recomendado
             if recommended_agent:
+                logger.info(f"📅 AGENT RECOMENDADO: {recommended_agent}")
+                logger.info(f"📅 Razão: {reasoning}")
+                
+                # Verificar se é CalendarAgent
+                if recommended_agent == "CalendarAgent":
+                    logger.info("🗓️ ATIVANDO CalendarAgent para processar solicitação de agendamento!")
+                    if self.calendar_agent:
+                        logger.info("✅ CalendarAgent está disponível e será usado")
+                    else:
+                        logger.error("❌ CalendarAgent NÃO está disponível! Verifique as configurações")
+                
                 # Ativar agente específico baseado na recomendação
                 emoji_logger.team_delegate(recommended_agent, "Processamento especializado")
                 

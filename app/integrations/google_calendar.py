@@ -275,18 +275,28 @@ class GoogleCalendarClient:
                     event['description'] = f"Link da reunião: {meeting_link}"
             
             # Adicionar participantes se fornecidos
-            if attendees:
+            # NOTA: Service Accounts não podem convidar attendees sem Domain-Wide Delegation
+            if attendees and self.delegated_user:
+                # Só adiciona attendees se tiver domain-wide delegation configurado
                 event['attendees'] = [
                     {'email': email, 'responseStatus': 'needsAction'}
                     for email in attendees
                 ]
+            elif attendees:
+                logger.warning("⚠️ Service Account não pode convidar participantes sem Domain-Wide Delegation. Ignorando attendees.")
             
             # Criar Google Meet automaticamente se solicitado
             if conference_data:
+                # Gerar requestId único e válido (alfanumérico)
+                import uuid
+                request_id = str(uuid.uuid4())[:10]
+                
                 event['conferenceData'] = {
                     'createRequest': {
-                        'requestId': f"{title}-{datetime.now().timestamp()}",
-                        'conferenceSolutionKey': {'type': 'hangoutsMeet'}
+                        'requestId': request_id,
+                        'conferenceSolutionKey': {
+                            'type': 'hangoutsMeet'  # Tipo correto para Google Meet
+                        }
                     }
                 }
                 # Parâmetro necessário para criar conferência

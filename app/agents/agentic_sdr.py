@@ -752,12 +752,25 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             "reasoning": []
         }
         
-        # Fator 1: Complexidade da solicitação
-        if any(word in current_message.lower() for word in 
-               ["agendar", "reunião", "marcar", "horário", "disponibilidade"]):
-            decision_factors["complexity_score"] += 0.4
+        # Fator 1: Complexidade da solicitação - CALENDÁRIO
+        calendar_keywords = [
+            "agendar", "reunião", "marcar", "horário", "disponibilidade",
+            "agenda", "calendário", "encontro", "meeting", "apresentação",
+            "reagendar", "remarcar", "cancelar reunião", "data", "dia",
+            "semana que vem", "próxima semana", "amanhã", "hoje",
+            "manhã", "tarde", "noite", "às", "horas"
+        ]
+        
+        if any(word in current_message.lower() for word in calendar_keywords):
+            # Boost maior para calendário para garantir ativação
+            decision_factors["complexity_score"] += 0.8  # Aumentado de 0.4 para 0.8
             decision_factors["recommended_agent"] = "CalendarAgent"
-            decision_factors["reasoning"].append("Solicitação de agendamento detectada")
+            decision_factors["reasoning"].append("🗓️ Solicitação de agendamento detectada - Ativando CalendarAgent")
+            
+            # Log detalhado para debug
+            logger.info(f"📅 CALENDÁRIO DETECTADO - Score: {decision_factors['complexity_score']}")
+            logger.info(f"📅 Mensagem: {current_message[:100]}...")
+            logger.info(f"📅 Agent recomendado: CalendarAgent")
         
         # Fator 2: Análise de conta necessária
         if context_analysis.get("has_bill_image") or \
