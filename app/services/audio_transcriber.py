@@ -11,6 +11,39 @@ from app.utils.logger import emoji_logger
 import tempfile
 import os
 
+def validate_audio_base64(audio_data: str) -> tuple[bool, str]:
+    """
+    Valida se o áudio está em formato base64 válido
+    
+    Returns:
+        (is_valid, format_type)
+    """
+    if not audio_data:
+        return False, "empty"
+    
+    # Verificar se é data URL
+    if audio_data.startswith("data:"):
+        if ";base64," in audio_data:
+            # Extrair apenas o base64
+            audio_data = audio_data.split(";base64,")[1]
+            return True, "data_url_extracted"
+        return False, "invalid_data_url"
+    
+    # Verificar se é URL (não deveria chegar aqui)
+    if audio_data.startswith(("http://", "https://")):
+        return False, "url_not_base64"
+    
+    # Tentar validar base64
+    try:
+        if len(audio_data) > 50:
+            # Tenta decodificar uma amostra
+            test = base64.b64decode(audio_data[:100] if len(audio_data) >= 100 else audio_data)
+            return True, "base64"
+        else:
+            return False, "too_short"
+    except:
+        return False, "invalid_base64"
+
 class AudioTranscriber:
     """
     Serviço de transcrição de áudio usando SpeechRecognition.
@@ -54,7 +87,26 @@ class AudioTranscriber:
         try:
             emoji_logger.system_info(f"Iniciando transcrição de áudio ({mimetype})")
             
-            # 1. Decodificar base64
+            # 1. Validar formato antes de decodificar
+            is_valid, format_type = validate_audio_base64(audio_base64)
+            
+            if not is_valid:
+                logger.error(f"Formato de áudio inválido: {format_type}")
+                return {
+                    "text": "",
+                    "status": "error",
+                    "error": f"Formato de áudio inválido: {format_type}"
+                }
+            
+            # Se era data URL, extrair o base64
+            if format_type == "data_url_extracted":
+                audio_base64 = audio_base64.split(";base64,")[1]
+                logger.info("📊 Base64 extraído de data URL")
+            
+            logger.info(f"✅ Formato de áudio validado: {format_type}")
+            emoji_logger.system_info(f"✅ Formato de áudio validado: {format_type}")
+            
+            # 2. Decodificar base64 (agora sabemos que é válido)
             try:
                 audio_bytes = base64.b64decode(audio_base64)
                 emoji_logger.system_debug(f"Áudio decodificado: {len(audio_bytes)} bytes")

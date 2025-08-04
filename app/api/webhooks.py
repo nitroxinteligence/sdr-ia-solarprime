@@ -2,7 +2,7 @@
 Webhooks API - Recebe eventos da Evolution API
 """
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 import asyncio
 import base64
 import json
@@ -16,6 +16,7 @@ from app.agents.agentic_sdr import get_agentic_sdr  # Importa o AGENTIC SDR
 from app.config import settings
 from app.services.message_buffer import MessageBuffer, set_message_buffer
 from app.services.message_splitter import MessageSplitter, set_message_splitter
+from app.utils.agno_media_detection import AGNOMediaDetector
 
 router = APIRouter(prefix="/webhook", tags=["webhooks"])  # Mudado para /webhook (sem 's')
 
@@ -25,6 +26,66 @@ agentic_agent = None
 # Instâncias dos serviços de mensagem
 message_buffer = None
 message_splitter = None
+
+# Instância do detector AGNO para validação de mídia
+agno_detector = AGNOMediaDetector()
+
+def detect_media_format(media_data: Any) -> str:
+    """
+    Detecta o formato da mídia recebida
+    
+    Args:
+        media_data: Dados da mídia em qualquer formato
+        
+    Returns:
+        Tipo do formato: 'base64', 'data_url', 'url', 'bytes', 'unknown'
+    """
+    if media_data is None:
+        return 'unknown'
+    
+    if isinstance(media_data, str):
+        # Verifica se é uma data URL
+        if media_data.startswith("data:"):
+            logger.info("Formato detectado: Data URL")
+            return 'data_url'
+        # Verifica se é uma URL HTTP/HTTPS
+        elif media_data.startswith(("http://", "https://")):
+            logger.info("Formato detectado: URL para download")
+            return 'url'
+        # Se é uma string longa, provavelmente é base64
+        elif len(media_data) > 50:  # Threshold reduzido para pegar thumbnails pequenos
+            # Tenta validar se é base64 válido
+            try:
+                # Tenta decodificar um pequeno pedaço para verificar
+                test_sample = media_data[:100] if len(media_data) >= 100 else media_data
+                test = base64.b64decode(test_sample)
+                logger.info("Formato detectado: Base64 válido")
+                return 'base64'
+            except:
+                logger.info("Formato detectado: String não-base64")
+                return 'unknown'
+        else:
+            return 'unknown'
+    elif isinstance(media_data, bytes):
+        logger.info(f"Formato detectado: Bytes ({len(media_data)} bytes)")
+        return 'bytes'
+    else:
+        logger.info(f"Formato desconhecido: {type(media_data)}")
+        return 'unknown'
+
+def extract_base64_from_data_url(data_url: str) -> str:
+    """
+    Extrai o base64 de uma data URL
+    
+    Args:
+        data_url: Data URL completa (ex: data:image/jpeg;base64,...)
+        
+    Returns:
+        Apenas a parte base64
+    """
+    if ";base64," in data_url:
+        return data_url.split(";base64,")[1]
+    return data_url
 
 async def get_agentic_agent():
     """Obtém ou cria instância do AGENTIC SDR"""
@@ -348,11 +409,62 @@ async def process_message_with_agent(
         if original_message.get("message", {}).get("imageMessage"):
             img_msg = original_message["message"]["imageMessage"]
             
-            # Tentar baixar a imagem completa primeiro
+            # ===== LOG DETALHADO PARA DEBUG =====
+            emoji_logger.system_info("📸 IMAGEM DETECTADA - Analisando estrutura...")
+            logger.info(f"Campos disponíveis na imageMessage: {list(img_msg.keys())}")
+            
+            # Verificar jpegThumbnail primeiro (pode já vir em base64)
+            jpeg_thumbnail = img_msg.get("jpegThumbnail", "")
+            if jpeg_thumbnail:
+                # Analisar formato do thumbnail
+                if isinstance(jpeg_thumbnail, str):
+                    logger.info(f"jpegThumbnail é string, tamanho: {len(jpeg_thumbnail)} chars")
+                    logger.info(f"jpegThumbnail primeiros 50 chars: {jpeg_thumbnail[:50]}")
+                    # Verificar se já é base64 válido
+                    if len(jpeg_thumbnail) > 100 and not jpeg_thumbnail.startswith('http'):
+                        logger.info("jpegThumbnail parece ser base64 válido")
+                elif isinstance(jpeg_thumbnail, bytes):
+                    logger.info(f"jpegThumbnail é bytes, tamanho: {len(jpeg_thumbnail)} bytes")
+                    logger.info(f"jpegThumbnail primeiros bytes (hex): {jpeg_thumbnail[:20].hex()}")
+            
+            # Verificar outros campos de mídia
+            if img_msg.get("mediaKey"):
+                logger.info(f"mediaKey presente: {img_msg['mediaKey'][:20]}...")
+            if img_msg.get("directPath"):
+                logger.info(f"directPath presente: {img_msg['directPath'][:50]}...")
+            if img_msg.get("url"):
+                logger.info(f"URL presente: {img_msg['url'][:50]}...")
+            
+            # Tentar usar jpegThumbnail primeiro (mais rápido e já disponível)
             image_base64 = None
             
-            # Verificar se há URL para download
-            if img_msg.get("url"):
+            # Validar formato do jpegThumbnail usando detect_media_format
+            if jpeg_thumbnail:
+                format_detected = detect_media_format(jpeg_thumbnail)
+                logger.info(f"📸 jpegThumbnail formato detectado: {format_detected}")
+                
+                if format_detected == "base64":
+                    # É base64 válido, usar direto
+                    image_base64 = jpeg_thumbnail
+                    emoji_logger.system_info(f"✅ jpegThumbnail validado como base64: {len(image_base64)} chars")
+                    
+                elif format_detected == "data_url":
+                    # É data URL, extrair base64
+                    image_base64 = extract_base64_from_data_url(jpeg_thumbnail)
+                    emoji_logger.system_info(f"✅ Extraído base64 de data URL: {len(image_base64)} chars")
+                    
+                elif format_detected == "bytes":
+                    # São bytes, converter para base64
+                    try:
+                        image_base64 = base64.b64encode(jpeg_thumbnail).decode('utf-8')
+                        emoji_logger.system_info(f"✅ Convertido bytes para base64: {len(image_base64)} chars")
+                    except:
+                        logger.warning("Falha ao converter bytes para base64")
+                else:
+                    logger.warning(f"jpegThumbnail em formato não reconhecido: {format_detected}")
+            
+            # Se não tem thumbnail válido, tentar baixar imagem completa
+            elif img_msg.get("url"):
                 try:
                     emoji_logger.webhook_process(f"Baixando imagem completa de: {img_msg['url'][:50]}...")
                     
@@ -360,22 +472,35 @@ async def process_message_with_agent(
                     image_bytes = await evolution_client.download_media({"mediaUrl": img_msg["url"]})
                     
                     if image_bytes:
+                        # Log dos primeiros bytes para debug
+                        logger.info(f"Imagem baixada, primeiros 20 bytes (hex): {image_bytes[:20].hex()}")
+                        
                         # Converter bytes para base64
                         import base64
                         image_base64 = base64.b64encode(image_bytes).decode('utf-8')
                         emoji_logger.webhook_process(f"Imagem completa baixada: {len(image_base64)} caracteres")
                     else:
-                        emoji_logger.system_warning("Falha ao baixar imagem completa, usando thumbnail")
+                        emoji_logger.system_warning("Falha ao baixar imagem completa")
                         
                 except Exception as download_error:
                     emoji_logger.system_warning(f"Erro ao baixar imagem: {download_error}")
-                    # Fallback para thumbnail se falhar
             
-            # Se não conseguiu baixar, usar thumbnail como fallback
-            if not image_base64:
-                image_base64 = img_msg.get("jpegThumbnail", "")
-                if image_base64:
-                    emoji_logger.system_info("Usando thumbnail como fallback")
+            # Validar com AGNO detector se o base64 é uma imagem válida
+            if image_base64:
+                try:
+                    # Decodificar base64 para verificar magic bytes
+                    img_bytes = base64.b64decode(image_base64)
+                    detected_type = agno_detector.detect(img_bytes)
+                    
+                    if detected_type and detected_type != "unknown":
+                        logger.info(f"🔍 AGNO validou mídia: {detected_type}")
+                        emoji_logger.system_info(f"✅ Imagem validada ({detected_type}): {len(image_base64)} chars")
+                    else:
+                        logger.warning(f"⚠️ AGNO não reconheceu formato da imagem")
+                        emoji_logger.system_warning(f"Imagem com formato desconhecido, tentando processar mesmo assim")
+                except Exception as agno_error:
+                    logger.warning(f"Erro na validação AGNO: {agno_error}")
+                    emoji_logger.system_info(f"✅ Imagem pronta (sem validação AGNO): {len(image_base64)} chars")
                     
             media_data = {
                 "type": "image",
@@ -387,6 +512,20 @@ async def process_message_with_agent(
             }
         elif original_message.get("message", {}).get("documentMessage"):
             doc_msg = original_message["message"]["documentMessage"]
+            
+            # ===== LOG DETALHADO PARA DEBUG =====
+            emoji_logger.system_info("📄 DOCUMENTO DETECTADO - Analisando estrutura...")
+            logger.info(f"Campos disponíveis no documentMessage: {list(doc_msg.keys())}")
+            logger.info(f"Nome do arquivo: {doc_msg.get('fileName', 'N/A')}")
+            logger.info(f"Mimetype: {doc_msg.get('mimetype', 'N/A')}")
+            
+            # Verificar se há thumbnail ou dados inline
+            if doc_msg.get("jpegThumbnail"):
+                thumb = doc_msg["jpegThumbnail"]
+                if isinstance(thumb, str):
+                    logger.info(f"Documento tem thumbnail string: {len(thumb)} chars")
+                elif isinstance(thumb, bytes):
+                    logger.info(f"Documento tem thumbnail bytes: {len(thumb)} bytes")
             
             # Tentar baixar o documento completo
             document_base64 = None
@@ -419,6 +558,19 @@ async def process_message_with_agent(
         elif original_message.get("message", {}).get("audioMessage"):
             audio_msg = original_message["message"]["audioMessage"]
             
+            # ===== LOG DETALHADO PARA DEBUG =====
+            emoji_logger.system_info("🎵 ÁUDIO DETECTADO - Analisando estrutura...")
+            logger.info(f"Campos disponíveis no audioMessage: {list(audio_msg.keys())}")
+            logger.info(f"Mimetype: {audio_msg.get('mimetype', 'N/A')}")
+            logger.info(f"Duração: {audio_msg.get('seconds', 'N/A')} segundos")
+            logger.info(f"É nota de voz (ptt): {audio_msg.get('ptt', False)}")
+            
+            # Verificar se há dados inline
+            if audio_msg.get("mediaKey"):
+                logger.info(f"mediaKey presente: {audio_msg['mediaKey'][:20]}...")
+            if audio_msg.get("directPath"):
+                logger.info(f"directPath presente: {audio_msg['directPath'][:50]}...")
+            
             # Tentar baixar o áudio completo
             audio_base64 = None
             
@@ -430,9 +582,19 @@ async def process_message_with_agent(
                     audio_bytes = await evolution_client.download_media({"mediaUrl": audio_msg["url"]})
                     
                     if audio_bytes:
+                        # Log dos primeiros bytes para debug
+                        logger.info(f"Áudio baixado, primeiros 20 bytes (hex): {audio_bytes[:20].hex()}")
+                        
+                        # Validar com AGNO antes de converter para base64
+                        detected_audio_type = agno_detector.detect(audio_bytes)
+                        if detected_audio_type and detected_audio_type != "unknown":
+                            logger.info(f"🔍 AGNO validou áudio: {detected_audio_type}")
+                        else:
+                            logger.warning(f"⚠️ AGNO não reconheceu formato do áudio, continuando...")
+                        
                         import base64
                         audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-                        emoji_logger.webhook_process(f"Áudio baixado: {len(audio_base64)} caracteres")
+                        emoji_logger.webhook_process(f"Áudio baixado e validado: {len(audio_base64)} caracteres")
                     else:
                         emoji_logger.system_warning("Falha ao baixar áudio")
                         

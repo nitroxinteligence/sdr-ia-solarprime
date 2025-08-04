@@ -824,6 +824,38 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         Returns:
             Análise do conteúdo multimodal com estrutura padronizada
         """
+        # Função helper para detectar formato
+        def detect_and_clean_base64(data: str) -> tuple[str, str]:
+            """
+            Detecta e limpa dados base64
+            Retorna: (base64_limpo, formato_detectado)
+            """
+            if not data:
+                return "", "empty"
+            
+            # Se começa com data URL, extrair apenas o base64
+            if data.startswith("data:"):
+                if ";base64," in data:
+                    clean_data = data.split(";base64,")[1]
+                    return clean_data, "data_url"
+                return "", "invalid_data_url"
+            
+            # Se é URL HTTP, não é base64
+            if data.startswith(("http://", "https://")):
+                return "", "url"
+            
+            # Verificar se é base64 válido
+            if len(data) > 50:
+                try:
+                    # Tenta decodificar uma amostra
+                    import base64
+                    test = base64.b64decode(data[:100], validate=True)
+                    return data, "base64"
+                except:
+                    # Pode ser texto ou outro formato
+                    return "", "invalid"
+            
+            return "", "too_short"
         import time
         start_time = time.time()
         
@@ -870,12 +902,30 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 emoji_logger.system_info("🌆 PROCESSAMENTO DE IMAGEM INICIADO")
                 emoji_logger.system_info("🌆 " + "=" * 45)
                 
-                # Validar se media_data é base64
-                if not media_data or not isinstance(media_data, str):
-                    emoji_logger.system_warning("❌ IMAGEM: Dados inválidos ou vazios")
+                # Validar e limpar base64
+                clean_base64, format_type = detect_and_clean_base64(media_data)
+                
+                emoji_logger.system_info(f"🔍 IMAGEM - Formato detectado: {format_type}")
+                
+                if format_type in ["empty", "invalid", "too_short", "url"]:
+                    emoji_logger.system_warning(f"❌ IMAGEM: Formato inválido - {format_type}")
+                    if format_type == "url":
+                        emoji_logger.system_warning("💡 Dica: URL detectada, precisa baixar primeiro")
                     return {
                         "type": "image",
-                        "error": "Dados de imagem inválidos",
+                        "error": f"Dados de imagem inválidos (formato: {format_type})",
+                        "status": "invalid_format",
+                        "format_detected": format_type
+                    }
+                
+                # Usar o base64 limpo
+                media_data = clean_base64
+                
+                if not media_data:
+                    emoji_logger.system_warning("❌ IMAGEM: Dados vazios após limpeza")
+                    return {
+                        "type": "image",
+                        "error": "Dados de imagem vazios",
                         "status": "no_data"
                     }
                 
