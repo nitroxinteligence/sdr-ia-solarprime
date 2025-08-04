@@ -493,7 +493,18 @@ async def process_message_with_agent(
                     emoji_logger.webhook_process(f"Baixando imagem completa de: {img_msg['url'][:50]}...")
                     
                     # Baixar imagem completa usando Evolution API
-                    image_bytes = await evolution_client.download_media({"mediaUrl": img_msg["url"]})
+                    # Passar todos os dados necessários incluindo mediaKey para descriptografia
+                    media_download_data = {
+                        "mediaUrl": img_msg["url"],
+                        "mediaType": "image"
+                    }
+                    
+                    # Adicionar mediaKey se disponível
+                    if img_msg.get("mediaKey"):
+                        media_download_data["mediaKey"] = img_msg["mediaKey"]
+                        logger.info(f"🔐 Incluindo mediaKey para descriptografia")
+                    
+                    image_bytes = await evolution_client.download_media(media_download_data)
                     
                     if image_bytes:
                         # Log dos primeiros bytes para debug
@@ -562,7 +573,18 @@ async def process_message_with_agent(
                     emoji_logger.webhook_process(f"Baixando documento: {doc_msg.get('fileName', 'documento')}")
                     
                     # Baixar documento usando Evolution API
-                    doc_bytes = await evolution_client.download_media({"mediaUrl": doc_msg["url"]})
+                    # Passar todos os dados necessários incluindo mediaKey para descriptografia
+                    media_download_data = {
+                        "mediaUrl": doc_msg["url"],
+                        "mediaType": "document"
+                    }
+                    
+                    # Adicionar mediaKey se disponível
+                    if doc_msg.get("mediaKey"):
+                        media_download_data["mediaKey"] = doc_msg["mediaKey"]
+                        logger.info(f"🔐 Incluindo mediaKey para descriptografia de documento")
+                    
+                    doc_bytes = await evolution_client.download_media(media_download_data)
                     
                     if doc_bytes:
                         import base64
@@ -607,7 +629,18 @@ async def process_message_with_agent(
                     emoji_logger.webhook_process(f"Baixando áudio/nota de voz")
                     
                     # Baixar áudio usando Evolution API
-                    audio_bytes = await evolution_client.download_media({"mediaUrl": audio_msg["url"]})
+                    # Passar todos os dados necessários incluindo mediaKey para descriptografia
+                    media_download_data = {
+                        "mediaUrl": audio_msg["url"],
+                        "mediaType": "audio"
+                    }
+                    
+                    # Adicionar mediaKey se disponível
+                    if audio_msg.get("mediaKey"):
+                        media_download_data["mediaKey"] = audio_msg["mediaKey"]
+                        logger.info(f"🔐 Incluindo mediaKey para descriptografia de áudio")
+                    
+                    audio_bytes = await evolution_client.download_media(media_download_data)
                     
                     if audio_bytes:
                         # Log dos primeiros bytes para debug
@@ -640,6 +673,138 @@ async def process_message_with_agent(
                 "data": audio_base64 or "",  # Áudio completo ou vazio
                 "has_content": bool(audio_base64),
                 "duration": audio_msg.get("seconds", 0)
+            }
+        elif original_message.get("message", {}).get("videoMessage"):
+            video_msg = original_message["message"]["videoMessage"]
+            
+            # ===== LOG DETALHADO PARA DEBUG =====
+            emoji_logger.system_info("🎬 VÍDEO DETECTADO - Analisando estrutura...")
+            logger.info(f"Campos disponíveis no videoMessage: {list(video_msg.keys())}")
+            logger.info(f"Mimetype: {video_msg.get('mimetype', 'N/A')}")
+            logger.info(f"Duração: {video_msg.get('seconds', 'N/A')} segundos")
+            logger.info(f"Caption: {video_msg.get('caption', 'N/A')}")
+            
+            # Verificar se há mediaKey
+            if video_msg.get("mediaKey"):
+                logger.info(f"mediaKey presente: {video_msg['mediaKey'][:20]}...")
+            if video_msg.get("directPath"):
+                logger.info(f"directPath presente: {video_msg['directPath'][:50]}...")
+            
+            # Tentar baixar o vídeo completo
+            video_base64 = None
+            
+            if video_msg.get("url"):
+                try:
+                    emoji_logger.webhook_process(f"Baixando vídeo")
+                    
+                    # Baixar vídeo usando Evolution API
+                    # Passar todos os dados necessários incluindo mediaKey para descriptografia
+                    media_download_data = {
+                        "mediaUrl": video_msg["url"],
+                        "mediaType": "video"
+                    }
+                    
+                    # Adicionar mediaKey se disponível
+                    if video_msg.get("mediaKey"):
+                        media_download_data["mediaKey"] = video_msg["mediaKey"]
+                        logger.info(f"🔐 Incluindo mediaKey para descriptografia de vídeo")
+                    
+                    video_bytes = await evolution_client.download_media(media_download_data)
+                    
+                    if video_bytes:
+                        # Log dos primeiros bytes para debug
+                        logger.info(f"Vídeo baixado, primeiros 20 bytes (hex): {video_bytes[:20].hex()}")
+                        
+                        # Validar com AGNO
+                        video_detection = agno_detector.detect_media_type(video_bytes)
+                        if video_detection.get('detected'):
+                            detected_video_format = video_detection.get('format', 'unknown')
+                            logger.info(f"🔍 AGNO validou vídeo: {detected_video_format}")
+                        else:
+                            logger.warning(f"⚠️ AGNO não reconheceu formato do vídeo: {video_detection.get('magic_bytes', 'N/A')}")
+                        
+                        import base64 as b64_module
+                        video_base64 = b64_module.b64encode(video_bytes).decode('utf-8')
+                        emoji_logger.webhook_process(f"Vídeo baixado: {len(video_base64)} caracteres")
+                    else:
+                        emoji_logger.system_warning("Falha ao baixar vídeo")
+                        
+                except Exception as download_error:
+                    emoji_logger.system_warning(f"Erro ao baixar vídeo: {download_error}")
+            
+            media_data = {
+                "type": "video",
+                "mimetype": video_msg.get("mimetype", "video/mp4"),
+                "caption": video_msg.get("caption", ""),
+                "data": video_base64 or "",  # Vídeo completo ou vazio
+                "has_content": bool(video_base64),
+                "duration": video_msg.get("seconds", 0),
+                "file_size": video_msg.get("fileLength", 0)
+            }
+        elif original_message.get("message", {}).get("stickerMessage"):
+            sticker_msg = original_message["message"]["stickerMessage"]
+            
+            # ===== LOG DETALHADO PARA DEBUG =====
+            emoji_logger.system_info("🎨 STICKER DETECTADO - Analisando estrutura...")
+            logger.info(f"Campos disponíveis no stickerMessage: {list(sticker_msg.keys())}")
+            logger.info(f"Mimetype: {sticker_msg.get('mimetype', 'N/A')}")
+            logger.info(f"É animado: {sticker_msg.get('isAnimated', False)}")
+            
+            # Verificar se há mediaKey
+            if sticker_msg.get("mediaKey"):
+                logger.info(f"mediaKey presente: {sticker_msg['mediaKey'][:20]}...")
+            if sticker_msg.get("directPath"):
+                logger.info(f"directPath presente: {sticker_msg['directPath'][:50]}...")
+            
+            # Tentar baixar o sticker
+            sticker_base64 = None
+            
+            if sticker_msg.get("url"):
+                try:
+                    emoji_logger.webhook_process(f"Baixando sticker/figurinha")
+                    
+                    # Baixar sticker usando Evolution API
+                    # Passar todos os dados necessários incluindo mediaKey para descriptografia
+                    media_download_data = {
+                        "mediaUrl": sticker_msg["url"],
+                        "mediaType": "sticker"  # WhatsApp usa "WhatsApp Image Keys" para stickers
+                    }
+                    
+                    # Adicionar mediaKey se disponível
+                    if sticker_msg.get("mediaKey"):
+                        media_download_data["mediaKey"] = sticker_msg["mediaKey"]
+                        logger.info(f"🔐 Incluindo mediaKey para descriptografia de sticker")
+                    
+                    sticker_bytes = await evolution_client.download_media(media_download_data)
+                    
+                    if sticker_bytes:
+                        # Log dos primeiros bytes para debug
+                        logger.info(f"Sticker baixado, primeiros 20 bytes (hex): {sticker_bytes[:20].hex()}")
+                        
+                        # Validar com AGNO
+                        sticker_detection = agno_detector.detect_media_type(sticker_bytes)
+                        if sticker_detection.get('detected'):
+                            detected_sticker_format = sticker_detection.get('format', 'unknown')
+                            logger.info(f"🔍 AGNO validou sticker: {detected_sticker_format}")
+                        else:
+                            logger.warning(f"⚠️ AGNO não reconheceu formato do sticker: {sticker_detection.get('magic_bytes', 'N/A')}")
+                        
+                        import base64 as b64_module
+                        sticker_base64 = b64_module.b64encode(sticker_bytes).decode('utf-8')
+                        emoji_logger.webhook_process(f"Sticker baixado: {len(sticker_base64)} caracteres")
+                    else:
+                        emoji_logger.system_warning("Falha ao baixar sticker")
+                        
+                except Exception as download_error:
+                    emoji_logger.system_warning(f"Erro ao baixar sticker: {download_error}")
+            
+            media_data = {
+                "type": "sticker",
+                "mimetype": sticker_msg.get("mimetype", "image/webp"),
+                "data": sticker_base64 or "",  # Sticker completo ou vazio
+                "has_content": bool(sticker_base64),
+                "is_animated": sticker_msg.get("isAnimated", False),
+                "file_size": sticker_msg.get("fileLength", 0)
             }
         
         # Processa mensagem com análise contextual inteligente

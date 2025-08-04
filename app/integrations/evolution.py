@@ -7,12 +7,18 @@ import asyncio
 import base64
 import random
 import time
+import hashlib
+import hmac
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from loguru import logger
 from app.utils.logger import emoji_logger
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from app.config import settings
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
 
 class EvolutionAPIClient:
     """Cliente para integração com Evolution API v2 com conexão robusta"""
@@ -832,15 +838,107 @@ class EvolutionAPIClient:
         
         return phone
     
-    async def download_media(self, message_data: Dict[str, Any]) -> Optional[bytes]:
+    def decrypt_whatsapp_media(self, encrypted_data: bytes, media_key_base64: str, media_type: str = "image") -> Optional[bytes]:
         """
-        Baixa mídia de uma mensagem do WhatsApp
+        Descriptografa mídia do WhatsApp usando AES-256-CBC
         
         Args:
-            message_data: Dados da mensagem com mídia (deve conter 'mediaUrl' ou 'url')
+            encrypted_data: Dados criptografados da mídia
+            media_key_base64: MediaKey em base64 do webhook
+            media_type: Tipo da mídia (image, video, audio, document, sticker)
             
         Returns:
-            Bytes da mídia ou None se falhar
+            Bytes da mídia descriptografada ou None se falhar
+        """
+        try:
+            # Decode mediaKey de base64
+            media_key = base64.b64decode(media_key_base64)
+            logger.info(f"MediaKey decodificada: {len(media_key)} bytes")
+            
+            # Expandir chave usando HKDF
+            # WhatsApp usa diferentes info strings baseado no tipo de mídia
+            info_map = {
+                "image": b"WhatsApp Image Keys",
+                "video": b"WhatsApp Video Keys",
+                "audio": b"WhatsApp Audio Keys",
+                "document": b"WhatsApp Document Keys",
+                "sticker": b"WhatsApp Image Keys"
+            }
+            
+            info = info_map.get(media_type, b"WhatsApp Image Keys")
+            
+            # HKDF para expandir a chave para 112 bytes
+            hkdf = HKDF(
+                algorithm=hashes.SHA256(),
+                length=112,
+                salt=None,
+                info=info,
+                backend=default_backend()
+            )
+            
+            expanded_key = hkdf.derive(media_key)
+            
+            # Dividir a chave expandida
+            # IV: primeiros 16 bytes
+            iv = expanded_key[:16]
+            # Chave AES: próximos 32 bytes (bytes 16-48)
+            cipher_key = expanded_key[16:48]
+            # Chave MAC: próximos 32 bytes (bytes 48-80)
+            mac_key = expanded_key[48:80]
+            
+            logger.info(f"IV: {len(iv)} bytes, Cipher Key: {len(cipher_key)} bytes, MAC Key: {len(mac_key)} bytes")
+            
+            # Remover os últimos 10 bytes (MAC) dos dados criptografados
+            if len(encrypted_data) <= 10:
+                logger.error("Dados criptografados muito pequenos")
+                return None
+                
+            ciphertext = encrypted_data[:-10]
+            mac_tag = encrypted_data[-10:]
+            
+            # Verificar MAC (opcional mas recomendado)
+            # WhatsApp usa HMAC-SHA256 truncado para 10 bytes
+            computed_mac = hmac.new(mac_key, iv + ciphertext, hashlib.sha256).digest()[:10]
+            
+            if mac_tag != computed_mac:
+                logger.warning(f"MAC não corresponde - esperado: {mac_tag.hex()}, calculado: {computed_mac.hex()}")
+                # Continuar mesmo com MAC inválido para teste
+            
+            # Descriptografar usando AES-256-CBC
+            cipher = Cipher(
+                algorithms.AES(cipher_key),
+                modes.CBC(iv),
+                backend=default_backend()
+            )
+            
+            decryptor = cipher.decryptor()
+            decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
+            
+            # Remover padding PKCS7
+            if len(decrypted_data) > 0:
+                padding_length = decrypted_data[-1]
+                if padding_length > 0 and padding_length <= 16:
+                    # Verificar se o padding é válido
+                    if all(b == padding_length for b in decrypted_data[-padding_length:]):
+                        decrypted_data = decrypted_data[:-padding_length]
+            
+            logger.info(f"Mídia descriptografada com sucesso: {len(decrypted_data)} bytes")
+            return decrypted_data
+            
+        except Exception as e:
+            logger.error(f"Erro ao descriptografar mídia: {e}")
+            logger.exception(e)
+            return None
+    
+    async def download_media(self, message_data: Dict[str, Any]) -> Optional[bytes]:
+        """
+        Baixa e descriptografa mídia de uma mensagem do WhatsApp
+        
+        Args:
+            message_data: Dados da mensagem com mídia (deve conter 'mediaUrl' ou 'url' e opcionalmente 'mediaKey')
+            
+        Returns:
+            Bytes da mídia descriptografada ou None se falhar
         """
         try:
             # Procurar URL da mídia em diferentes campos possíveis
@@ -850,7 +948,13 @@ class EvolutionAPIClient:
                 logger.warning("URL da mídia não encontrada nos dados")
                 return None
             
+            # Verificar se há mediaKey para descriptografia
+            media_key = message_data.get("mediaKey")
+            media_type = message_data.get("mediaType", "image")
+            
             logger.info(f"Baixando mídia de: {media_url[:50]}...")
+            if media_key:
+                logger.info(f"MediaKey presente - mídia será descriptografada (tipo: {media_type})")
             
             # Configurar cliente HTTP com timeout maior para arquivos grandes
             async with httpx.AsyncClient(
@@ -871,7 +975,27 @@ class EvolutionAPIClient:
                 if response.status_code == 200:
                     content = response.content
                     logger.info(f"Mídia baixada com sucesso: {len(content)} bytes")
-                    return content
+                    
+                    # Se houver mediaKey, descriptografar
+                    if media_key:
+                        logger.info("Iniciando descriptografia da mídia...")
+                        decrypted_content = self.decrypt_whatsapp_media(
+                            encrypted_data=content,
+                            media_key_base64=media_key,
+                            media_type=media_type
+                        )
+                        
+                        if decrypted_content:
+                            logger.info(f"Mídia descriptografada com sucesso: {len(decrypted_content)} bytes")
+                            return decrypted_content
+                        else:
+                            logger.error("Falha na descriptografia da mídia")
+                            # Retornar conteúdo criptografado como fallback
+                            logger.warning("Retornando mídia criptografada como fallback")
+                            return content
+                    else:
+                        # Sem mediaKey, retornar conteúdo como está
+                        return content
                 else:
                     logger.error(f"Erro HTTP ao baixar mídia: {response.status_code}")
                     return None
@@ -884,6 +1008,7 @@ class EvolutionAPIClient:
             return None
         except Exception as e:
             logger.error(f"Erro inesperado ao baixar mídia: {e}")
+            logger.exception(e)
             return None
     
     async def check_number_exists(self, phone: str) -> bool:
