@@ -13,7 +13,61 @@ import base64
 
 from agno.agent import Agent
 from agno.models.google import Gemini
-# from agno.models.openai import OpenAIChat  # Temporarily disabled due to compatibility issues
+# OpenAI via requests - contorna problemas do SDK
+try:
+    import requests
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
+
+class SimpleOpenAIWrapper:
+    """
+    Wrapper OpenAI usando requests diretos para evitar problemas do SDK
+    """
+    def __init__(self, api_key, id="o3-mini", max_tokens=4000, temperature=0.7):
+        if not OPENAI_AVAILABLE:
+            raise ImportError("requests não disponível")
+            
+        import requests
+        self.api_key = api_key
+        self.model_id = id
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.base_url = "https://api.openai.com/v1"
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        })
+    
+    def run(self, message, **kwargs):
+        """Interface compatível com AGNO usando requests diretos"""
+        try:
+            payload = {
+                "model": self.model_id,
+                "messages": [{"role": "user", "content": str(message)}],
+                "max_tokens": self.max_tokens,
+                "temperature": self.temperature
+            }
+            
+            response = self.session.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+            else:
+                raise Exception(f"API Error {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            raise Exception(f"OpenAI o3-mini falhou: {e}")
+    
+    def __str__(self):
+        return f"SimpleOpenAI({self.model_id})"
 from agno.memory import AgentMemory
 from agno.storage.postgres import PostgresStorage
 from agno.knowledge import AgentKnowledge
@@ -27,10 +81,151 @@ from app.config import settings
 from app.integrations.supabase_client import supabase_client
 from app.teams.sdr_team import SDRTeam
 
-# AGNO Framework Enhancement Agents - Sub-agentes modulares
-from app.services.agno_image_agent import agno_image_enhancer, agno_fallback_processor
-from app.services.agno_document_agent import agno_document_enhancer
-from app.services.agno_context_agent import agno_context_enhancer, format_context_with_agno
+# AGNO Framework Enhancement - Context utilities apenas
+from app.services.agno_context_agent import format_context_with_agno
+
+
+class IntelligentModelFallback:
+    """
+    Wrapper inteligente para gerenciar fallback automático entre modelos
+    Detecta erros Gemini e automaticamente usa OpenAI o3-mini
+    """
+    
+    def __init__(self, settings):
+        self.settings = settings
+        self.primary_model = None
+        self.fallback_model = None
+        self.current_model = None
+        self.fallback_active = False
+        
+        self._initialize_models()
+    
+    def _initialize_models(self):
+        """Inicializa os modelos primário e fallback"""
+        try:
+            # Modelo primário (Gemini)
+            if "gemini" in self.settings.primary_ai_model.lower():
+                self.primary_model = Gemini(
+                    id=self.settings.primary_ai_model,
+                    api_key=self.settings.google_api_key,
+                    temperature=self.settings.ai_temperature,
+                    max_output_tokens=self.settings.ai_max_tokens
+                )
+                emoji_logger.system_ready("Modelo primário Gemini configurado", 
+                                         model=self.settings.primary_ai_model)
+            
+            # Modelo fallback (OpenAI o3-mini)  
+            if self.settings.enable_model_fallback and self.settings.openai_api_key and OPENAI_AVAILABLE:
+                try:
+                    # Usar wrapper customizado OpenAI (compatível)
+                    self.fallback_model = SimpleOpenAIWrapper(
+                        api_key=self.settings.openai_api_key,
+                        id="o3-mini",
+                        max_tokens=self.settings.ai_max_tokens,
+                        temperature=self.settings.ai_temperature
+                    )
+                    emoji_logger.system_ready("Modelo fallback OpenAI o3-mini configurado")
+                        
+                except Exception as e:
+                    emoji_logger.system_warning(f"Falha ao configurar OpenAI o3-mini fallback: {e}")
+                    self.fallback_model = None
+            else:
+                if not OPENAI_AVAILABLE:
+                    emoji_logger.system_warning("OpenAI não disponível - fallback desabilitado")
+                elif not self.settings.openai_api_key:
+                    emoji_logger.system_warning("OPENAI_API_KEY não configurada - fallback desabilitado")
+                else:
+                    emoji_logger.system_warning("Fallback desabilitado por configuração")
+                self.fallback_model = None
+            
+            # Define modelo atual
+            self.current_model = self.primary_model
+            
+        except Exception as e:
+            emoji_logger.system_error(f"Erro na inicialização de modelos: {e}")
+            raise
+    
+    def _is_gemini_error(self, error) -> bool:
+        """Detecta se é um erro que requer fallback"""
+        error_str = str(error).lower()
+        
+        # Erros que requerem fallback
+        fallback_triggers = [
+            "500 internal",
+            "503 service unavailable", 
+            "502 bad gateway",
+            "timeout",
+            "connection error",
+            "server error",
+            "internal error has occurred"
+        ]
+        
+        return any(trigger in error_str for trigger in fallback_triggers)
+    
+    def _should_retry_with_fallback(self, error) -> bool:
+        """Determina se deve tentar fallback"""
+        return (
+            not self.fallback_active and  # Não estamos já usando fallback
+            self.fallback_model is not None and  # Temos modelo fallback
+            self._is_gemini_error(error)  # É um erro que requer fallback
+        )
+    
+    async def run(self, message: str, **kwargs):
+        """
+        Executa o modelo com fallback inteligente
+        """
+        try:
+            # Tenta com modelo atual
+            if self.current_model:
+                response = self.current_model.run(message, **kwargs)
+                
+                # Se estava usando fallback e funcionou, pode tentar voltar ao primário na próxima
+                if self.fallback_active and self.primary_model:
+                    emoji_logger.system_info("Modelo funcionando, preparando para voltar ao primário")
+                
+                return response
+                
+        except Exception as e:
+            emoji_logger.system_warning(f"Erro no modelo {self.current_model.__class__.__name__}: {e}")
+            
+            # Verifica se deve fazer fallback
+            if self._should_retry_with_fallback(e):
+                emoji_logger.system_warning("Ativando fallback para OpenAI o3-mini")
+                
+                try:
+                    # Muda para modelo fallback
+                    self.current_model = self.fallback_model
+                    self.fallback_active = True
+                    
+                    # Tenta novamente com fallback
+                    response = self.fallback_model.run(message, **kwargs)
+                    emoji_logger.system_ready("Fallback OpenAI o3-mini bem-sucedido")
+                    return response
+                    
+                except Exception as fallback_error:
+                    emoji_logger.system_error(f"Fallback também falhou: {fallback_error}")
+                    # Volta para modelo primário para próxima tentativa
+                    self.current_model = self.primary_model
+                    self.fallback_active = False
+                    raise fallback_error
+            
+            # Se não deve fazer fallback, re-raise o erro original
+            raise e
+    
+    def reset_to_primary(self):
+        """Força volta ao modelo primário"""
+        if self.primary_model:
+            self.current_model = self.primary_model
+            self.fallback_active = False
+            emoji_logger.system_info("Modelo resetado para primário (Gemini)")
+    
+    def get_current_model_info(self) -> dict:
+        """Retorna informações do modelo atual"""
+        return {
+            "current_model": self.current_model.__class__.__name__ if self.current_model else None,
+            "fallback_active": self.fallback_active,
+            "has_fallback": self.fallback_model is not None
+        }
 
 
 class ConversationContext(Enum):
@@ -183,70 +378,40 @@ class AgenticSDR:
                                    multimodal_enabled=self.multimodal_enabled)
     
     def _setup_models(self):
-        """Configura modelos com fallback inteligente baseado nas configurações"""
+        """Configura modelos com fallback inteligente para OpenAI o3-mini"""
         try:
-            # Usar modelo configurado no .env
-            primary_model = settings.primary_ai_model
+            # Usar novo sistema de fallback inteligente
+            self.intelligent_model = IntelligentModelFallback(settings)
             
-            if "gemini" in primary_model.lower():
-                # Modelo principal - Gemini configurável
-                self.model = Gemini(
-                    id=primary_model,
-                    api_key=settings.google_api_key,
-                    temperature=settings.ai_temperature,
-                    max_output_tokens=settings.ai_max_tokens
-                )
-                
-                # Modelo de reasoning - Gemini 2.0 Flash Thinking
-                if self.reasoning_enabled:
+            # Para compatibilidade, manter referência self.model
+            self.model = self.intelligent_model.current_model
+            
+            # Modelo de reasoning - Gemini 2.0 Flash Thinking (se habilitado)
+            if self.reasoning_enabled and settings.google_api_key:
+                try:
                     self.reasoning_model = Gemini(
                         id="gemini-2.0-flash-thinking-exp-01-21",
                         api_key=settings.google_api_key,
-                        thinking_budget=8192,  # Enable thinking/reasoning
+                        thinking_budget=8192,
                         include_thoughts=True
                     )
-                else:
-                    self.reasoning_model = self.model
-                
-                emoji_logger.system_ready("Modelos configurados", 
-                                         primary_model=primary_model,
-                                         reasoning_enabled=self.reasoning_enabled)
+                    emoji_logger.system_ready("Modelo reasoning configurado", model="gemini-2.0-flash-thinking")
+                except Exception as e:
+                    emoji_logger.system_warning(f"Reasoning model falhou, usando modelo principal: {e}")
+                    self.reasoning_model = self.intelligent_model.current_model
             else:
-                # OpenAI temporarily disabled - falling back to Gemini
-                emoji_logger.system_warning("OpenAI temporariamente desabilitado, usando Gemini")
-                self.model = Gemini(
-                    id="gemini-2.0-flash-exp",
-                    api_key=settings.google_api_key,
-                    temperature=settings.ai_temperature
-                )
-                self.reasoning_model = self.model
+                self.reasoning_model = self.intelligent_model.current_model
+            
+            # Log status final
+            model_info = self.intelligent_model.get_current_model_info()
+            emoji_logger.system_ready("Sistema de modelos configurado", 
+                                     primary_model=settings.primary_ai_model,
+                                     fallback_available=model_info['has_fallback'],
+                                     reasoning_enabled=self.reasoning_enabled)
                 
         except Exception as e:
-            if settings.enable_model_fallback:
-                emoji_logger.system_warning(f"Erro com {primary_model}, usando fallback: {e}",
-                                           fallback_model=settings.fallback_ai_model)
-                
-                # Fallback configurável
-                fallback_model = settings.fallback_ai_model
-                
-                if "gemini" in fallback_model.lower():
-                    self.model = Gemini(
-                        id=fallback_model,
-                        api_key=settings.google_api_key,
-                        temperature=settings.ai_temperature
-                    )
-                else:
-                    # OpenAI fallback disabled - using Gemini instead
-                    emoji_logger.system_warning("OpenAI fallback desabilitado, usando Gemini")
-                    self.model = Gemini(
-                        id="gemini-2.0-flash-exp",
-                        api_key=settings.google_api_key,
-                        temperature=settings.ai_temperature
-                    )
-                
-                self.reasoning_model = self.model
-            else:
-                raise
+            emoji_logger.system_error(f"Erro crítico na configuração de modelos: {e}")
+            raise
     
     def _create_agentic_agent(self):
         """Cria o agente AGENTIC SDR com personalidade completa"""
@@ -289,7 +454,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         
         self.agent = Agent(
             name="AGENTIC SDR",
-            model=self.model,
+            model=self.intelligent_model.current_model,
             instructions=enhanced_prompt,
             tools=self.tools,
             memory=self.memory,
@@ -362,7 +527,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 "error": str(e)
             }
     
-    @agno_context_enhancer
     async def get_last_100_messages(self, identifier: str) -> List[Dict[str, Any]]:
         """
         Busca as últimas 100 mensagens do Supabase
@@ -560,8 +724,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                                      score=decision_factors['complexity_score'])
         return False, None, "AGENTIC SDR pode resolver esta conversa"
     
-    @agno_image_enhancer
-    @agno_document_enhancer
     async def process_multimodal_content(
         self,
         media_type: str,
@@ -610,7 +772,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     "error": f"Tipo de mídia '{media_type}' não suportado"
                 }
             if media_type == "image":
-                # Usar Gemini Vision para análise de imagem
+                # AGNO Framework - Processamento nativo de imagens
+                emoji_logger.agentic_multimodal("Processando imagem com AGNO Framework nativo")
+                
                 # Validar se media_data é base64
                 if not media_data or not isinstance(media_data, str):
                     emoji_logger.system_warning("Dados de imagem inválidos ou vazios")
@@ -653,137 +817,107 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 """
                 
                 try:
-                    # Solução definitiva: usar PIL Image diretamente com Gemini nativo
+                    # AGNO Framework Solution: Usar agno.media.Image nativo
                     import base64
-                    from io import BytesIO
-                    from PIL import Image as PILImage
+                    from agno.media import Image as AgnoImage
                     import google.generativeai as genai
                     
                     emoji_logger.agentic_thinking("Processando imagem para Vision API...")
                     
+                    # AGNO Framework Solution: Usar agno.media.Image nativo
                     # Validar dados
                     if not media_data:
                         raise ValueError("Dados da imagem vazios")
                     
-                    # Decodificar base64
+                    # Decodificar base64 para bytes
                     image_bytes = base64.b64decode(media_data)
                     original_size = len(image_bytes)
                     emoji_logger.agentic_multimodal(f"Imagem decodificada: {original_size:,} bytes")
                     
-                    # Validar magic bytes para confirmar que é uma imagem
-                    magic_bytes = image_bytes[:12] if len(image_bytes) >= 12 else image_bytes
+                    # AGNO Framework - Detecção robusta de formato de imagem
+                    from app.utils.agno_media_detection import agno_media_detector
                     
-                    # Verificar formatos comuns de imagem (expandido)
-                    is_jpeg = magic_bytes[:3] == b'\xff\xd8\xff'
-                    is_png = magic_bytes[:8] == b'\x89PNG\r\n\x1a\n'
-                    is_gif = magic_bytes[:6] in [b'GIF87a', b'GIF89a']
-                    is_webp = magic_bytes[:4] == b'RIFF' and len(magic_bytes) >= 12 and magic_bytes[8:12] == b'WEBP'
-                    is_bmp = magic_bytes[:2] == b'BM'
+                    detection_result = agno_media_detector.detect_media_type(image_bytes)
                     
-                    # Formatos modernos adicionais
-                    is_heic = magic_bytes[:4] == b'ftyp' and len(magic_bytes) >= 12 and magic_bytes[8:12] in [b'heic', b'heix', b'hevc']
-                    is_avif = magic_bytes[:4] == b'ftyp' and len(magic_bytes) >= 12 and magic_bytes[8:12] == b'avif'
-                    is_tiff = magic_bytes[:4] in [b'II*\x00', b'MM\x00*']
-                    is_ico = magic_bytes[:4] == b'\x00\x00\x01\x00'
+                    if not detection_result['detected']:
+                        emoji_logger.system_warning(f"Formato não reconhecido pelo AGNO: {detection_result.get('magic_bytes', 'N/A')}")
+                        # Usar fallback suggestion
+                        fallback_msg = detection_result.get('fallback_suggestion', 'Formato não suportado')
+                        return {
+                            "type": "image",
+                            "error": f"Formato não suportado: {fallback_msg}",
+                            "status": "unsupported_format",
+                            "agno_detection": detection_result
+                        }
                     
-                    # HEIC pode ter magic bytes diferentes dependendo da implementação
-                    is_heic_alt = magic_bytes[:2] == b'\xff\xee'  # Algumas variantes HEIC
+                    format_hint = detection_result['format']
+                    agno_params = detection_result['recommended_params']
+                    emoji_logger.agentic_thinking(f"AGNO detectou: {format_hint} (confiança: {detection_result['confidence']})")
                     
-                    known_format = (is_jpeg or is_png or is_gif or is_webp or is_bmp or 
-                                   is_heic or is_avif or is_tiff or is_ico or is_heic_alt)
-                    
-                    # Fallback inteligente: se magic bytes não são reconhecidos, tentar com PIL
-                    if not known_format:
-                        emoji_logger.system_warning(f"Magic bytes desconhecidos: {magic_bytes[:20].hex()}, tentando fallback com PIL")
+                    # Criar objeto AGNO Image com bytes da imagem usando parâmetros detectados
+                    try:
+                        agno_image = AgnoImage(
+                            content=image_bytes,
+                            format=agno_params['format'],
+                            detail=agno_params['detail']
+                        )
+                        emoji_logger.agentic_thinking("AGNO Image criado com sucesso")
                         
-                        # Tentar abrir com PIL mesmo assim
-                        try:
-                            test_img = PILImage.open(BytesIO(image_bytes))
-                            test_img.verify()  # Verificar se é uma imagem válida
-                            emoji_logger.system_info("Fallback PIL bem-sucedido - imagem aceita")
-                            # Reabrir para uso (verify fecha o arquivo)
-                            img = PILImage.open(BytesIO(image_bytes))
-                        except Exception as fallback_error:
-                            emoji_logger.system_error("PIL Fallback", f"Formato realmente não suportado: {str(fallback_error)}")
-                            return {
-                                "type": "image",
-                                "error": "Formato de imagem não suportado",
-                                "status": "error",
-                                "fallback": "Por favor, envie a imagem em formato comum (JPEG, PNG, GIF, etc.) ou descreva o que você precisa."
-                            }
-                    else:
-                        # Formato reconhecido, processar normalmente
-                        try:
-                            img = PILImage.open(BytesIO(image_bytes))
-                        except Exception as pil_error:
-                            emoji_logger.system_error("PIL", f"Não foi possível abrir imagem reconhecida: {str(pil_error)}")
-                            return {
-                                "type": "image",
-                                "error": f"Não foi possível processar a imagem: {str(pil_error)}",
-                                "status": "error",
-                                "fallback": "Por favor, envie a imagem em outro formato ou descreva o que você precisa."
-                            }
-                    emoji_logger.agentic_thinking(f"Dimensões originais: {img.width}x{img.height}")
-                    
-                    # Otimizar imagem para Gemini
-                    max_dimension = 768  # Tamanho seguro para Gemini
-                    
-                    if img.width > max_dimension or img.height > max_dimension:
-                        ratio = min(max_dimension / img.width, max_dimension / img.height)
-                        new_size = (int(img.width * ratio), int(img.height * ratio))
-                        img = img.resize(new_size, PILImage.Resampling.LANCZOS)
-                        emoji_logger.agentic_multimodal(f"Imagem redimensionada: {img.width}x{img.height}")
-                    
-                    # Converter para RGB se necessário
-                    if img.mode != 'RGB':
-                        if img.mode == 'RGBA':
-                            # Criar fundo branco para transparência
-                            rgb_img = PILImage.new('RGB', img.size, (255, 255, 255))
-                            rgb_img.paste(img, mask=img.split()[-1])
-                            img = rgb_img
+                        # Usar o agente AGNO para análise da imagem
+                        # Criar agente temporário para análise de imagem se necessário
+                        temp_agent = Agent(
+                            model=self.model,
+                            markdown=True,
+                            show_tool_calls=False
+                        )
+                        
+                        # Processar imagem com AGNO nativo
+                        emoji_logger.agentic_thinking("Enviando para AGNO Agent com Gemini Vision...")
+                        response = temp_agent.run(
+                            analysis_prompt,
+                            images=[agno_image]
+                        )
+                        
+                        # Extrair conteúdo da resposta AGNO
+                        if hasattr(response, 'content'):
+                            analysis_content = response.content
+                        elif isinstance(response, dict) and 'content' in response:
+                            analysis_content = response['content']
+                        elif isinstance(response, str):
+                            analysis_content = response
                         else:
-                            img = img.convert('RGB')
-                    
-                    # Otimizar como JPEG
-                    output = BytesIO()
-                    img.save(output, format='JPEG', quality=80, optimize=True)
-                    optimized_bytes = output.getvalue()
-                    
-                    # Reabrir imagem otimizada
-                    img = PILImage.open(BytesIO(optimized_bytes))
-                    emoji_logger.agentic_multimodal(f"Imagem otimizada: {len(optimized_bytes):,} bytes ({len(optimized_bytes)/original_size*100:.1f}%)")
-                    
-                    # Usar Gemini nativo diretamente
-                    emoji_logger.agentic_thinking("Enviando para Gemini Vision...")
-                    
-                    # Configurar Gemini
-                    from app.config import settings
-                    genai.configure(api_key=settings.google_api_key)
-                    model = genai.GenerativeModel('gemini-2.5-pro')
-                    
-                    # Enviar imagem com prompt
-                    response = model.generate_content([
-                        analysis_prompt,
-                        img
-                    ])
-                    
-                    # Extrair resposta
-                    if hasattr(response, 'text'):
-                        result = response
-                    else:
-                        result = response
-                    
-                    # Extrair conteúdo do resultado
-                    if hasattr(result, 'text'):
-                        analysis_content = result.text
-                    elif hasattr(result, 'content'):
-                        analysis_content = result.content
-                    elif isinstance(result, dict) and 'content' in result:
-                        analysis_content = result['content']
-                    elif isinstance(result, str):
-                        analysis_content = result
-                    else:
-                        analysis_content = str(result)
+                            analysis_content = str(response)
+                            
+                    except Exception as agno_error:
+                        emoji_logger.system_warning(f"AGNO Image processamento falhou: {str(agno_error)}")
+                        
+                        # Fallback: tentar processamento direto com PIL+Gemini se AGNO falhar
+                        from io import BytesIO
+                        from PIL import Image as PILImage
+                        import google.generativeai as genai
+                        
+                        try:
+                            img = PILImage.open(BytesIO(image_bytes))
+                            
+                            # Configurar Gemini diretamente como fallback
+                            from app.config import settings
+                            genai.configure(api_key=settings.google_api_key)
+                            model = genai.GenerativeModel('gemini-2.5-pro')
+                            
+                            # Enviar imagem com prompt
+                            response = model.generate_content([analysis_prompt, img])
+                            analysis_content = response.text if hasattr(response, 'text') else str(response)
+                            
+                            emoji_logger.system_info("Fallback PIL+Gemini bem-sucedido")
+                            
+                        except Exception as fallback_error:
+                            emoji_logger.system_error("Fallback completo", f"Erro: {str(fallback_error)}")
+                            return {
+                                "type": "image",
+                                "error": f"Não foi possível processar a imagem: {str(fallback_error)}",
+                                "status": "error",
+                                "suggestion": "Tente enviar a imagem em formato JPEG ou PNG"
+                            }
                         
                     emoji_logger.agentic_multimodal("Análise de imagem concluída com sucesso")
                     
@@ -910,21 +1044,164 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     }
             
             elif media_type in ["document", "pdf"]:
-                # Processar documento
+                # AGNO Framework - Processamento nativo de documentos
+                emoji_logger.agentic_multimodal("Processando documento com AGNO Framework nativo")
+                
                 try:
-                    from app.services.document_extractor import document_extractor
+                    # AGNO Framework Solution: Usar document readers nativos
+                    import base64
+                    from io import BytesIO
                     
-                    emoji_logger.agentic_thinking("Extraindo texto do documento com DocumentExtractor...")
+                    # Decodificar base64 para bytes
+                    document_bytes = base64.b64decode(media_data)
+                    original_size = len(document_bytes)
+                    emoji_logger.agentic_multimodal(f"Documento decodificado: {original_size:,} bytes")
                     
-                    # Detectar mimetype
-                    mimetype = "application/pdf" if media_type == "pdf" else "application/octet-stream"
+                    # AGNO Framework - Detecção robusta de formato de documento
+                    from app.utils.agno_media_detection import agno_media_detector
                     
-                    # Extrair texto
-                    result = await document_extractor.extract_from_document(
-                        media_data,
-                        mimetype=mimetype,
-                        max_chars=10000
-                    )
+                    detection_result = agno_media_detector.detect_media_type(document_bytes)
+                    
+                    if not detection_result['detected']:
+                        emoji_logger.system_warning(f"Formato de documento não reconhecido pelo AGNO: {detection_result.get('magic_bytes', 'N/A')}")
+                        # Usar fallback suggestion
+                        fallback_msg = detection_result.get('fallback_suggestion', 'Formato não suportado')
+                        return {
+                            "type": "document",
+                            "error": f"Formato não suportado: {fallback_msg}",
+                            "status": "unsupported_format",
+                            "agno_detection": detection_result
+                        }
+                    
+                    document_type = detection_result['format']
+                    agno_params = detection_result['recommended_params']
+                    is_pdf = document_type == 'pdf'
+                    is_docx = document_type == 'docx'
+                    
+                    emoji_logger.agentic_thinking(f"AGNO detectou documento: {document_type} (confiança: {detection_result['confidence']})")
+                    
+                    # Determinar tipo e usar AGNO reader apropriado
+                    extracted_text = ""
+                    doc_metadata = {}
+                    
+                    if is_pdf:
+                        try:
+                            # AGNO PDFReader nativo
+                            from agno.document import PDFReader
+                            
+                            emoji_logger.agentic_thinking("Usando AGNO PDFReader...")
+                            
+                            # Criar BytesIO stream para PDFReader
+                            pdf_stream = BytesIO(document_bytes)
+                            
+                            # Usar AGNO PDFReader
+                            pdf_reader = PDFReader(pdf=pdf_stream)
+                            extracted_text = pdf_reader.read()
+                            
+                            document_type = "pdf"
+                            doc_metadata = {
+                                "reader": "agno_pdf_reader",
+                                "format": "pdf",
+                                "size_bytes": original_size
+                            }
+                            
+                            emoji_logger.agentic_thinking("AGNO PDFReader processamento concluído")
+                            
+                        except Exception as pdf_error:
+                            emoji_logger.system_warning(f"AGNO PDFReader falhou: {str(pdf_error)}")
+                            
+                            # Fallback para processamento manual se AGNO falhar
+                            try:
+                                import pypdf
+                                from io import BytesIO
+                                
+                                pdf_stream = BytesIO(document_bytes)
+                                reader = pypdf.PdfReader(pdf_stream)
+                                
+                                text_parts = []
+                                for page_num, page in enumerate(reader.pages):
+                                    page_text = page.extract_text()
+                                    if page_text:
+                                        text_parts.append(f"--- Página {page_num + 1} ---\n{page_text}")
+                                
+                                extracted_text = "\n\n".join(text_parts)
+                                document_type = "pdf"
+                                doc_metadata = {
+                                    "reader": "pypdf_fallback",
+                                    "format": "pdf",
+                                    "pages": len(reader.pages),
+                                    "size_bytes": original_size
+                                }
+                                
+                                emoji_logger.system_info("Fallback pypdf bem-sucedido")
+                                
+                            except Exception as fallback_error:
+                                raise Exception(f"PDF processing failed: {str(fallback_error)}")
+                    
+                    elif is_docx:
+                        try:
+                            # AGNO DocxReader nativo
+                            from agno.document import DocxReader
+                            
+                            emoji_logger.agentic_thinking("Usando AGNO DocxReader...")
+                            
+                            # Criar BytesIO stream para DocxReader
+                            docx_stream = BytesIO(document_bytes)
+                            
+                            # Usar AGNO DocxReader
+                            docx_reader = DocxReader(file=docx_stream)
+                            extracted_text = docx_reader.read()
+                            
+                            document_type = "docx"
+                            doc_metadata = {
+                                "reader": "agno_docx_reader",
+                                "format": "docx",
+                                "size_bytes": original_size
+                            }
+                            
+                            emoji_logger.agentic_thinking("AGNO DocxReader processamento concluído")
+                            
+                        except Exception as docx_error:
+                            emoji_logger.system_warning(f"AGNO DocxReader falhou: {str(docx_error)}")
+                            
+                            # Fallback para processamento manual se AGNO falhar
+                            try:
+                                import docx
+                                from io import BytesIO
+                                
+                                docx_stream = BytesIO(document_bytes)
+                                doc = docx.Document(docx_stream)
+                                
+                                paragraphs = []
+                                for paragraph in doc.paragraphs:
+                                    if paragraph.text.strip():
+                                        paragraphs.append(paragraph.text.strip())
+                                
+                                extracted_text = "\n\n".join(paragraphs)
+                                document_type = "docx"
+                                doc_metadata = {
+                                    "reader": "python_docx_fallback",
+                                    "format": "docx",
+                                    "paragraphs": len(paragraphs),
+                                    "size_bytes": original_size
+                                }
+                                
+                                emoji_logger.system_info("Fallback python-docx bem-sucedido")
+                                
+                            except Exception as fallback_error:
+                                raise Exception(f"DOCX processing failed: {str(fallback_error)}")
+                    
+                    else:
+                        # Formato não suportado pelos readers AGNO
+                        raise Exception(f"Formato de documento não suportado. Magic bytes: {magic_bytes[:8].hex()}")
+                    
+                    # Processar resultado
+                    result = {
+                        "status": "success",
+                        "text": extracted_text,
+                        "document_type": document_type,
+                        "metadata": doc_metadata
+                    }
                     
                     if result["status"] == "success":
                         extracted_text = result["text"]
