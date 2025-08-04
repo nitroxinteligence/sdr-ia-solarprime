@@ -130,6 +130,7 @@ class FollowUpAgent:
         
         logger.info("✅ FollowUpAgent inicializado")
     
+    @tool
     async def schedule_followup(
         self,
         lead_id: str,
@@ -211,6 +212,7 @@ class FollowUpAgent:
                 "error": str(e)
             }
     
+    @tool
     async def send_followup_message(
         self,
         lead_id: str,
@@ -285,6 +287,7 @@ class FollowUpAgent:
                 "error": str(e)
             }
     
+    @tool
     async def create_nurturing_campaign(
         self,
         lead_id: str,
@@ -371,6 +374,7 @@ class FollowUpAgent:
                 "error": str(e)
             }
     
+    @tool
     async def check_followup_status(
         self,
         lead_id: str,
@@ -448,6 +452,7 @@ class FollowUpAgent:
                 "error": str(e)
             }
     
+    @tool
     async def cancel_followup(
         self,
         followup_id: Optional[str] = None,
@@ -508,6 +513,7 @@ class FollowUpAgent:
                 "error": str(e)
             }
     
+    @tool
     async def get_best_followup_time(
         self,
         lead_id: str,
@@ -580,6 +586,7 @@ class FollowUpAgent:
                 "error": str(e)
             }
     
+    @tool
     async def track_engagement(
         self,
         lead_id: str,
@@ -661,6 +668,7 @@ class FollowUpAgent:
                 "error": str(e)
             }
     
+    @tool
     async def personalize_message(
         self,
         lead_id: str,
@@ -833,6 +841,7 @@ class FollowUpAgent:
         else:
             return "evening"
     
+    @tool
     async def analyze_engagement(
         self,
         lead_id: int
@@ -895,6 +904,7 @@ class FollowUpAgent:
                 "error": str(e)
             }
     
+    @tool
     async def get_followup_strategy(
         self,
         lead_id: int
@@ -960,6 +970,7 @@ class FollowUpAgent:
                 "error": str(e)
             }
     
+    @tool
     async def list_pending_followups(
         self,
         lead_id: Optional[int] = None,
@@ -1013,6 +1024,7 @@ class FollowUpAgent:
                 "followups": []
             }
     
+    @tool
     async def execute_immediate_followup(
         self,
         lead_id: int,
@@ -1076,6 +1088,7 @@ class FollowUpAgent:
                 "error": str(e)
             }
     
+    @tool
     async def update_followup_status(
         self,
         followup_id: int,

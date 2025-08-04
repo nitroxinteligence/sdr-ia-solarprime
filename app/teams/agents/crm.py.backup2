@@ -15,8 +15,6 @@ import aiohttp
 from app.integrations.supabase_client import supabase_client
 from app.config import settings
 
-from app.teams.agents.tool_wrapper import ToolRegistry, create_tool_from_method
-
 
 class DealStage(Enum):
     """Estágios do pipeline no Kommo"""
@@ -90,15 +88,17 @@ class CRMAgent:
         self.cache_ttl = 3600  # 1 hora
         
         # Tools do agente
-        
-        # Tool Registry para gerenciar tools
-        self.tool_registry = ToolRegistry()
-        
-        # Registrar métodos como tools após inicialização completa
-        self._tools_registered = False
-        
-        # Inicializar lista de tools vazia por enquanto
-        self.tools = [*self._create_tools()]
+        self.tools = [
+            self.create_or_update_lead,
+            self.create_contact,
+            self.create_deal,
+            self.update_deal_stage,
+            self.add_note,
+            self.add_task,
+            self.search_entity,
+            self.sync_lead_to_crm,
+            self.get_deal_history
+        ]
         
         # Criar o agente
         self.agent = Agent(
@@ -143,50 +143,6 @@ class CRMAgent:
         
         logger.info("✅ CRMAgent inicializado")
     
-
-
-    def _create_tools(self):
-        """Cria tools usando wrappers para os métodos"""
-        from agno.tools import tool
-        tools = []
-        
-        @tool
-        async def ensure_initialized_tool(*args, **kwargs):
-            return await self.ensure_initialized(*args, **kwargs)
-        ensure_initialized_tool.__name__ = 'ensure_initialized'
-        tools.append(ensure_initialized_tool)
-        
-        return tools
-
-    def _register_tools(self):
-        """Registra métodos como tools usando ToolRegistry"""
-        if self._tools_registered:
-            return
-            
-        methods_to_register = [
-            'create_or_update_lead',
-            'create_contact', 
-            'create_deal',
-            'update_deal_stage',
-            'add_note',
-            'add_task',
-            'search_entity',
-            'sync_lead_to_crm',
-            'get_deal_history'
-        ]
-        
-        for method_name in methods_to_register:
-            if hasattr(self, method_name):
-                method = getattr(self, method_name)
-                self.tool_registry.register_method_as_tool(method, self, method_name)
-                
-        self._tools_registered = True
-        self.tools = self.tool_registry.get_tools()
-        
-        # Atualizar tools do agente
-        if hasattr(self, 'agent'):
-            self.agent.tools = self.tools
-    
     async def initialize(self):
         """Inicializa campos personalizados e stages do pipeline automaticamente"""
         if self._initialized:
@@ -200,7 +156,6 @@ class CRMAgent:
             await self._fetch_pipeline_stages()
             
             self._initialized = True
-            self._register_tools()
             logger.info("✅ Campos e stages do Kommo carregados automaticamente")
             
         except Exception as e:
@@ -281,6 +236,8 @@ class CRMAgent:
         """Garante que o agente está inicializado antes de executar operações"""
         if not self._initialized:
             await self.initialize()
+    
+    @tool
     async def create_or_update_lead(
         self,
         lead_data: Dict[str, Any],
@@ -371,6 +328,8 @@ class CRMAgent:
                 "success": False,
                 "error": str(e)
             }
+    
+    @tool
     async def create_contact(
         self,
         contact_data: Dict[str, Any]
@@ -430,6 +389,8 @@ class CRMAgent:
                 "success": False,
                 "error": str(e)
             }
+    
+    @tool
     async def create_deal(
         self,
         lead_id: str,
@@ -507,6 +468,8 @@ class CRMAgent:
                 "success": False,
                 "error": str(e)
             }
+    
+    @tool
     async def update_deal_stage(
         self,
         deal_id: str,
@@ -568,6 +531,8 @@ class CRMAgent:
                 "success": False,
                 "error": str(e)
             }
+    
+    @tool
     async def add_note(
         self,
         entity_type: str,  # leads/contacts/companies
@@ -625,6 +590,8 @@ class CRMAgent:
                 "success": False,
                 "error": str(e)
             }
+    
+    @tool
     async def add_task(
         self,
         entity_type: str,
@@ -691,6 +658,8 @@ class CRMAgent:
                 "success": False,
                 "error": str(e)
             }
+    
+    @tool
     async def search_entity(
         self,
         entity_type: str,
@@ -751,6 +720,8 @@ class CRMAgent:
                 "success": False,
                 "error": str(e)
             }
+    
+    @tool
     async def sync_lead_to_crm(
         self,
         lead_id: str,
@@ -837,6 +808,8 @@ class CRMAgent:
                 "success": False,
                 "error": str(e)
             }
+    
+    @tool
     async def get_deal_history(
         self,
         deal_id: str

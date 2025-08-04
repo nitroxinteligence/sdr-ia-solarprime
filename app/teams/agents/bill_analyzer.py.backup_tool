@@ -147,6 +147,7 @@ class BillAnalyzerAgent:
         
         logger.info("✅ BillAnalyzerAgent inicializado")
     
+    @tool
     async def analyze_bill_image(
         self,
         image_data: str,  # Base64
@@ -263,6 +264,7 @@ class BillAnalyzerAgent:
                 "error": str(e)
             }
     
+    @tool
     async def extract_bill_data(
         self,
         text: str
@@ -326,6 +328,7 @@ class BillAnalyzerAgent:
                 "error": str(e)
             }
     
+    @tool
     async def calculate_savings(
         self,
         bill_value: float,
@@ -399,6 +402,7 @@ class BillAnalyzerAgent:
                 "error": str(e)
             }
     
+    @tool
     async def calculate_solar_system(
         self,
         consumption_kwh: float,
@@ -483,6 +487,7 @@ class BillAnalyzerAgent:
                 "error": str(e)
             }
     
+    @tool
     async def compare_bills(
         self,
         bills: List[Dict[str, Any]]
@@ -549,6 +554,7 @@ class BillAnalyzerAgent:
                 "error": str(e)
             }
     
+    @tool
     async def generate_proposal(
         self,
         lead_id: str,
@@ -657,6 +663,7 @@ class BillAnalyzerAgent:
                 "error": str(e)
             }
     
+    @tool
     async def validate_bill_value(
         self,
         bill_value: float
@@ -704,6 +711,7 @@ class BillAnalyzerAgent:
                 "error": str(e)
             }
     
+    @tool
     async def identify_provider(
         self,
         text: str,

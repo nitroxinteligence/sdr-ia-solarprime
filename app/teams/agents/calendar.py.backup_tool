@@ -102,6 +102,7 @@ class CalendarAgent:
         # Cria funções que preservam self
         agent_self = self
         
+        @tool
         async def schedule_meeting_tool(
             lead_id: int,
             date: str,
@@ -117,6 +118,7 @@ class CalendarAgent:
                 meeting_type, description, location
             )
         
+        @tool
         async def check_availability_tool(
             date: str,
             time: str,
@@ -127,6 +129,7 @@ class CalendarAgent:
                 date, time, duration_minutes
             )
         
+        @tool
         async def reschedule_meeting_tool(
             event_id: str,
             new_date: str,
@@ -137,6 +140,7 @@ class CalendarAgent:
                 event_id, new_date, new_time
             )
         
+        @tool
         async def cancel_meeting_tool(
             event_id: str,
             reason: str = ""
@@ -144,6 +148,7 @@ class CalendarAgent:
             """Cancela uma reunião"""
             return await agent_self.cancel_meeting(event_id, reason)
         
+        @tool
         async def list_upcoming_meetings_tool(
             lead_id: Optional[int] = None,
             days_ahead: int = 7
@@ -151,6 +156,7 @@ class CalendarAgent:
             """Lista próximas reuniões"""
             return await agent_self.list_upcoming_meetings(lead_id, days_ahead)
         
+        @tool
         async def send_meeting_reminder_tool(
             event_id: str,
             custom_message: str = ""
@@ -158,6 +164,7 @@ class CalendarAgent:
             """Envia lembrete de reunião"""
             return await agent_self.send_meeting_reminder(event_id, custom_message)
         
+        @tool
         async def find_best_slots_tool(
             date_start: str,
             date_end: str,
@@ -726,6 +733,7 @@ class CalendarAgent:
         
         return best_times
     
+    @tool
     async def get_available_slots(
         self,
         days_ahead: int = 7,

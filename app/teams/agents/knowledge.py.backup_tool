@@ -83,7 +83,16 @@ class KnowledgeAgent:
         self.cache_ttl = 3600  # 1 hora
         
         # Tools do agente
-        self.tools = [*self._create_tools()]
+        self.tools = [
+            self.search_knowledge,
+            self.add_document,
+            self.update_document,
+            self.get_document_by_id,
+            self.search_similar_questions,
+            self.extract_key_facts,
+            self.generate_answer_with_sources,
+            self.manage_knowledge_categories
+        ]
         
         # Criar o agente
         self.agent = Agent(
@@ -190,6 +199,7 @@ class KnowledgeAgent:
         except Exception as e:
             logger.error(f"Erro ao carregar knowledge base: {e}")
     
+    @tool
     async def search_knowledge(
         self,
         query: str,
@@ -269,6 +279,7 @@ class KnowledgeAgent:
             logger.error(f"Erro na busca: {e}")
             return []
     
+    @tool
     async def add_document(
         self,
         title: str,
@@ -406,6 +417,7 @@ class KnowledgeAgent:
                 "error": str(e)
             }
     
+    @tool
     async def update_document(
         self,
         document_id: str,
@@ -475,6 +487,7 @@ class KnowledgeAgent:
                 "error": str(e)
             }
     
+    @tool
     async def get_document_by_id(
         self,
         document_id: str
@@ -504,6 +517,7 @@ class KnowledgeAgent:
             logger.error(f"Erro ao buscar documento: {e}")
             return None
     
+    @tool
     async def search_similar_questions(
         self,
         question: str,
@@ -551,6 +565,7 @@ class KnowledgeAgent:
             logger.error(f"Erro ao buscar perguntas similares: {e}")
             return []
     
+    @tool
     async def extract_key_facts(
         self,
         topic: str,
@@ -603,6 +618,7 @@ class KnowledgeAgent:
             logger.error(f"Erro ao extrair fatos: {e}")
             return []
     
+    @tool
     async def generate_answer_with_sources(
         self,
         question: str,
@@ -688,6 +704,7 @@ class KnowledgeAgent:
                 "error": str(e)
             }
     
+    @tool
     async def manage_knowledge_categories(
         self,
         action: str,  # list/add/remove/rename
@@ -783,20 +800,6 @@ class KnowledgeAgent:
     
     # Métodos auxiliares privados
     
-
-    def _create_tools(self):
-        """Cria tools usando wrappers para os métodos"""
-        from agno.tools import tool
-        tools = []
-        
-        @tool
-        async def load_knowledge_base_tool(*args, **kwargs):
-            return await self.load_knowledge_base(*args, **kwargs)
-        load_knowledge_base_tool.__name__ = 'load_knowledge_base'
-        tools.append(load_knowledge_base_tool)
-        
-        return tools
-
     def _chunk_text(self, text: str) -> List[str]:
         """Divide texto em chunks para embeddings"""
         chunks = []

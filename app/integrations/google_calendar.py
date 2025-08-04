@@ -285,24 +285,26 @@ class GoogleCalendarClient:
             elif attendees:
                 logger.warning("⚠️ Service Account não pode convidar participantes sem Domain-Wide Delegation. Ignorando attendees.")
             
-            # Criar Google Meet automaticamente se solicitado
+            # Configurar Google Meet se solicitado
+            # Usa handler inteligente que detecta capacidades
+            conference_data_version = 0
+            
             if conference_data:
-                # Gerar requestId único e válido (alfanumérico)
-                import uuid
-                request_id = str(uuid.uuid4())[:10]
+                from app.integrations.google_meet_handler import google_meet_handler
                 
-                event['conferenceData'] = {
-                    'createRequest': {
-                        'requestId': request_id,
-                        'conferenceSolutionKey': {
-                            'type': 'hangoutsMeet'  # Tipo correto para Google Meet
-                        }
-                    }
-                }
-                # Parâmetro necessário para criar conferência
-                conference_data_version = 1
-            else:
-                conference_data_version = 0
+                # Handler inteligente aprimora o evento para suportar Meet
+                event = google_meet_handler.enhance_event_for_meet(
+                    event_data=event,
+                    title=title,
+                    description=description
+                )
+                
+                # Se podemos criar Meet, usar conferenceDataVersion
+                if google_meet_handler.can_create_meet:
+                    conference_data_version = 1
+                    logger.info("🎥 Google Meet será criado nativamente via Calendar API")
+                else:
+                    logger.info("⚠️ Google Meet requer configuração manual (instruções na descrição)")
             
             # Criar requisição
             request = self.service.events().insert(
@@ -318,6 +320,13 @@ class GoogleCalendarClient:
             if created_event:
                 logger.info(f"✅ Evento criado: {created_event.get('id')} - {title}")
                 
+                # Processar evento com handler para extrair informações do Meet
+                if conference_data:
+                    from app.integrations.google_meet_handler import google_meet_handler
+                    meet_info = google_meet_handler.process_created_event(created_event)
+                else:
+                    meet_info = {'has_meet': False, 'meet_link': None, 'meet_setup_required': False}
+                
                 # Extrair informações relevantes
                 result = {
                     'google_event_id': created_event.get('id'),
@@ -326,7 +335,10 @@ class GoogleCalendarClient:
                     'end': created_event.get('end'),
                     'status': created_event.get('status', 'confirmed'),
                     'hangout_link': created_event.get('hangoutLink'),  # Link do Google Meet se criado
-                    'conference_data': created_event.get('conferenceData')  # Dados completos da conferência
+                    'conference_data': created_event.get('conferenceData'),  # Dados completos da conferência
+                    'meet_link': meet_info.get('meet_link') or created_event.get('hangoutLink'),  # Link do Meet
+                    'has_meet': meet_info.get('has_meet', False),  # Se tem Meet configurado
+                    'meet_setup_required': meet_info.get('meet_setup_required', False)  # Se precisa configuração manual
                 }
                 
                 return result

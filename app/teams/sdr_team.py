@@ -30,6 +30,9 @@ from app.teams.agents.knowledge import KnowledgeAgent
 from app.teams.agents.crm import CRMAgent
 from app.teams.agents.bill_analyzer import BillAnalyzerAgent
 
+import re
+from datetime import datetime, timedelta
+
 
 class ConversationStage(Enum):
     """Estágios da conversa com o lead"""
@@ -406,7 +409,7 @@ class SDRTeam:
                     stream=True,
                     stream_intermediate_steps=True
                 ):
-                    if hasattr(chunk, 'content'):
+                    if hasattr(chunk, 'content') and chunk.content is not None:
                         response_text += chunk.content
             
             # Atualizar contexto no banco
@@ -511,6 +514,78 @@ class SDRTeam:
         """Verifica se o Team está pronto"""
         return self.is_initialized
     
+    def extract_meeting_info(self, text: str) -> Dict[str, Any]:
+        """
+        Extrai informações de agendamento do texto
+        Retorna dados estruturados para agendamento real
+        """
+        info = {
+            "date": None,
+            "time": None,
+            "email": None,
+            "phone": None,
+            "name": None,
+            "duration": 30  # Padrão 30 minutos
+        }
+        
+        # Extrair data (hoje, amanhã, ou data específica)
+        text_lower = text.lower()
+        if "hoje" in text_lower:
+            info["date"] = datetime.now().strftime("%d/%m/%Y")
+        elif "amanhã" in text_lower:
+            info["date"] = (datetime.now() + timedelta(days=1)).strftime("%d/%m/%Y")
+        else:
+            # Procurar por datas no formato DD/MM ou DD/MM/YYYY
+            date_pattern = r'(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?'
+            date_match = re.search(date_pattern, text)
+            if date_match:
+                day, month, year = date_match.groups()
+                if year:
+                    year = year if len(year) == 4 else f"20{year}"
+                else:
+                    year = str(datetime.now().year)
+                info["date"] = f"{day.zfill(2)}/{month.zfill(2)}/{year}"
+        
+        # Extrair horário
+        time_patterns = [
+            r'(\d{1,2})[h:]\s*(\d{0,2})',  # 14h, 14:30, 14h30
+            r'às\s*(\d{1,2})[h:]\s*(\d{0,2})',  # às 14h
+            r'(\d{1,2})\s*(?:horas?)',  # 14 horas
+        ]
+        
+        for pattern in time_patterns:
+            time_match = re.search(pattern, text, re.IGNORECASE)
+            if time_match:
+                groups = time_match.groups()
+                hour = groups[0]
+                minute = groups[1] if len(groups) > 1 and groups[1] else "00"
+                info["time"] = f"{hour.zfill(2)}:{minute.zfill(2)}"
+                break
+        
+        # Extrair email
+        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        email_match = re.search(email_pattern, text)
+        if email_match:
+            info["email"] = email_match.group(0).lower()
+        
+        # Extrair telefone
+        phone_pattern = r'(?:55)?(\d{2})[\s\-]?(\d{4,5})[\s\-]?(\d{4})'
+        phone_match = re.search(phone_pattern, text)
+        if phone_match:
+            info["phone"] = ''.join(phone_match.groups())
+        
+        # Extrair duração se mencionada
+        if "1 hora" in text_lower or "uma hora" in text_lower:
+            info["duration"] = 60
+        elif "45 min" in text_lower:
+            info["duration"] = 45
+        elif "15 min" in text_lower:
+            info["duration"] = 15
+        elif "2 hora" in text_lower or "duas hora" in text_lower:
+            info["duration"] = 120
+        
+        return info
+    
     async def process_message_with_context(
         self,
         enriched_context: Dict[str, Any]
@@ -596,19 +671,79 @@ class SDRTeam:
                 logger.info(f"📅 AGENT RECOMENDADO: {recommended_agent}")
                 logger.info(f"📅 Razão: {reasoning}")
                 
-                # Verificar se é CalendarAgent
+                # Verificar se é CalendarAgent - EXECUTAR DIRETAMENTE, NÃO SIMULAR!
                 if recommended_agent == "CalendarAgent":
-                    logger.info("🗓️ ATIVANDO CalendarAgent para processar solicitação de agendamento!")
+                    logger.info("🗓️ ATIVANDO CalendarAgent para EXECUÇÃO REAL de agendamento!")
+                    
                     if self.calendar_agent:
-                        logger.info("✅ CalendarAgent está disponível e será usado")
+                        logger.info("✅ CalendarAgent disponível - EXECUTANDO AGENDAMENTO REAL...")
+                        
+                        # Extrair informações da reunião
+                        meeting_info = self.extract_meeting_info(message)
+                        
+                        # Se não tiver data/hora, usar padrões inteligentes
+                        if not meeting_info['date']:
+                            meeting_info['date'] = datetime.now().strftime("%d/%m/%Y")
+                        if not meeting_info['time']:
+                            meeting_info['time'] = "14:00"  # Horário padrão
+                        if not meeting_info['email'] and lead_data:
+                            meeting_info['email'] = lead_data.get('email', '')
+                        
+                        # EXECUTAR AGENDAMENTO REAL VIA CALENDAR AGENT
+                        logger.info(f"🚀 CRIANDO EVENTO REAL: {meeting_info['date']} às {meeting_info['time']}")
+                        
+                        try:
+                            # Chamar o método schedule_meeting do CalendarAgent com assinatura correta
+                            result = await self.calendar_agent.schedule_meeting(
+                                lead_id=lead_data.get('id', phone),
+                                title=f"Reunião Solar Prime - {lead_data.get('name', phone)}",
+                                date=meeting_info['date'],  # formato DD/MM/YYYY
+                                time=meeting_info['time'],  # formato HH:MM
+                                duration_minutes=meeting_info.get('duration', 30),
+                                meeting_type="presentation",
+                                attendee_emails=[meeting_info['email']] if meeting_info['email'] else [],
+                                description=f"Reunião agendada via WhatsApp\nTelefone: {phone}\nMensagem original: {message}",
+                                location="Online - Google Meet"
+                            )
+                            
+                            if result:
+                                event_id = result.get('google_event_id', 'Aguardando confirmação')
+                                logger.info(f"✅ REUNIÃO AGENDADA COM SUCESSO! Event ID: {event_id}")
+                                
+                                # Retornar mensagem de confirmação REAL
+                                return f"""✅ Perfeito! Sua reunião está confirmada!
+
+📅 **Data**: {meeting_info['date']} às {meeting_info['time']}
+⏱️ **Duração**: {meeting_info.get('duration', 30)} minutos
+📧 **Convite**: {meeting_info['email'] if meeting_info['email'] else 'Será enviado em breve'}
+🎥 **Google Meet**: {result.get('meet_link', 'Link será gerado')}
+📋 **ID do Evento**: {result.get('google_event_id')}
+
+Você receberá lembretes:
+• 24 horas antes
+• 2 horas antes
+
+Até lá! 😊"""
+                            else:
+                                error_msg = result.get('error', 'Erro ao criar evento') if result else 'Sem resposta'
+                                logger.error(f"❌ Falha ao agendar: {error_msg}")
+                                return f"Ops! Tive um problema ao agendar. Vou tentar novamente... Erro: {error_msg}"
+                                
+                        except Exception as e:
+                            logger.error(f"❌ Erro ao executar agendamento: {e}")
+                            return f"Desculpe, encontrei um erro ao agendar: {e}. Vou verificar e tentar novamente."
+                    
                     else:
                         logger.error("❌ CalendarAgent NÃO está disponível! Verifique as configurações")
+                        return "No momento não consigo agendar reuniões. Por favor, entre em contato pelo telefone."
                 
-                # Ativar agente específico baseado na recomendação
-                emoji_logger.team_delegate(recommended_agent, "Processamento especializado")
-                
-                # Configurar instruções específicas para o Team Leader
-                self.team.instructions += f"\n\nPRIORIZE o {recommended_agent} para esta tarefa específica"
+                # Para outros agentes, manter comportamento original
+                else:
+                    # Ativar agente específico baseado na recomendação
+                    emoji_logger.team_delegate(recommended_agent, "Processamento especializado")
+                    
+                    # Configurar instruções específicas para o Team Leader
+                    self.team.instructions += f"\n\nPRIORIZE o {recommended_agent} para esta tarefa específica"
             
             # Executar Team
             result = await self.team.arun(

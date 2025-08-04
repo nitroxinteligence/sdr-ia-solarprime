@@ -13,8 +13,6 @@ from loguru import logger
 
 from app.integrations.supabase_client import supabase_client
 
-from app.teams.agents.tool_wrapper import ToolRegistry, create_tool_from_method
-
 
 class QualificationStage(Enum):
     """Estágios de qualificação do lead"""
@@ -83,15 +81,13 @@ class QualificationAgent:
         }
         
         # Tools do agente
-        
-        # Tool Registry para gerenciar tools
-        self.tool_registry = ToolRegistry()
-        
-        # Registrar métodos como tools
-        self._register_tools()
-        
-        # Obter tools registrados
-        self.tools = self.tool_registry.get_tools()
+        self.tools = [
+            self.calculate_qualification_score,
+            self.check_qualification_criteria,
+            self.classify_lead_temperature,
+            self.determine_next_action,
+            self.save_qualification_data
+        ]
         
         # Criar o agente
         self.agent = Agent(
@@ -126,21 +122,7 @@ class QualificationAgent:
         
         logger.info("✅ QualificationAgent inicializado")
     
-    def _register_tools(self):
-        """Registra métodos como tools usando ToolRegistry"""
-        methods_to_register = [
-            'calculate_qualification_score',
-            'check_qualification_criteria',
-            'classify_lead_temperature',
-            'determine_next_action',
-            'save_qualification_data'
-        ]
-        
-        for method_name in methods_to_register:
-            if hasattr(self, method_name):
-                method = getattr(self, method_name)
-                self.tool_registry.register_method_as_tool(method, self, method_name)
-    
+    @tool
     async def calculate_qualification_score(
         self,
         lead_id: str,
@@ -219,6 +201,8 @@ class QualificationAgent:
             "qualified": final_score >= 40,
             "calculated_at": datetime.now().isoformat()
         }
+    
+    @tool
     async def check_qualification_criteria(
         self,
         lead_id: str,
@@ -272,6 +256,8 @@ class QualificationAgent:
         logger.info(f"✅ Lead {lead_id} - Critérios: {results}")
         
         return results
+    
+    @tool
     async def classify_lead_temperature(
         self,
         score: int,
@@ -328,6 +314,8 @@ class QualificationAgent:
                 "urgency": has_urgency
             }
         }
+    
+    @tool
     async def determine_next_action(
         self,
         lead_id: str,
@@ -428,6 +416,8 @@ class QualificationAgent:
             "score": score,
             "has_objections": len(objections) > 0
         }
+    
+    @tool
     async def save_qualification_data(
         self,
         lead_id: str,
