@@ -120,6 +120,9 @@ class Settings(BaseSettings):
     enable_crm_agent: bool = Field(default=True, env="ENABLE_CRM_AGENT")
     enable_bill_analyzer_agent: bool = Field(default=True, env="ENABLE_BILL_ANALYZER_AGENT")
     
+    # Kommo Auto Sync
+    enable_kommo_auto_sync: bool = Field(default=True, env="ENABLE_KOMMO_AUTO_SYNC")
+    
     # Agente principal
     enable_agentic_sdr: bool = Field(default=True, env="ENABLE_AGENTIC_SDR")
     enable_sdr_team: bool = Field(default=True, env="ENABLE_SDR_TEAM")

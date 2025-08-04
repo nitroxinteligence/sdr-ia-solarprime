@@ -78,6 +78,18 @@ async def lifespan(app: FastAPI):
             await team.crm_agent.initialize()
             emoji_logger.system_ready("Kommo CRM")
         
+        # Inicializa Kommo Auto Sync Service
+        if settings.enable_kommo_auto_sync:
+            from app.services.kommo_auto_sync import kommo_auto_sync_service
+            
+            # Inicializar com o modelo e storage do team
+            model = team.model if hasattr(team, 'model') else None
+            storage = team.storage if hasattr(team, 'storage') else None
+            
+            await kommo_auto_sync_service.initialize(model=model, storage=storage)
+            await kommo_auto_sync_service.start()
+            emoji_logger.system_ready("Kommo Auto Sync", sync_interval="30s", features="leads, tags, pipeline, fields")
+        
         # Inicializa Calendar Sync Service
         if settings.enable_calendar_integration:
             from app.services.calendar_sync_service import calendar_sync_service
@@ -102,6 +114,12 @@ async def lifespan(app: FastAPI):
     emoji_logger.system_info("Encerrando SDR IA Solar Prime...")
     
     try:
+        # Para Kommo Auto Sync Service
+        if settings.enable_kommo_auto_sync:
+            from app.services.kommo_auto_sync import kommo_auto_sync_service
+            await kommo_auto_sync_service.stop()
+            emoji_logger.system_info("Kommo Auto Sync encerrado")
+        
         # Para Calendar Sync Service
         if settings.enable_calendar_integration:
             from app.services.calendar_sync_service import calendar_sync_service
@@ -150,6 +168,11 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(webhooks.router)
 # app.include_router(teams.router)  # Teams router not yet implemented
+
+# Rotas de teste (apenas em desenvolvimento)
+if settings.debug:
+    from app.api import test_kommo
+    app.include_router(test_kommo.router)
 
 # Exception handler global
 @app.exception_handler(Exception)
