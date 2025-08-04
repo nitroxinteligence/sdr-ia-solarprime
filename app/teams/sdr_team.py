@@ -700,11 +700,11 @@ class SDRTeam:
                                 title=f"☀️ Solar Prime - Reunião com {nome_lead}",
                                 date=meeting_info['date'],  # formato DD/MM/YYYY
                                 time=meeting_info['time'],  # formato HH:MM
-                                duration_minutes=meeting_info.get('duration', 30),
+                                duration_minutes=60,  # Sempre 1 hora
                                 meeting_type="presentation",
                                 attendee_emails=[meeting_info['email']] if meeting_info['email'] else [],
                                 description=f"Olá {nome_lead}! 😊\n\nSeja muito bem-vindo(a) à Solar Prime! ☀️\n\nEstamos muito felizes em ter você conosco nesta reunião que será super proveitosa!\n\nVamos apresentar como você pode economizar até 95% na sua conta de energia com nossa solução de energia solar.\n\nTenha em mãos sua última conta de energia para conversarmos sobre os valores e economia.\n\nAté breve!\nEquipe Solar Prime",
-                                location="Online - Google Meet"
+                                location="Online"
                             )
                             
                             if result:
@@ -715,7 +715,7 @@ class SDRTeam:
                                 return f"""✅ Perfeito! Sua reunião está confirmada!
 
 📅 **Data**: {meeting_info['date']} às {meeting_info['time']}
-⏱️ **Duração**: {meeting_info.get('duration', 30)} minutos
+⏱️ **Duração**: 1 hora
 📧 **Convite**: {meeting_info['email'] if meeting_info['email'] else 'Será enviado em breve'}
 🎥 **Google Meet**: {result.get('meet_link', 'Link será gerado')}
 📋 **ID do Evento**: {result.get('google_event_id')}
