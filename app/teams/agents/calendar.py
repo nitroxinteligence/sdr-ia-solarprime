@@ -235,23 +235,14 @@ class CalendarAgent:
                 "error": str(e)
             }
     
-    @tool
-    async def check_availability(
+    async def _check_availability_internal(
         self,
         date: str,  # formato: DD/MM/YYYY
         time: str,  # formato: HH:MM
         duration_minutes: int = 30
     ) -> Dict[str, Any]:
         """
-        Verifica disponibilidade em um horário específico
-        
-        Args:
-            date: Data no formato DD/MM/YYYY
-            time: Horário no formato HH:MM
-            duration_minutes: Duração em minutos
-            
-        Returns:
-            Status de disponibilidade
+        Implementação interna da verificação de disponibilidade
         """
         try:
             # Parse de data e hora
@@ -299,6 +290,31 @@ class CalendarAgent:
                 "available": False,
                 "error": str(e)
             }
+    
+    @tool
+    async def check_availability(
+        self,
+        date: str,  # formato: DD/MM/YYYY
+        time: str,  # formato: HH:MM
+        duration_minutes: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Verifica disponibilidade em um horário específico
+        
+        Args:
+            date: Data no formato DD/MM/YYYY
+            time: Horário no formato HH:MM
+            duration_minutes: Duração em minutos
+            
+        Returns:
+            Status de disponibilidade
+        """
+        # Chama a implementação interna
+        return await self._check_availability_internal(
+            date=date,
+            time=time,
+            duration_minutes=duration_minutes
+        )
     
     @tool
     async def reschedule_meeting(
@@ -440,6 +456,232 @@ class CalendarAgent:
                 "success": False,
                 "error": str(e)
             }
+    
+    async def _get_available_slots_internal(
+        self,
+        days_ahead: int = 7,
+        slot_duration_minutes: int = 30,
+        business_hours_only: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Implementação interna da busca de slots (pode ser chamada diretamente)
+        """
+        try:
+            available_slots = {}
+            occupied_slots = {}
+            
+            # Configuração de horário comercial
+            business_start = 9  # 9h
+            business_end = 18   # 18h
+            
+            # Data inicial (hoje)
+            current_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # Buscar eventos ocupados dos próximos dias
+            time_min = current_date
+            time_max = current_date + timedelta(days=days_ahead + 10)  # Buffer para garantir 7 dias úteis
+            
+            # Buscar eventos do Google Calendar
+            async with self.rate_limiter:
+                await asyncio.sleep(self.request_interval)
+                events = await self.calendar_client.list_events(
+                    time_min=time_min,
+                    time_max=time_max,
+                    max_results=100
+                )
+            
+            # Processar cada dia útil
+            business_days_count = 0
+            check_date = current_date
+            
+            while business_days_count < days_ahead:
+                # Pular finais de semana
+                if check_date.weekday() >= 5:  # 5=Sábado, 6=Domingo
+                    check_date += timedelta(days=1)
+                    continue
+                
+                date_str = check_date.strftime("%d/%m/%Y")
+                day_name = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"][check_date.weekday()]
+                
+                available_slots[date_str] = {
+                    "day_name": day_name,
+                    "date": date_str,
+                    "slots": []
+                }
+                occupied_slots[date_str] = {
+                    "day_name": day_name,
+                    "date": date_str,
+                    "slots": []
+                }
+                
+                # Gerar todos os slots do dia
+                if business_hours_only:
+                    slot_start = check_date.replace(hour=business_start, minute=0)
+                    slot_end = check_date.replace(hour=business_end, minute=0)
+                else:
+                    slot_start = check_date.replace(hour=0, minute=0)
+                    slot_end = check_date.replace(hour=23, minute=30)
+                
+                current_slot = slot_start
+                
+                while current_slot < slot_end:
+                    slot_end_time = current_slot + timedelta(minutes=slot_duration_minutes)
+                    
+                    # Verificar se o slot está ocupado
+                    is_occupied = False
+                    for event in events:
+                        if event.get("start") and event.get("end"):
+                            # Parse do horário do evento
+                            event_start_str = event["start"].get("dateTime", event["start"].get("date", ""))
+                            event_end_str = event["end"].get("dateTime", event["end"].get("date", ""))
+                            
+                            if event_start_str and event_end_str:
+                                try:
+                                    # Parse robusto que funciona com qualquer timezone
+                                    if 'T' in event_start_str:
+                                        # Remove timezone para comparação local
+                                        if 'Z' in event_start_str:
+                                            event_start_str = event_start_str.replace('Z', '+00:00')
+                                        # Parse com timezone
+                                        event_start = datetime.fromisoformat(event_start_str)
+                                        # Remove timezone para comparação
+                                        if event_start.tzinfo:
+                                            event_start = event_start.replace(tzinfo=None)
+                                    else:
+                                        # Evento de dia inteiro
+                                        event_start = datetime.strptime(event_start_str, "%Y-%m-%d")
+
+                                    if 'T' in event_end_str:
+                                        # Remove timezone para comparação local
+                                        if 'Z' in event_end_str:
+                                            event_end_str = event_end_str.replace('Z', '+00:00')
+                                        # Parse com timezone
+                                        event_end = datetime.fromisoformat(event_end_str)
+                                        # Remove timezone para comparação
+                                        if event_end.tzinfo:
+                                            event_end = event_end.replace(tzinfo=None)
+                                    else:
+                                        # Evento de dia inteiro
+                                        event_end = datetime.strptime(event_end_str, "%Y-%m-%d")
+                                    
+                                    # Verificar sobreposição
+                                    if (current_slot < event_end and slot_end_time > event_start):
+                                        is_occupied = True
+                                        break
+                                except:
+                                    continue
+                    
+                    # Adicionar slot à lista apropriada
+                    slot_info = {
+                        "time": current_slot.strftime("%H:%M"),
+                        "datetime": current_slot.isoformat(),
+                        "duration": slot_duration_minutes
+                    }
+                    
+                    if is_occupied:
+                        occupied_slots[date_str]["slots"].append(slot_info)
+                    else:
+                        # Verificar se não é horário de almoço (12h-13h)
+                        if not (12 <= current_slot.hour < 13):
+                            available_slots[date_str]["slots"].append(slot_info)
+                    
+                    current_slot = slot_end_time
+                
+                business_days_count += 1
+                check_date += timedelta(days=1)
+            
+            # Calcular estatísticas
+            total_available = sum(len(day["slots"]) for day in available_slots.values())
+            total_occupied = sum(len(day["slots"]) for day in occupied_slots.values())
+            
+            return {
+                "success": True,
+                "period": f"Próximos {days_ahead} dias úteis",
+                "business_hours": f"{business_start}h às {business_end}h" if business_hours_only else "24 horas",
+                "slot_duration": f"{slot_duration_minutes} minutos",
+                "statistics": {
+                    "total_available_slots": total_available,
+                    "total_occupied_slots": total_occupied,
+                    "availability_percentage": round((total_available / (total_available + total_occupied) * 100) if (total_available + total_occupied) > 0 else 100, 1)
+                },
+                "available_slots": available_slots,
+                "occupied_slots": occupied_slots,
+                "best_times": self._get_best_available_times(available_slots, limit=5)
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro ao buscar slots disponíveis: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "available_slots": {},
+                "occupied_slots": {}
+            }
+    
+    def _get_best_available_times(self, available_slots: Dict, limit: int = 5) -> List[Dict]:
+        """
+        Retorna os melhores horários disponíveis (primeiros da manhã e início da tarde)
+        """
+        best_times = []
+        preferred_hours = [9, 10, 14, 15, 16]  # Horários preferenciais
+        
+        for date_str, day_data in available_slots.items():
+            for slot in day_data["slots"]:
+                hour = int(slot["time"].split(":")[0])
+                if hour in preferred_hours:
+                    best_times.append({
+                        "date": date_str,
+                        "day_name": day_data["day_name"],
+                        "time": slot["time"],
+                        "datetime": slot["datetime"],
+                        "priority": "alta" if hour in [9, 10] else "média"
+                    })
+                    
+                    if len(best_times) >= limit:
+                        return best_times[:limit]
+        
+        # Se não encontrou horários preferenciais suficientes, adicionar qualquer disponível
+        if len(best_times) < limit:
+            for date_str, day_data in available_slots.items():
+                for slot in day_data["slots"]:
+                    if not any(bt["time"] == slot["time"] and bt["date"] == date_str for bt in best_times):
+                        best_times.append({
+                            "date": date_str,
+                            "day_name": day_data["day_name"],
+                            "time": slot["time"],
+                            "datetime": slot["datetime"],
+                            "priority": "normal"
+                        })
+                        
+                        if len(best_times) >= limit:
+                            return best_times[:limit]
+        
+        return best_times
+    
+    @tool
+    async def get_available_slots(
+        self,
+        days_ahead: int = 7,
+        slot_duration_minutes: int = 30,
+        business_hours_only: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Busca todos os horários disponíveis e ocupados dos próximos 7 dias úteis
+        
+        Args:
+            days_ahead: Quantos dias úteis à frente buscar (padrão: 7)
+            slot_duration_minutes: Duração de cada slot em minutos (padrão: 30)
+            business_hours_only: Se deve considerar apenas horário comercial (padrão: True)
+            
+        Returns:
+            Dicionário com horários disponíveis e ocupados por dia
+        """
+        # Chama a implementação interna
+        return await self._get_available_slots_internal(
+            days_ahead=days_ahead,
+            slot_duration_minutes=slot_duration_minutes,
+            business_hours_only=business_hours_only
+        )
     
     @tool
     async def list_upcoming_meetings(
@@ -810,3 +1052,91 @@ class CalendarAgent:
             return "Tarde"
         else:
             return "Noite"
+    
+    @tool
+    async def create_recurring_meeting(
+        self,
+        title: str,
+        start_time: datetime,
+        duration_minutes: int = 60,
+        recurrence: str = "weekly",
+        count: int = 4,
+        attendees: List[str] = None,
+        description: str = "",
+        location: str = "",
+        lead_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Cria reunião recorrente
+        
+        Args:
+            title: Título da reunião
+            start_time: Data/hora da primeira ocorrência
+            duration_minutes: Duração em minutos
+            recurrence: Frequência (daily, weekly, monthly)
+            count: Número de ocorrências
+            attendees: Lista de emails dos participantes
+            description: Descrição da reunião
+            location: Local da reunião
+            lead_id: ID do lead (opcional)
+            
+        Returns:
+            Informações das reuniões criadas
+        """
+        try:
+            created_events = []
+            current_time = start_time
+            
+            for i in range(count):
+                # Calcular horário
+                if i > 0:
+                    if recurrence == "daily":
+                        current_time = current_time + timedelta(days=1)
+                    elif recurrence == "weekly":
+                        current_time = current_time + timedelta(weeks=1)
+                    elif recurrence == "monthly":
+                        current_time = current_time + timedelta(days=30)
+                
+                end_time = current_time + timedelta(minutes=duration_minutes)
+                
+                # Criar evento
+                async with self.rate_limiter:
+                    await asyncio.sleep(self.request_interval)
+                    event = await self.calendar_client.create_event(
+                        title=f"{title} ({i+1}/{count})",
+                        start_time=current_time,
+                        end_time=end_time,
+                        description=description,
+                        location=location,
+                        attendees=attendees or []
+                    )
+                
+                if event:
+                    created_events.append(event)
+                    
+                    # Salvar no banco se tem lead_id
+                    if lead_id:
+                        await self._save_event_to_db(
+                            event_id=event["google_event_id"],
+                            lead_id=lead_id,
+                            title=title,
+                            start_time=current_time,
+                            end_time=end_time,
+                            location=location
+                        )
+            
+            return {
+                "success": True,
+                "count": len(created_events),
+                "recurrence": recurrence,
+                "events": created_events,
+                "message": f"Criadas {len(created_events)} reuniões recorrentes"
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro ao criar reuniões recorrentes: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "events": []
+            }

@@ -78,6 +78,18 @@ async def lifespan(app: FastAPI):
             await team.crm_agent.initialize()
             emoji_logger.system_ready("Kommo CRM")
         
+        # Inicializa Calendar Sync Service
+        if settings.enable_calendar_integration:
+            from app.services.calendar_sync_service import calendar_sync_service
+            await calendar_sync_service.start()
+            emoji_logger.system_ready("Calendar Sync Service", sync_interval="5min", reminders="30min, 2h, 24h")
+        
+        # Inicializa FollowUp Executor Service
+        if settings.enable_follow_up_automation:
+            from app.services.followup_executor_service import followup_executor_service
+            await followup_executor_service.start()
+            emoji_logger.system_ready("FollowUp Executor", check_interval="1min", types="30min, 24h")
+        
         emoji_logger.system_ready("SDR IA Solar Prime", startup_time=3.0)
         
     except Exception as e:
@@ -90,6 +102,18 @@ async def lifespan(app: FastAPI):
     emoji_logger.system_info("Encerrando SDR IA Solar Prime...")
     
     try:
+        # Para Calendar Sync Service
+        if settings.enable_calendar_integration:
+            from app.services.calendar_sync_service import calendar_sync_service
+            await calendar_sync_service.stop()
+            emoji_logger.system_info("Calendar Sync Service encerrado")
+        
+        # Para FollowUp Executor Service
+        if settings.enable_follow_up_automation:
+            from app.services.followup_executor_service import followup_executor_service
+            await followup_executor_service.stop()
+            emoji_logger.system_info("FollowUp Executor encerrado")
+        
         # Cancela tasks do Message Buffer se existir
         from app.services.message_buffer import message_buffer
         if message_buffer:

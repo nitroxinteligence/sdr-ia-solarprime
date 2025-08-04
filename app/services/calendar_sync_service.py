@@ -89,7 +89,7 @@ class CalendarSyncService:
             )
             
             # Buscar eventos do banco
-            db_events = await self.db.table('calendar_events').select("*").gte(
+            db_events = self.db.client.table('calendar_events').select("*").gte(
                 'start_time', time_min.isoformat()
             ).lte(
                 'start_time', time_max.isoformat()
@@ -135,7 +135,7 @@ class CalendarSyncService:
                 }
                 
                 # Inserir no banco
-                self.db.table('calendar_events').insert(db_event).execute()  # Removido await - cliente síncrono
+                self.db.client.table('calendar_events').insert(db_event).execute()  # Removido await - cliente síncrono
                 logger.info(f"📅 Novo evento sincronizado: {event.get('title')}")
                 
             except Exception as e:
@@ -160,7 +160,7 @@ class CalendarSyncService:
                         'updated_at': datetime.now().isoformat()
                     }
                     
-                    await self.db.table('calendar_events').update(updates).eq(
+                    self.db.client.table('calendar_events').update(updates).eq(
                         'google_event_id', event_id
                     ).execute()
                     
@@ -178,7 +178,7 @@ class CalendarSyncService:
         
         for event_id in deleted_events:
             try:
-                await self.db.table('calendar_events').update({
+                self.db.client.table('calendar_events').update({
                     'status': 'cancelled',
                     'cancelled_at': datetime.now().isoformat()
                 }).eq(
@@ -200,7 +200,7 @@ class CalendarSyncService:
             now = datetime.now()
             
             # Query para eventos nos próximos 30 minutos que não receberam lembrete
-            events = await self.db.table('calendar_events').select("*").eq(
+            events = self.db.client.table('calendar_events').select("*").eq(
                 'status', 'scheduled'
             ).eq(
                 'reminder_sent', False
@@ -224,7 +224,7 @@ class CalendarSyncService:
                 return
             
             # Buscar dados do lead
-            lead_result = await self.db.table('leads').select("*").eq(
+            lead_result = self.db.client.table('leads').select("*").eq(
                 'id', lead_id
             ).single().execute()
             
@@ -232,7 +232,7 @@ class CalendarSyncService:
                 return
             
             lead = lead_result.data
-            phone = lead.get('phone')
+            phone = lead.get('phone_number')
             
             if not phone:
                 return
@@ -257,14 +257,13 @@ class CalendarSyncService:
                 message += f"🔗 Link: {event['meeting_link']}\n"
             
             # Enviar via Evolution API
-            await self.evolution.send_message(
-                to=phone,
-                text=message,
-                instance_name=settings.evolution_instance_name
+            await self.evolution.send_text_message(
+                phone=phone,
+                message=message
             )
             
             # Marcar lembrete como enviado
-            await self.db.table('calendar_events').update({
+            self.db.client.table('calendar_events').update({
                 'reminder_sent': True
             }).eq(
                 'id', event['id']

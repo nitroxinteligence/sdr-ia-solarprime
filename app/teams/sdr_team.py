@@ -513,13 +513,25 @@ class SDRTeam:
             multimodal_result = enriched_context.get("multimodal_result")
             
             # Atualizar estado do Team com contexto
-            if self.team and hasattr(self.team, 'team_session_state'):
-                self.team.team_session_state.update({
-                    "context_analysis": context_analysis,
-                    "emotional_state": emotional_triggers.get("dominant_emotion"),
-                    "recommended_agent": recommended_agent,
-                    "decision_reasoning": reasoning
-                })
+            if self.team:
+                # Garantir que team_session_state existe
+                if not hasattr(self.team, 'team_session_state'):
+                    self.team.team_session_state = {}
+                
+                if self.team.team_session_state is not None:
+                    self.team.team_session_state.update({
+                        "context_analysis": context_analysis,
+                        "emotional_state": emotional_triggers.get("dominant_emotion"),
+                        "recommended_agent": recommended_agent,
+                        "decision_reasoning": reasoning
+                    })
+                else:
+                    self.team.team_session_state = {
+                        "context_analysis": context_analysis,
+                        "emotional_state": emotional_triggers.get("dominant_emotion"),
+                        "recommended_agent": recommended_agent,
+                        "decision_reasoning": reasoning
+                    }
             
             # Preparar prompt especializado baseado no agente recomendado
             specialized_prompt = f"""

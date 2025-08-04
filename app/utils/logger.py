@@ -335,6 +335,25 @@ class EmojiLogger:
     def system_debug(cls, message: str, **kwargs):
         cls.log_with_emoji("DEBUG", "system_debug", message, **kwargs)
     
+    @classmethod
+    def system_shutdown(cls, component: str, message: str = "", **kwargs):
+        """Log de shutdown de componente"""
+        kwargs["component"] = component
+        full_message = f"Parando {component}"
+        if message:
+            full_message += f": {message}"
+        cls.log_with_emoji("INFO", "system_info", full_message, **kwargs)
+    
+    @classmethod
+    def whatsapp_sent(cls, message: str, **kwargs):
+        """Log de mensagem WhatsApp enviada"""
+        cls.log_with_emoji("INFO", "evolution_send", f"WhatsApp: {message}", **kwargs)
+    
+    @classmethod
+    def evolution_success(cls, message: str, **kwargs):
+        """Log de sucesso na Evolution API"""
+        cls.log_with_emoji("INFO", "evolution_success", message, **kwargs)
+    
     # Métodos para PERFORMANCE
     @classmethod
     def perf_timer(cls, operation: str, duration_ms: float, **kwargs):

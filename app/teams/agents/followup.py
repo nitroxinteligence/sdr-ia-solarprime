@@ -74,29 +74,11 @@ class FollowUpAgent:
             }
         }
         
-        # Templates de mensagens por tipo
-        self.message_templates = {
-            FollowUpType.IMMEDIATE_REENGAGEMENT: [
-                "Oi {name}! 😊 Vi que nossa conversa ficou pela metade... Posso continuar te ajudando com a economia na conta de luz?",
-                "Olá {name}! Percebi que paramos de conversar... Ainda está interessado em economizar até 20% na sua conta de energia?",
-                "{name}, tudo bem? Nossa conversa sobre economia solar ficou pendente. Vamos retomar? 🌞"
-            ],
-            FollowUpType.DAILY_NURTURING: [
-                "{name}, sabia que seus vizinhos já estão economizando com energia solar? 🏘️ Que tal ser o próximo?",
-                "Oi {name}! Uma conta de R$ {bill_value} pode virar R$ {savings} com nossa solução. Vamos conversar?",
-                "{name}, a cada dia sem energia solar, você deixa de economizar R$ {daily_savings}. Podemos mudar isso hoje!"
-            ],
-            FollowUpType.MEETING_CONFIRMATION: [
-                "Oi {name}! 📅 Passando para confirmar nossa reunião {day} às {time}. Você confirma presença?",
-                "{name}, amanhã às {time} temos nossa apresentação marcada. Posso contar com você?",
-                "Olá {name}! Nossa reunião está confirmada para {day} às {time}. Alguma dúvida antes do nosso encontro?"
-            ],
-            FollowUpType.VALUE_CONTENT: [
-                "{name}, preparei um material exclusivo sobre economia solar. Posso enviar? 📊",
-                "Oi {name}! Descobri que no seu bairro já temos 15 clientes economizando. Quer saber quanto eles economizam?",
-                "{name}, acabei de calcular: você pode economizar R$ {yearly_savings} por ano! Vamos conversar sobre isso?"
-            ]
-        }
+        # Carregar prompt master do arquivo
+        self.prompt_master = self._load_prompt_master()
+        
+        # Configuração de mensagens de follow-up
+        # As mensagens serão geradas dinamicamente usando o prompt master
         
         # Tools do agente
         self.tools = [
@@ -710,27 +692,23 @@ class FollowUpAgent:
             if not lead:
                 return "Olá! Como posso ajudar você hoje?"
             
-            # Selecionar template
-            templates = self.message_templates.get(
-                FollowUpType[template_type.upper()],
-                ["Olá {name}! Como posso ajudar?"]
-            )
-            
-            import random
-            template = random.choice(templates)
-            
             # Preparar dados para personalização
-            data = {
-                "name": lead.get("name", "").split()[0] if lead.get("name") else "você",
-                "bill_value": f"{lead.get('bill_value', 0):.2f}",
-                "savings": f"{lead.get('bill_value', 0) * 0.2:.2f}",
-                "daily_savings": f"{(lead.get('bill_value', 0) * 0.2) / 30:.2f}",
-                "yearly_savings": f"{lead.get('bill_value', 0) * 0.2 * 12:.2f}"
-            }
+            lead_name = lead.get("name", "").split()[0] if lead.get("name") else "você"
+            bill_value = lead.get('bill_value', 0)
             
-            # Adicionar dados específicos se solicitado
-            if include_data:
-                # Buscar reunião agendada se houver
+            # Gerar mensagem baseada no tipo de follow-up usando o padrão do prompt master
+            # As mensagens seguem o padrão definido no ESTÁGIO 7 do prompt-agente.md
+            if template_type.upper() == "IMMEDIATE_REENGAGEMENT":
+                # Follow-up após 30-60 minutos
+                message = f"Olá, {lead_name}! Vi que nossa conversa ficou pela metade. Posso continuar te ajudando com a economia na conta de luz?"
+                
+            elif template_type.upper() == "DAILY_NURTURING":
+                # Follow-up diário
+                savings = bill_value * 0.2
+                message = f"{lead_name}, se ainda tiver interesse em economizar R${savings:.2f} por mês na conta de luz, estarei aqui. Nossa solução realmente pode fazer a diferença."
+                
+            elif template_type.upper() == "MEETING_CONFIRMATION":
+                # Confirmação de reunião - buscar dados da reunião
                 meetings = supabase_client.client.table("calendar_events")\
                     .select("*")\
                     .eq("lead_id", lead_id)\
@@ -742,11 +720,38 @@ class FollowUpAgent:
                 if meetings.data:
                     meeting = meetings.data[0]
                     start_time = datetime.fromisoformat(meeting["start_time"])
-                    data["day"] = start_time.strftime("%A")
-                    data["time"] = start_time.strftime("%H:%M")
-            
-            # Formatar mensagem
-            message = template.format(**data)
+                    day = start_time.strftime("%d/%m")
+                    time = start_time.strftime("%H:%M")
+                    message = f"Oi {lead_name}! 📅 Passando para confirmar nossa reunião {day} às {time}. Você confirma presença?"
+                else:
+                    message = f"Oi {lead_name}! Passando para confirmar nossa reunião. Você confirma presença?"
+                    
+            elif template_type.upper() == "MEETING_REMINDER":
+                # Lembrete de reunião
+                meetings = supabase_client.client.table("calendar_events")\
+                    .select("*")\
+                    .eq("lead_id", lead_id)\
+                    .eq("status", "scheduled")\
+                    .order("start_time")\
+                    .limit(1)\
+                    .execute()
+                
+                if meetings.data:
+                    meeting = meetings.data[0]
+                    start_time = datetime.fromisoformat(meeting["start_time"])
+                    time = start_time.strftime("%H:%M")
+                    message = f"{lead_name}, nossa reunião está chegando! Te vejo às {time}. Preparei uma apresentação especial sobre como economizar na sua conta de luz."
+                else:
+                    message = f"{lead_name}, nossa reunião está chegando! Preparei uma apresentação especial sobre como economizar na sua conta de luz."
+                    
+            elif template_type.upper() == "VALUE_CONTENT":
+                # Conteúdo de valor
+                yearly_savings = bill_value * 0.2 * 12
+                message = f"{lead_name}, acabei de calcular: você pode economizar R${yearly_savings:.2f} por ano com nossa solução! Vamos conversar sobre isso?"
+                
+            else:
+                # Mensagem genérica de follow-up
+                message = f"Olá {lead_name}! Temos novidades sobre economia de energia solar para você. Posso te mostrar como economizar até 20% na conta de luz?"
             
             return message
             
@@ -755,6 +760,22 @@ class FollowUpAgent:
             return "Olá! Temos novidades sobre economia de energia solar para você!"
     
     # Métodos auxiliares privados
+    
+    def _load_prompt_master(self) -> str:
+        """Carrega o prompt master do arquivo"""
+        try:
+            import os
+            prompt_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                'prompts',
+                'prompt-agente.md'
+            )
+            
+            with open(prompt_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Erro ao carregar prompt master: {e}")
+            return ""
     
     def _adjust_to_business_hours(self, dt: datetime) -> datetime:
         """Ajusta datetime para horário comercial"""
@@ -819,3 +840,335 @@ class FollowUpAgent:
             return "afternoon"
         else:
             return "evening"
+    
+    @tool
+    async def analyze_engagement(
+        self,
+        lead_id: int
+    ) -> Dict[str, Any]:
+        """
+        Analisa engajamento do lead
+        
+        Args:
+            lead_id: ID do lead
+            
+        Returns:
+            Análise de engajamento
+        """
+        try:
+            # Buscar histórico de follow-ups
+            followups = supabase_client.client.table("follow_ups")\
+                .select("*")\
+                .eq("lead_id", lead_id)\
+                .order("created_at", desc=True)\
+                .execute()
+            
+            # Buscar conversas
+            conversations = supabase_client.client.table("conversations")\
+                .select("*")\
+                .eq("lead_id", lead_id)\
+                .order("timestamp", desc=True)\
+                .execute()
+            
+            # Calcular métricas
+            total_followups = len(followups.data)
+            completed_followups = len([f for f in followups.data if f["status"] == "completed"])
+            total_messages = len(conversations.data)
+            response_rate = (total_messages / max(total_followups, 1)) * 100 if total_followups > 0 else 0
+            
+            # Determinar nível de engajamento
+            if response_rate > 75:
+                engagement_level = "HIGH"
+            elif response_rate > 40:
+                engagement_level = "MEDIUM"
+            else:
+                engagement_level = "LOW"
+            
+            return {
+                "success": True,
+                "lead_id": lead_id,
+                "engagement_level": engagement_level,
+                "metrics": {
+                    "total_followups": total_followups,
+                    "completed_followups": completed_followups,
+                    "response_rate": response_rate,
+                    "total_messages": total_messages
+                },
+                "recommendation": self._get_engagement_recommendation(engagement_level)
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro ao analisar engajamento: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    @tool
+    async def get_followup_strategy(
+        self,
+        lead_id: int
+    ) -> Dict[str, Any]:
+        """
+        Obtém estratégia de follow-up recomendada
+        
+        Args:
+            lead_id: ID do lead
+            
+        Returns:
+            Estratégia recomendada
+        """
+        try:
+            # Buscar lead
+            lead = supabase_client.client.table("leads")\
+                .select("*")\
+                .eq("id", lead_id)\
+                .single()\
+                .execute()
+            
+            if not lead.data:
+                return {
+                    "success": False,
+                    "error": "Lead não encontrado"
+                }
+            
+            # Analisar engajamento
+            engagement = await self.analyze_engagement(lead_id)
+            
+            # Determinar estratégia baseada no perfil
+            classification = lead.data.get("qualification_status", "pending")
+            engagement_level = engagement.get("engagement_level", "LOW")
+            
+            if classification == "hot" or engagement_level == "HIGH":
+                strategy = FollowUpStrategy.AGGRESSIVE.value
+                interval_hours = 2
+                max_attempts = 7
+            elif classification == "warm" or engagement_level == "MEDIUM":
+                strategy = FollowUpStrategy.MODERATE.value
+                interval_hours = 24
+                max_attempts = 5
+            else:
+                strategy = FollowUpStrategy.GENTLE.value
+                interval_hours = 48
+                max_attempts = 3
+            
+            return {
+                "success": True,
+                "lead_id": lead_id,
+                "strategy": strategy,
+                "interval_hours": interval_hours,
+                "max_attempts": max_attempts,
+                "classification": classification,
+                "engagement_level": engagement_level,
+                "next_actions": self._get_strategy_actions(strategy)
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro ao obter estratégia: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    @tool
+    async def list_pending_followups(
+        self,
+        lead_id: Optional[int] = None,
+        limit: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Lista follow-ups pendentes
+        
+        Args:
+            lead_id: ID do lead (opcional)
+            limit: Limite de resultados
+            
+        Returns:
+            Lista de follow-ups pendentes
+        """
+        try:
+            query = supabase_client.client.table("follow_ups")\
+                .select("*, leads(*)")\
+                .eq("status", "pending")\
+                .order("scheduled_at")\
+                .limit(limit)
+            
+            if lead_id:
+                query = query.eq("lead_id", lead_id)
+            
+            followups = query.execute()
+            
+            formatted = []
+            for f in followups.data:
+                scheduled = datetime.fromisoformat(f["scheduled_at"])
+                formatted.append({
+                    "id": f["id"],
+                    "lead_name": f["leads"]["name"] if f.get("leads") else "N/A",
+                    "type": f["follow_up_type"],
+                    "scheduled": scheduled.strftime("%d/%m/%Y %H:%M"),
+                    "priority": f.get("priority", "normal"),
+                    "message": f.get("message", "")[:100]
+                })
+            
+            return {
+                "success": True,
+                "count": len(formatted),
+                "followups": formatted
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro ao listar follow-ups: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "followups": []
+            }
+    
+    @tool
+    async def execute_immediate_followup(
+        self,
+        lead_id: int,
+        message: str
+    ) -> Dict[str, Any]:
+        """
+        Executa follow-up imediato
+        
+        Args:
+            lead_id: ID do lead
+            message: Mensagem a enviar
+            
+        Returns:
+            Status da execução
+        """
+        try:
+            # Buscar lead
+            lead = supabase_client.client.table("leads")\
+                .select("*")\
+                .eq("id", lead_id)\
+                .single()\
+                .execute()
+            
+            if not lead.data:
+                return {
+                    "success": False,
+                    "error": "Lead não encontrado"
+                }
+            
+            # Enviar mensagem via Evolution API
+            from app.integrations.evolution import evolution_client
+            
+            result = await evolution_client.send_text_message(
+                to=lead.data["phone_number"],
+                message=message
+            )
+            
+            # Registrar follow-up
+            supabase_client.client.table("follow_ups").insert({
+                "lead_id": lead_id,
+                "type": "custom",
+                "follow_up_type": "IMMEDIATE_REENGAGEMENT",
+                "message": message,
+                "scheduled_at": datetime.now().isoformat(),
+                "executed_at": datetime.now().isoformat(),
+                "status": "completed" if result else "failed",
+                "priority": "high"
+            }).execute()
+            
+            return {
+                "success": result,
+                "lead_id": lead_id,
+                "message_sent": message,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro ao executar follow-up imediato: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    @tool
+    async def update_followup_status(
+        self,
+        followup_id: int,
+        status: str,
+        notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Atualiza status de follow-up
+        
+        Args:
+            followup_id: ID do follow-up
+            status: Novo status (pending, executing, completed, failed, cancelled)
+            notes: Notas adicionais (opcional)
+            
+        Returns:
+            Status da atualização
+        """
+        try:
+            update_data = {
+                "status": status,
+                "updated_at": datetime.now().isoformat()
+            }
+            
+            if status == "completed":
+                update_data["executed_at"] = datetime.now().isoformat()
+            
+            if notes:
+                update_data["notes"] = notes
+            
+            result = supabase_client.client.table("follow_ups")\
+                .update(update_data)\
+                .eq("id", followup_id)\
+                .execute()
+            
+            if result.data:
+                return {
+                    "success": True,
+                    "followup_id": followup_id,
+                    "new_status": status,
+                    "updated_at": update_data["updated_at"]
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Follow-up não encontrado"
+                }
+                
+        except Exception as e:
+            logger.error(f"Erro ao atualizar status: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _get_engagement_recommendation(self, level: str) -> str:
+        """Retorna recomendação baseada no nível de engajamento"""
+        recommendations = {
+            "HIGH": "Continue com abordagem atual. Lead altamente engajado.",
+            "MEDIUM": "Aumente frequência de contato. Oportunidade de conversão.",
+            "LOW": "Mude estratégia. Considere conteúdo educacional."
+        }
+        return recommendations.get(level, "Analisar caso individualmente")
+    
+    def _get_strategy_actions(self, strategy: str) -> List[str]:
+        """Retorna ações recomendadas para estratégia"""
+        actions = {
+            "aggressive": [
+                "Follow-up em 2 horas",
+                "Ligação telefônica em 24h",
+                "Oferta especial em 48h"
+            ],
+            "moderate": [
+                "Follow-up diário",
+                "Conteúdo educacional",
+                "Agendamento de reunião"
+            ],
+            "gentle": [
+                "Follow-up a cada 2 dias",
+                "Conteúdo informativo",
+                "Manter relacionamento"
+            ]
+        }
+        return actions.get(strategy, ["Avaliar individualmente"])
