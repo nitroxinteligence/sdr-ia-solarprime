@@ -65,7 +65,7 @@ class FollowUpExecutorService:
             return
             
         self.running = True
-        emoji_logger.system_ready("FollowUp Executor", "Serviço iniciado")
+        emoji_logger.system_ready("FollowUp Executor")
         
         # Iniciar loop principal
         asyncio.create_task(self._execution_loop())

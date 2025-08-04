@@ -313,9 +313,12 @@ class EmojiLogger:
         cls.log_with_emoji("INFO", "system_start", f"Iniciando {component}", **kwargs)
     
     @classmethod
-    def system_ready(cls, component: str, startup_time: float = None, **kwargs):
-        if startup_time:
-            kwargs["startup_ms"] = round(startup_time * 1000, 2)
+    def system_ready(cls, component: str, startup_time = None, **kwargs):
+        if startup_time is not None and not isinstance(startup_time, str):
+            try:
+                kwargs["startup_ms"] = round(float(startup_time) * 1000, 2)
+            except (ValueError, TypeError):
+                pass  # Se não conseguir converter, ignora o startup_time
         cls.log_with_emoji("INFO", "system_ready", f"{component} pronto", **kwargs)
     
     @classmethod
