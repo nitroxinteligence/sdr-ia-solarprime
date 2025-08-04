@@ -13,6 +13,7 @@ import base64
 
 from agno.agent import Agent
 from agno.models.google import Gemini
+from agno.media import Image as AgnoImage
 # OpenAI via requests - contorna problemas do SDK
 try:
     import requests
@@ -76,6 +77,7 @@ from agno.tools import tool
 from loguru import logger
 from app.utils.logger import emoji_logger
 from app.utils.optional_storage import OptionalStorage
+from app.utils.agno_media_detection import agno_media_detector
 
 from app.config import settings
 from app.integrations.supabase_client import supabase_client
@@ -892,7 +894,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 try:
                     # AGNO Framework Solution: Usar agno.media.Image nativo
                     import base64
-                    from agno.media import Image as AgnoImage
                     import google.generativeai as genai
                     
                     emoji_logger.agentic_thinking("Processando imagem para Vision API...")
@@ -908,8 +909,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     emoji_logger.agentic_multimodal(f"Imagem decodificada: {original_size:,} bytes")
                     
                     # AGNO Framework - Detecção robusta de formato de imagem
-                    from app.utils.agno_media_detection import agno_media_detector
-                    
                     detection_result = agno_media_detector.detect_media_type(image_bytes)
                     
                     if not detection_result['detected']:
