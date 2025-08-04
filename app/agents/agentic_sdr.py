@@ -27,6 +27,11 @@ from app.config import settings
 from app.integrations.supabase_client import supabase_client
 from app.teams.sdr_team import SDRTeam
 
+# AGNO Framework Enhancement Agents - Sub-agentes modulares
+from app.services.agno_image_agent import agno_image_enhancer, agno_fallback_processor
+from app.services.agno_document_agent import agno_document_enhancer
+from app.services.agno_context_agent import agno_context_enhancer, format_context_with_agno
+
 
 class ConversationContext(Enum):
     """Contextos de conversa detectados"""
@@ -357,31 +362,47 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 "error": str(e)
             }
     
-    async def get_last_100_messages(self, phone: str) -> List[Dict[str, Any]]:
+    @agno_context_enhancer
+    async def get_last_100_messages(self, identifier: str) -> List[Dict[str, Any]]:
         """
         Busca as últimas 100 mensagens do Supabase
         
         Args:
-            phone: Número do telefone
+            identifier: Número do telefone ou conversation_id
             
         Returns:
             Lista com últimas 100 mensagens
         """
         try:
-            # Buscar conversa
-            conversation = await supabase_client.get_conversation_by_phone(phone)
-            if not conversation:
-                return []
+            conversation_id = None
+            
+            # Determinar se é phone ou conversation_id
+            if identifier.startswith('conv_') or len(identifier) > 15:
+                # Parece ser conversation_id
+                conversation_id = identifier
+                emoji_logger.system_info(f"Buscando mensagens por conversation_id: {conversation_id}")
+            else:
+                # Parece ser phone
+                emoji_logger.system_info(f"Buscando mensagens por phone: {identifier}")
+                conversation = await supabase_client.get_conversation_by_phone(identifier)
+                if not conversation:
+                    emoji_logger.system_warning(f"Conversa não encontrada para phone: {identifier}")
+                    return []
+                conversation_id = conversation["id"]
+                emoji_logger.system_info(f"Conversation_id encontrado: {conversation_id}")
             
             # Buscar últimas 100 mensagens
+            emoji_logger.system_info(f"Executando query para conversation_id: {conversation_id}")
             query = supabase_client.client.table("messages")\
                 .select("*")\
-                .eq("conversation_id", conversation["id"])\
+                .eq("conversation_id", conversation_id)\
                 .order("created_at", desc=True)\
                 .limit(100)
             
             response = query.execute()  # Removido await - cliente síncrono
             messages = response.data if response.data else []
+            
+            emoji_logger.system_info(f"Query executada, {len(messages)} mensagens encontradas")
             
             # Reverter para ordem cronológica
             messages.reverse()
@@ -539,6 +560,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                                      score=decision_factors['complexity_score'])
         return False, None, "AGENTIC SDR pode resolver esta conversa"
     
+    @agno_image_enhancer
+    @agno_document_enhancer
     async def process_multimodal_content(
         self,
         media_type: str,
@@ -650,35 +673,56 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     # Validar magic bytes para confirmar que é uma imagem
                     magic_bytes = image_bytes[:12] if len(image_bytes) >= 12 else image_bytes
                     
-                    # Verificar formatos comuns de imagem
+                    # Verificar formatos comuns de imagem (expandido)
                     is_jpeg = magic_bytes[:3] == b'\xff\xd8\xff'
                     is_png = magic_bytes[:8] == b'\x89PNG\r\n\x1a\n'
                     is_gif = magic_bytes[:6] in [b'GIF87a', b'GIF89a']
-                    is_webp = magic_bytes[:4] == b'RIFF' and magic_bytes[8:12] == b'WEBP'
+                    is_webp = magic_bytes[:4] == b'RIFF' and len(magic_bytes) >= 12 and magic_bytes[8:12] == b'WEBP'
                     is_bmp = magic_bytes[:2] == b'BM'
                     
-                    # Validar se é um formato de imagem suportado
-                    if not (is_jpeg or is_png or is_gif or is_webp or is_bmp):
-                        emoji_logger.system_warning(f"Formato de imagem não reconhecido. Magic bytes: {magic_bytes[:20].hex()}")
-                        return {
-                            "type": "image",
-                            "error": "Formato de imagem não suportado",
-                            "status": "error",
-                            "fallback": "Por favor, envie a imagem em formato JPEG, PNG, GIF, WEBP ou BMP."
-                        }
+                    # Formatos modernos adicionais
+                    is_heic = magic_bytes[:4] == b'ftyp' and len(magic_bytes) >= 12 and magic_bytes[8:12] in [b'heic', b'heix', b'hevc']
+                    is_avif = magic_bytes[:4] == b'ftyp' and len(magic_bytes) >= 12 and magic_bytes[8:12] == b'avif'
+                    is_tiff = magic_bytes[:4] in [b'II*\x00', b'MM\x00*']
+                    is_ico = magic_bytes[:4] == b'\x00\x00\x01\x00'
                     
-                    # Abrir imagem com PIL (com tratamento de erro)
-                    try:
-                        img = PILImage.open(BytesIO(image_bytes))
-                    except Exception as pil_error:
-                        emoji_logger.system_error("PIL", f"Não foi possível abrir imagem: {str(pil_error)}")
-                        # Fallback: tentar analisar como documento
-                        return {
-                            "type": "image",
-                            "error": f"Não foi possível processar a imagem: {str(pil_error)}",
-                            "status": "error",
-                            "fallback": "Por favor, envie a imagem em outro formato ou descreva o que você precisa."
-                        }
+                    # HEIC pode ter magic bytes diferentes dependendo da implementação
+                    is_heic_alt = magic_bytes[:2] == b'\xff\xee'  # Algumas variantes HEIC
+                    
+                    known_format = (is_jpeg or is_png or is_gif or is_webp or is_bmp or 
+                                   is_heic or is_avif or is_tiff or is_ico or is_heic_alt)
+                    
+                    # Fallback inteligente: se magic bytes não são reconhecidos, tentar com PIL
+                    if not known_format:
+                        emoji_logger.system_warning(f"Magic bytes desconhecidos: {magic_bytes[:20].hex()}, tentando fallback com PIL")
+                        
+                        # Tentar abrir com PIL mesmo assim
+                        try:
+                            test_img = PILImage.open(BytesIO(image_bytes))
+                            test_img.verify()  # Verificar se é uma imagem válida
+                            emoji_logger.system_info("Fallback PIL bem-sucedido - imagem aceita")
+                            # Reabrir para uso (verify fecha o arquivo)
+                            img = PILImage.open(BytesIO(image_bytes))
+                        except Exception as fallback_error:
+                            emoji_logger.system_error("PIL Fallback", f"Formato realmente não suportado: {str(fallback_error)}")
+                            return {
+                                "type": "image",
+                                "error": "Formato de imagem não suportado",
+                                "status": "error",
+                                "fallback": "Por favor, envie a imagem em formato comum (JPEG, PNG, GIF, etc.) ou descreva o que você precisa."
+                            }
+                    else:
+                        # Formato reconhecido, processar normalmente
+                        try:
+                            img = PILImage.open(BytesIO(image_bytes))
+                        except Exception as pil_error:
+                            emoji_logger.system_error("PIL", f"Não foi possível abrir imagem reconhecida: {str(pil_error)}")
+                            return {
+                                "type": "image",
+                                "error": f"Não foi possível processar a imagem: {str(pil_error)}",
+                                "status": "error",
+                                "fallback": "Por favor, envie a imagem em outro formato ou descreva o que você precisa."
+                            }
                     emoji_logger.agentic_thinking(f"Dimensões originais: {img.width}x{img.height}")
                     
                     # Otimizar imagem para Gemini
@@ -1467,49 +1511,26 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 emoji_logger.agentic_thinking("Processando mensagem diretamente")
                 
                 try:
-                    # Formatar histórico de mensagens para o contexto
-                    formatted_history = ""
-                    if messages_history:
-                        # Limitar a 50 mensagens mais recentes para não sobrecarregar
-                        recent_messages = messages_history[-50:] if len(messages_history) > 50 else messages_history
-                        
-                        if recent_messages:
-                            formatted_history = "\n\nHISTÓRICO DA CONVERSA (últimas mensagens):\n"
-                            for msg in recent_messages:
-                                role = "Cliente" if msg.get('sender') == 'user' else "Assistente"
-                                content = msg.get('content', '').strip()
-                                # Truncar mensagens muito longas
-                                if len(content) > 150:
-                                    content = content[:147] + "..."
-                                formatted_history += f"{role}: {content}\n"
+                    # Formatar contexto com AGNO Framework (enhanced formatting)
+                    formatted_history = format_context_with_agno(
+                        message_history=messages_history or [],
+                        multimodal_result=multimodal_result,
+                        phone=phone
+                    )
                     
-                    # Formatar conteúdo multimodal se houver
-                    multimodal_context = ""
-                    if multimodal_result:
-                        if isinstance(multimodal_result, dict):
-                            if multimodal_result.get('type') == 'document' and multimodal_result.get('content'):
-                                multimodal_context = f"\n\nDOCUMENTO ANEXADO ({multimodal_result.get('filename', 'documento.pdf')}):\n"
-                                multimodal_context += multimodal_result['content'][:1500]  # Limitar conteúdo do PDF
-                                if len(multimodal_result['content']) > 1500:
-                                    multimodal_context += "\n[... documento truncado ...]"
-                            elif multimodal_result.get('type') == 'image' and multimodal_result.get('content'):
-                                multimodal_context = f"\n\nIMAGEM ANEXADA - Análise:\n{multimodal_result['content']}"
-                            elif multimodal_result.get('error'):
-                                multimodal_context = f"\n\nERRO AO PROCESSAR ANEXO: {multimodal_result.get('error')}"
-                        else:
-                            multimodal_context = f"\n\nCONTEÚDO ANEXADO: {str(multimodal_result)[:500]}"
+                    # AGNO Framework já formatou multimodal + histórico no formatted_history
                     
-                    # Preparar prompt com contexto completo incluindo histórico
+                    # Preparar prompt com contexto completo AGNO-enhanced
                     contextual_prompt = f"""
                     CONTEXTO DO LEAD:
                     - Nome: {lead_data.get('name', 'Não informado') if lead_data else 'Não informado'}
                     - Telefone: {phone}
                     - Estágio: {lead_data.get('current_stage', 'INITIAL_CONTACT') if lead_data else 'INITIAL_CONTACT'}
                     - Status: {lead_data.get('qualification_status', 'PENDING') if lead_data else 'PENDING'}
+                    
                     {formatted_history}
                     
                     MENSAGEM ATUAL DO CLIENTE: {message}
-                    {multimodal_context}
                     
                     Análise Contextual:
                     - Contexto Principal: {context_analysis.get('primary_context')}
