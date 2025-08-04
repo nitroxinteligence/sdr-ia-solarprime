@@ -1,5 +1,6 @@
 """
-Audio Transcription Service - Transcreve áudios do WhatsApp usando SpeechRecognition
+Audio Transcription Service - Transcreve áudios do WhatsApp
+Prioridade: 1º Google Speech (gratuito), 2º OpenAI Whisper-1 (barato: $0.006/min)
 """
 import speech_recognition as sr
 from pydub import AudioSegment
@@ -11,6 +12,7 @@ from app.utils.logger import emoji_logger
 import tempfile
 import os
 import subprocess
+from app.config import settings
 
 def validate_audio_base64(audio_data: str) -> tuple[bool, str]:
     """
@@ -52,14 +54,26 @@ class AudioTranscriber:
     """
     
     def __init__(self):
-        """Inicializa o reconhecedor de fala"""
+        """Inicializa o transcriber com Google e OpenAI como fallback"""
         self.recognizer = sr.Recognizer()
         # Ajustar threshold de energia para melhor detecção
         self.recognizer.energy_threshold = 300
         # Ajustar tempo de pausa
         self.recognizer.pause_threshold = 0.8
         
-        emoji_logger.system_info("AudioTranscriber inicializado com SpeechRecognition")
+        # Verificar se OpenAI está disponível como fallback
+        self.openai_available = False
+        try:
+            if hasattr(settings, 'openai_api_key') and settings.openai_api_key:
+                from openai import OpenAI
+                self.openai_client = OpenAI(api_key=settings.openai_api_key)
+                self.openai_available = True
+                emoji_logger.system_info("✅ AudioTranscriber com Google Speech + OpenAI Whisper fallback")
+            else:
+                emoji_logger.system_info("AudioTranscriber usando apenas Google Speech (sem OpenAI fallback)")
+        except Exception as e:
+            logger.warning(f"⚠️ OpenAI não disponível para fallback: {e}")
+            emoji_logger.system_info("AudioTranscriber usando apenas Google Speech")
         
     async def transcribe_from_base64(
         self, 
@@ -287,59 +301,74 @@ class AudioTranscriber:
                         }
                         
                     except sr.UnknownValueError:
-                        # Áudio não compreendido
-                        emoji_logger.system_warning("Google Speech não conseguiu entender o áudio")
+                        # Google não conseguiu entender - tentar OpenAI Whisper
+                        emoji_logger.system_warning("Google Speech não entendeu, tentando OpenAI Whisper...")
                         
-                        # Tentar com Sphinx como fallback (offline)
-                        try:
-                            text = self.recognizer.recognize_sphinx(
-                                audio_data,
-                                language=language
-                            )
-                            
-                            return {
-                                "text": text,
-                                "status": "success",
-                                "duration": duration_seconds,
-                                "language": language,
-                                "engine": "sphinx",
-                                "note": "Transcrição offline (qualidade pode ser menor)"
-                            }
-                        except:
-                            return {
-                                "text": "[Áudio não compreendido]",
-                                "status": "unclear",
-                                "duration": duration_seconds,
-                                "language": language
-                            }
+                        if self.openai_available and os.path.exists(wav_path):
+                            try:
+                                # Usar OpenAI Whisper-1 como fallback
+                                with open(wav_path, "rb") as audio_file:
+                                    transcription = self.openai_client.audio.transcriptions.create(
+                                        model="whisper-1",
+                                        file=audio_file,
+                                        language="pt"
+                                    )
+                                
+                                text = transcription.text
+                                emoji_logger.system_info(f"✅ Whisper-1 transcreveu: {len(text)} chars")
+                                
+                                return {
+                                    "text": text,
+                                    "status": "success",
+                                    "duration": duration_seconds,
+                                    "language": language,
+                                    "engine": "whisper-1",
+                                    "note": "Transcrito com OpenAI Whisper ($0.006/min)"
+                                }
+                            except Exception as whisper_error:
+                                logger.error(f"Whisper também falhou: {whisper_error}")
+                        
+                        return {
+                            "text": "[Áudio não compreendido]",
+                            "status": "unclear",
+                            "duration": duration_seconds,
+                            "language": language
+                        }
                             
                     except sr.RequestError as e:
-                        # Erro na API
-                        logger.error(f"Erro na API do Google Speech: {e}")
+                        # Google API falhou - tentar OpenAI Whisper
+                        logger.error(f"Erro Google Speech: {e}")
+                        emoji_logger.system_warning("🔄 Google falhou, tentando OpenAI Whisper...")
                         
-                        # Tentar Sphinx offline como fallback
-                        try:
-                            text = self.recognizer.recognize_sphinx(
-                                audio_data,
-                                language=language
-                            )
-                            
-                            return {
-                                "text": text,
-                                "status": "success",
-                                "duration": duration_seconds,
-                                "language": language,
-                                "engine": "sphinx",
-                                "note": "API indisponível, usando transcrição offline"
-                            }
-                        except Exception as sphinx_error:
-                            logger.error(f"Sphinx também falhou: {sphinx_error}")
-                            return {
-                                "text": "",
-                                "status": "error",
-                                "error": "Serviço de transcrição indisponível",
-                                "duration": duration_seconds
-                            }
+                        if self.openai_available and os.path.exists(wav_path):
+                            try:
+                                with open(wav_path, "rb") as audio_file:
+                                    transcription = self.openai_client.audio.transcriptions.create(
+                                        model="whisper-1",
+                                        file=audio_file,
+                                        language="pt"
+                                    )
+                                
+                                text = transcription.text
+                                emoji_logger.system_info(f"✅ Whisper-1 salvou o dia: {len(text)} chars")
+                                
+                                return {
+                                    "text": text,
+                                    "status": "success",
+                                    "duration": duration_seconds,
+                                    "language": language,
+                                    "engine": "whisper-1-fallback",
+                                    "note": "Google falhou, usado Whisper ($0.006/min)"
+                                }
+                            except Exception as whisper_error:
+                                logger.error(f"Whisper também falhou: {whisper_error}")
+                        
+                        return {
+                            "text": "",
+                            "status": "error",
+                            "error": "Serviços de transcrição indisponíveis",
+                            "duration": duration_seconds
+                        }
                             
             except Exception as e:
                 logger.error(f"Erro na transcrição: {e}")
