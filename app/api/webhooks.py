@@ -57,8 +57,9 @@ def detect_media_format(media_data: Any) -> str:
             # Tenta validar se é base64 válido
             try:
                 # Tenta decodificar um pequeno pedaço para verificar
+                import base64 as b64
                 test_sample = media_data[:100] if len(media_data) >= 100 else media_data
-                test = base64.b64decode(test_sample)
+                test = b64.b64decode(test_sample)
                 logger.info("Formato detectado: Base64 válido")
                 return 'base64'
             except:
@@ -490,13 +491,14 @@ async def process_message_with_agent(
                 try:
                     # Decodificar base64 para verificar magic bytes
                     img_bytes = base64.b64decode(image_base64)
-                    detected_type = agno_detector.detect(img_bytes)
+                    detection_result = agno_detector.detect_media_type(img_bytes)
                     
-                    if detected_type and detected_type != "unknown":
-                        logger.info(f"🔍 AGNO validou mídia: {detected_type}")
-                        emoji_logger.system_info(f"✅ Imagem validada ({detected_type}): {len(image_base64)} chars")
+                    if detection_result.get('detected'):
+                        detected_format = detection_result.get('format', 'unknown')
+                        logger.info(f"🔍 AGNO validou mídia: {detected_format}")
+                        emoji_logger.system_info(f"✅ Imagem validada ({detected_format}): {len(image_base64)} chars")
                     else:
-                        logger.warning(f"⚠️ AGNO não reconheceu formato da imagem")
+                        logger.warning(f"⚠️ AGNO não reconheceu formato da imagem: {detection_result.get('magic_bytes', 'N/A')}")
                         emoji_logger.system_warning(f"Imagem com formato desconhecido, tentando processar mesmo assim")
                 except Exception as agno_error:
                     logger.warning(f"Erro na validação AGNO: {agno_error}")
@@ -586,11 +588,12 @@ async def process_message_with_agent(
                         logger.info(f"Áudio baixado, primeiros 20 bytes (hex): {audio_bytes[:20].hex()}")
                         
                         # Validar com AGNO antes de converter para base64
-                        detected_audio_type = agno_detector.detect(audio_bytes)
-                        if detected_audio_type and detected_audio_type != "unknown":
-                            logger.info(f"🔍 AGNO validou áudio: {detected_audio_type}")
+                        audio_detection = agno_detector.detect_media_type(audio_bytes)
+                        if audio_detection.get('detected'):
+                            detected_audio_format = audio_detection.get('format', 'unknown')
+                            logger.info(f"🔍 AGNO validou áudio: {detected_audio_format}")
                         else:
-                            logger.warning(f"⚠️ AGNO não reconheceu formato do áudio, continuando...")
+                            logger.warning(f"⚠️ AGNO não reconheceu formato do áudio: {audio_detection.get('magic_bytes', 'N/A')}, continuando...")
                         
                         import base64
                         audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')

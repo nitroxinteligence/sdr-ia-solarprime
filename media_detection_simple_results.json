@@ -1,0 +1,53 @@
+{
+  "timestamp": "2025-08-03T23:58:30.250863",
+  "tests": [
+    {
+      "test": "Base64 v\u00e1lido",
+      "passed": true,
+      "expected": "base64",
+      "detected": "base64"
+    },
+    {
+      "test": "Data URL com imagem",
+      "passed": true,
+      "expected": "data_url",
+      "detected": "data_url"
+    },
+    {
+      "test": "URL para download",
+      "passed": true,
+      "expected": "url",
+      "detected": "url"
+    },
+    {
+      "test": "Bytes estranhos (n\u00e3o base64)",
+      "passed": true,
+      "expected": "unknown",
+      "detected": "unknown"
+    },
+    {
+      "test": "String vazia",
+      "passed": true,
+      "expected": "unknown",
+      "detected": "unknown"
+    },
+    {
+      "test": "None",
+      "passed": true,
+      "expected": "unknown",
+      "detected": "unknown"
+    },
+    {
+      "test": "Base64 grande (imagem real)",
+      "passed": true,
+      "expected": "base64",
+      "detected": "base64"
+    }
+  ],
+  "summary": {
+    "total": 7,
+    "passed": 7,
+    "failed": 0,
+    "success_rate": "100.0%"
+  }
+}
