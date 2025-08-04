@@ -49,7 +49,7 @@ class SimpleOpenAIWrapper:
             payload = {
                 "model": self.model_id,
                 "messages": [{"role": "user", "content": str(message)}],
-                "max_tokens": self.max_tokens,
+                "max_completion_tokens": self.max_tokens,  # Corrigir: o3-mini usa max_completion_tokens
                 "temperature": self.temperature
             }
             
@@ -184,7 +184,8 @@ class IntelligentModelFallback:
     async def _gemini_call_with_retry(self, message: str, **kwargs):
         """Chamada Gemini com retry automático via decorador"""
         if self.primary_model:
-            return self.primary_model.invoke(message, **kwargs)
+            # Corrigir: usar run() ao invés de invoke()
+            return self.primary_model.run(message, **kwargs)
         raise Exception("Modelo primário Gemini não disponível")
     
     @async_retry(OPENAI_RETRY_CONFIG)
