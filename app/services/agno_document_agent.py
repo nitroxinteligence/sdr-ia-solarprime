@@ -14,12 +14,17 @@ import base64
 import io
 from typing import Dict, Any, Optional, Callable, List
 from pathlib import Path
-import fitz  # PyMuPDF para OCR de imagens em PDFs
 from PIL import Image as PILImage
-import pytesseract
 from app.utils.logger import emoji_logger
 
 # Fallback imports caso algumas libs não estejam disponíveis
+try:
+    import fitz  # PyMuPDF para OCR de imagens em PDFs
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+    emoji_logger.system_warning("PyMuPDF não disponível - usando pypdf como fallback")
+
 try:
     import docx
     DOCX_AVAILABLE = True
@@ -140,86 +145,136 @@ class AGNODocumentProcessor:
         try:
             pdf_stream = io.BytesIO(document_bytes)
             
-            # Usar PyMuPDF para melhor extração + OCR
-            doc = fitz.open(stream=pdf_stream, filetype="pdf")
-            
-            extracted_text = ""
-            images_processed = 0
-            ocr_text = ""
-            total_pages = len(doc)
-            
-            for page_num in range(total_pages):
-                page = doc[page_num]
+            # Usar PyMuPDF se disponível, senão fallback para pypdf
+            if PYMUPDF_AVAILABLE:
+                return self._process_pdf_with_pymupdf(pdf_stream, filename, enable_ocr)
+            else:
+                return self._process_pdf_with_pypdf(pdf_stream, filename, enable_ocr)
                 
-                # Extrair texto básico
-                page_text = page.get_text()
-                if page_text.strip():
-                    extracted_text += f"\n--- Página {page_num + 1} ---\n{page_text}\n"
-                
-                # OCR de imagens se habilitado (AGNO PDFImageReader pattern)
-                if enable_ocr and OCR_AVAILABLE:
-                    try:
-                        # Extrair imagens da página
-                        image_list = page.get_images()
-                        
-                        for img_index, img in enumerate(image_list):
-                            try:
-                                # Extrair dados da imagem
-                                xref = img[0]
-                                pix = fitz.Pixmap(doc, xref)
-                                
-                                if pix.n - pix.alpha < 4:  # GRAY ou RGB
-                                    img_data = pix.tobytes("png")
-                                    
-                                    # OCR na imagem
-                                    pil_img = PILImage.open(io.BytesIO(img_data))
-                                    img_text = pytesseract.image_to_string(pil_img, lang='por')
-                                    
-                                    if img_text.strip():
-                                        ocr_text += f"\n[OCR Imagem {img_index + 1} - Página {page_num + 1}]: {img_text.strip()}\n"
-                                        images_processed += 1
-                                
-                                pix = None  # Liberar memória
-                                
-                            except Exception as img_error:
-                                emoji_logger.system_warning(f"OCR falhou para imagem {img_index}: {img_error}")
-                                continue
-                                
-                    except Exception as ocr_error:
-                        emoji_logger.system_warning(f"OCR falhou na página {page_num + 1}: {ocr_error}")
-                        continue
-            
-            doc.close()
-            
-            # Combinar texto extraído + OCR
-            full_content = extracted_text
-            if ocr_text.strip():
-                full_content += f"\n--- Conteúdo de Imagens (OCR AGNO) ---\n{ocr_text}"
-            
-            result = {
-                'type': 'document',
-                'filename': filename or 'documento.pdf',
-                'content': full_content.strip(),
-                'pages': total_pages,
-                'text_extracted': bool(extracted_text.strip()),
-                'images_processed': images_processed,
-                'ocr_content': bool(ocr_text.strip()),
-                'agno_pattern': 'PDFImageReader' if enable_ocr else 'PDFReader',
-                'status': 'success'
-            }
-            
-            emoji_logger.system_info(
-                f"AGNO PDF enhanced: {total_pages} páginas, {images_processed} imagens com OCR"
-            )
-            
-            return result
-            
         except Exception as e:
             emoji_logger.system_error("AGNO PDF Processing", str(e))
             return {
                 'type': 'document',
                 'filename': filename or 'documento.pdf',
                 'error': f'Erro no processamento PDF AGNO: {str(e)}',
+                'status': 'error'
+            }
+    
+    def _process_pdf_with_pymupdf(self, pdf_stream: io.BytesIO, filename: Optional[str], enable_ocr: bool) -> Dict[str, Any]:
+        """PyMuPDF processing with OCR"""
+        doc = fitz.open(stream=pdf_stream, filetype="pdf")
+        
+        extracted_text = ""
+        images_processed = 0
+        ocr_text = ""
+        total_pages = len(doc)
+        
+        for page_num in range(total_pages):
+            page = doc[page_num]
+            
+            # Extrair texto básico
+            page_text = page.get_text()
+            if page_text.strip():
+                extracted_text += f"\n--- Página {page_num + 1} ---\n{page_text}\n"
+            
+            # OCR de imagens se habilitado (AGNO PDFImageReader pattern)
+            if enable_ocr and OCR_AVAILABLE:
+                try:
+                    # Extrair imagens da página
+                    image_list = page.get_images()
+                    
+                    for img_index, img in enumerate(image_list):
+                        try:
+                            # Extrair dados da imagem
+                            xref = img[0]
+                            pix = fitz.Pixmap(doc, xref)
+                            
+                            if pix.n - pix.alpha < 4:  # GRAY ou RGB
+                                img_data = pix.tobytes("png")
+                                
+                                # OCR na imagem
+                                pil_img = PILImage.open(io.BytesIO(img_data))
+                                img_text = pytesseract.image_to_string(pil_img, lang='por')
+                                
+                                if img_text.strip():
+                                    ocr_text += f"\n[OCR Imagem {img_index + 1} - Página {page_num + 1}]: {img_text.strip()}\n"
+                                    images_processed += 1
+                            
+                            pix = None  # Liberar memória
+                            
+                        except Exception as img_error:
+                            emoji_logger.system_warning(f"OCR falhou para imagem {img_index}: {img_error}")
+                            continue
+                            
+                except Exception as ocr_error:
+                    emoji_logger.system_warning(f"OCR falhou na página {page_num + 1}: {ocr_error}")
+                    continue
+        
+        doc.close()
+        
+        # Combinar texto extraído + OCR
+        full_content = extracted_text
+        if ocr_text.strip():
+            full_content += f"\n--- Conteúdo de Imagens (OCR AGNO) ---\n{ocr_text}"
+        
+        result = {
+            'type': 'document',
+            'filename': filename or 'documento.pdf',
+            'content': full_content.strip(),
+            'pages': total_pages,
+            'text_extracted': bool(extracted_text.strip()),
+            'images_processed': images_processed,
+            'ocr_content': bool(ocr_text.strip()),
+            'agno_pattern': 'PDFImageReader' if enable_ocr else 'PDFReader',
+            'status': 'success'
+        }
+        
+        emoji_logger.system_info(
+            f"AGNO PDF enhanced: {total_pages} páginas, {images_processed} imagens com OCR"
+        )
+        
+        return result
+    
+    def _process_pdf_with_pypdf(self, pdf_stream: io.BytesIO, filename: Optional[str], enable_ocr: bool) -> Dict[str, Any]:
+        """Fallback PDF processing usando pypdf (sem OCR de imagens)"""
+        try:
+            from pypdf import PdfReader
+            
+            reader = PdfReader(pdf_stream)
+            extracted_text = ""
+            
+            for page_num, page in enumerate(reader.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text.strip():
+                        extracted_text += f"\n--- Página {page_num + 1} ---\n{page_text}\n"
+                except Exception as page_error:
+                    emoji_logger.system_warning(f"Erro na página {page_num + 1}: {page_error}")
+                    continue
+            
+            result = {
+                'type': 'document',
+                'filename': filename or 'documento.pdf',
+                'content': extracted_text.strip(),
+                'pages': len(reader.pages),
+                'text_extracted': bool(extracted_text.strip()),
+                'images_processed': 0,  # pypdf não faz OCR
+                'ocr_content': False,
+                'agno_pattern': 'PDFReader_fallback',
+                'status': 'success',
+                'fallback_used': 'pypdf'
+            }
+            
+            emoji_logger.system_info(f"PDF processado com pypdf fallback: {len(reader.pages)} páginas")
+            
+            return result
+            
+        except Exception as e:
+            emoji_logger.system_error("AGNO PDF Fallback", str(e))
+            return {
+                'type': 'document',
+                'filename': filename or 'documento.pdf',
+                'error': f'Erro no fallback PDF: {str(e)}',
                 'status': 'error'
             }
     
