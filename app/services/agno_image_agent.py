@@ -150,6 +150,8 @@ def agno_image_enhancer(func: Callable) -> Callable:
         # Chama método original (mantém funcionalidade existente)
         original_result = func(*args, **kwargs)
         
+        emoji_logger.system_info(f"AGNO Image Decorator: processando resultado original - tipo: {original_result.get('type')}, erro: {bool(original_result.get('error'))}")
+        
         # Se processamento original foi bem-sucedido, adicionar AGNO enhancements
         if (isinstance(original_result, dict) and 
             original_result.get('type') == 'image' and 
@@ -177,6 +179,35 @@ def agno_image_enhancer(func: Callable) -> Callable:
                 emoji_logger.system_warning(f"AGNO enhancement failed (non-critical): {e}")
                 # Não falha - apenas não adiciona metadata
                 original_result['agno_enhancement_error'] = str(e)
+        
+        # CORREÇÃO CRÍTICA: Se é imagem mas processamento original falhou, tentar AGNO fallback
+        elif (isinstance(original_result, dict) and 
+              original_result.get('type') == 'image' and 
+              original_result.get('error')):
+            
+            emoji_logger.system_info("AGNO Image Decorator: detectado erro original, tentando fallback AGNO")
+            
+            try:
+                if len(args) >= 2 and isinstance(args[1], str):
+                    # args[1] provavelmente é media_data (base64)
+                    image_bytes = base64.b64decode(args[1])
+                    filename = kwargs.get('filename') or original_result.get('filename')
+                    
+                    # Tentar AGNO fallback
+                    agno_fallback = agno_fallback_processor(image_bytes, filename)
+                    
+                    # Se AGNO conseguiu processar onde o original falhou
+                    if agno_fallback.get('status') == 'success':
+                        agno_fallback['fallback_from_original'] = True
+                        agno_fallback['original_error'] = original_result.get('error')
+                        
+                        emoji_logger.system_info(f"AGNO Image fallback successful for: {filename}")
+                        return agno_fallback
+                    else:
+                        emoji_logger.system_warning(f"AGNO Image fallback também falhou: {agno_fallback.get('error')}")
+                        
+            except Exception as e:
+                emoji_logger.system_warning(f"AGNO Image fallback failed: {e}")
         
         return original_result
     

@@ -418,6 +418,8 @@ def agno_document_enhancer(func: Callable) -> Callable:
         # Chama método original (mantém funcionalidade existente)
         original_result = func(*args, **kwargs)
         
+        emoji_logger.system_info(f"AGNO Document Decorator: processando resultado original - tipo: {original_result.get('type')}, erro: {bool(original_result.get('error'))}")
+        
         # Se processamento original foi bem-sucedido E é documento, aplicar AGNO enhancements
         if (isinstance(original_result, dict) and 
             original_result.get('type') == 'document' and 
@@ -470,6 +472,8 @@ def agno_document_enhancer(func: Callable) -> Callable:
         elif (isinstance(original_result, dict) and 
               original_result.get('type') == 'document' and 
               original_result.get('error')):
+            
+            emoji_logger.system_info("AGNO Document Decorator: detectado erro original, tentando fallback AGNO")
             
             try:
                 if len(args) >= 2 and isinstance(args[1], str):
