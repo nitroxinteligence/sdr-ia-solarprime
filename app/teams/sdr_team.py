@@ -98,22 +98,17 @@ class SDRTeam:
                     emoji_logger.system_error("SDR Team", f"Todos os modelos Gemini falharam: {e3}")
                     raise Exception("Impossível inicializar modelo Gemini. Verifique a API key.")
         
-        # Memory compartilhada do Team (AFTER model initialization)
-        # Tenta criar Memory com storage, fallback para sem persistência
+        # Memory compartilhada do Team - Simplificada para evitar erros
+        # Por enquanto, usar memória simples sem features avançadas
         try:
-            self.memory = AgentMemory(
-                db=self.storage,  # db é o parâmetro correto para storage
-                create_user_memories=True,
-                create_session_summary=True
-            )
-            logger.info("Memory configurado com persistência")
+            # Tentar criar memória básica sem storage
+            self.memory = AgentMemory()
+            logger.info("Memory básico configurado")
         except Exception as e:
-            logger.warning(f"Memory sem persistência: {str(e)[:50]}...")
-            # Memory without persistence needs model parameter
-            self.memory = AgentMemory(
-                create_user_memories=True,
-                create_session_summary=True
-            )
+            logger.warning(f"Erro ao criar AgentMemory: {str(e)[:100]}...")
+            # Se falhar, criar None e deixar Team funcionar sem memória
+            self.memory = None
+            logger.warning("Team funcionará sem memória persistente")
         
         # Team Leader - Helen SDR Master
         self.team_leader = Agent(
@@ -276,12 +271,12 @@ class SDRTeam:
                 self.qualification_agent = QualificationAgent(model=self.model, storage=self.storage)
                 team_members = [self.qualification_agent.agent]
             
-            # Criar o Team com modo COORDINATE
-            self.team = Team(
-                name="SDR Solar Prime Team",
-                mode="coordinate",  # Team Leader delega e sintetiza
-                members=team_members,
-                description="""Equipe especializada em vendas de energia solar.
+            # Preparar configurações do Team
+            team_config = {
+                "name": "SDR Solar Prime Team",
+                "mode": "coordinate",  # Team Leader delega e sintetiza
+                "members": team_members,
+                "description": """Equipe especializada em vendas de energia solar.
                 
                 O Team Leader (Helen) coordena os agentes:
                 - QualificationAgent: Qualifica leads e calcula scores
@@ -293,7 +288,7 @@ class SDRTeam:
                 
                 Objetivo: Qualificar leads e agendar reuniões com consultores.""",
                 
-                instructions="""
+                "instructions": """
                 1. Analise a mensagem do lead e o contexto da conversa
                 2. Identifique qual(is) agente(s) deve(m) ser acionado(s)
                 3. Delegue tarefas específicas para os agentes apropriados
@@ -305,14 +300,22 @@ class SDRTeam:
                 """,
                 
                 # Configurações adicionais
-                model=self.model,  # Adicionar modelo explicitamente
-                memory=self.memory,
-                show_tool_calls=True,
-                markdown=True,
-                show_members_responses=True,
-                # enable_agentic_context=True,  # Desabilitado temporariamente - causando erro com get_team_context_str
-                debug_mode=settings.debug
-            )
+                "model": self.model,
+                "show_tool_calls": True,
+                "markdown": True,
+                "show_members_responses": True,
+                "debug_mode": settings.debug
+            }
+            
+            # Adicionar memory apenas se disponível e funcional
+            if self.memory is not None:
+                team_config["memory"] = self.memory
+                logger.info("Team configurado com memória")
+            else:
+                logger.info("Team configurado sem memória")
+            
+            # Criar o Team com configurações
+            self.team = Team(**team_config)
             
             # Carregar knowledge base se habilitado
             if self.knowledge_agent and settings.enable_knowledge_base:
