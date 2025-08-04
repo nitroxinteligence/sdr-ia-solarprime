@@ -78,6 +78,7 @@ from loguru import logger
 from app.utils.logger import emoji_logger
 from app.utils.optional_storage import OptionalStorage
 from app.utils.agno_media_detection import agno_media_detector
+from app.utils.retry_handler import async_retry, GEMINI_RETRY_CONFIG, OPENAI_RETRY_CONFIG
 
 from app.config import settings
 from app.integrations.supabase_client import supabase_client
@@ -178,6 +179,20 @@ class IntelligentModelFallback:
             self._is_gemini_error(error)  # É um erro que requer fallback
         )
     
+    @async_retry(GEMINI_RETRY_CONFIG)
+    async def _gemini_call_with_retry(self, message: str, **kwargs):
+        """Chamada Gemini com retry automático via decorador"""
+        if self.primary_model:
+            return self.primary_model.invoke(message, **kwargs)
+        raise Exception("Modelo primário Gemini não disponível")
+    
+    @async_retry(OPENAI_RETRY_CONFIG)
+    async def _openai_call_with_retry(self, message: str, **kwargs):
+        """Chamada OpenAI com retry automático via decorador"""
+        if self.fallback_model:
+            return self.fallback_model.run(message, **kwargs)
+        raise Exception("Modelo fallback OpenAI não disponível")
+    
     async def _retry_with_backoff(self, message: str, **kwargs):
         """
         Tenta executar o Gemini com retry e backoff
@@ -227,20 +242,20 @@ class IntelligentModelFallback:
         Executa o modelo com retry inteligente e fallback
         Fluxo: Gemini → Retry (se erro 500/503) → Fallback OpenAI (se retry falhar)
         """
-        # Se já estamos usando fallback, usa direto
+        # Se já estamos usando fallback, usa direto com retry
         if self.fallback_active and self.current_model == self.fallback_model:
             try:
-                response = self.fallback_model.run(message, **kwargs)
-                emoji_logger.system_info("📍 Usando fallback OpenAI o3-mini")
+                response = await self._openai_call_with_retry(message, **kwargs)
+                emoji_logger.system_info("📍 Usando fallback OpenAI o3-mini com retry")
                 return response
             except Exception as e:
-                emoji_logger.system_error("Fallback OpenAI também falhou", error=str(e))
+                emoji_logger.system_error("Fallback OpenAI falhou após múltiplas tentativas", error=str(e))
                 raise e
         
-        # Tenta com modelo primário (Gemini)
+        # Tenta com modelo primário (Gemini) usando retry automático
         try:
             if self.primary_model:
-                response = self.primary_model.invoke(message, **kwargs)
+                response = await self._gemini_call_with_retry(message, **kwargs)
                 
                 # Se estava usando fallback e Gemini funcionou, desativa fallback
                 if self.fallback_active:
@@ -251,29 +266,19 @@ class IntelligentModelFallback:
                 return response
                 
         except Exception as e:
-            emoji_logger.system_warning(f"⚠️ Erro inicial no Gemini: {e}")
+            emoji_logger.system_warning(f"⚠️ Gemini falhou após múltiplas tentativas: {e}")
             
-            # Se é erro temporário do Gemini, tenta retry
-            if self._is_gemini_error(e):
-                emoji_logger.system_info("🔄 Iniciando retry automático do Gemini...")
+            # Se temos fallback, ativa OpenAI com retry
+            if self.fallback_model is not None:
+                emoji_logger.system_warning("🔄 Ativando fallback OpenAI o3-mini com retry...")
                 
-                # Tenta com retry
-                retry_response = await self._retry_with_backoff(message, **kwargs)
-                
-                if retry_response is not None:
-                    return retry_response
-                
-                # Se retry falhou e temos fallback, ativa OpenAI
-                if self.fallback_model is not None:
-                    emoji_logger.system_warning("🔄 Retry esgotado, ativando fallback OpenAI o3-mini...")
+                try:
+                    self.current_model = self.fallback_model
+                    self.fallback_active = True
                     
-                    try:
-                        self.current_model = self.fallback_model
-                        self.fallback_active = True
-                        
-                        response = self.fallback_model.run(message, **kwargs)
-                        emoji_logger.system_ready("✅ Fallback OpenAI o3-mini ativado com sucesso")
-                        return response
+                    response = await self._openai_call_with_retry(message, **kwargs)
+                    emoji_logger.system_ready("✅ Fallback OpenAI o3-mini ativado com sucesso")
+                    return response
                         
                     except Exception as fallback_error:
                         emoji_logger.system_error("Fallback OpenAI também falhou", error=str(fallback_error))

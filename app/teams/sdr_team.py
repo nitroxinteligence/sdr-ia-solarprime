@@ -17,6 +17,7 @@ from agno.models.google import Gemini
 from loguru import logger
 from app.utils.logger import emoji_logger
 from app.utils.optional_storage import OptionalStorage
+from app.utils.retry_handler import async_retry, GEMINI_RETRY_CONFIG
 
 from app.config import settings
 from app.integrations.supabase_client import supabase_client
@@ -657,6 +658,11 @@ class SDRTeam:
         }
         
         return metrics
+    
+    @async_retry(GEMINI_RETRY_CONFIG)
+    async def _model_run_with_retry(self, *args, **kwargs):
+        """Wrapper para adicionar retry automático às chamadas do modelo"""
+        return self._original_run(*args, **kwargs)
 
 
 # Factory function para criar o Team

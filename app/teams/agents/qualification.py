@@ -103,7 +103,7 @@ class QualificationAgent:
             5. Recomendar próximas ações
             
             Critérios principais:
-            - Valor da conta de luz (mínimo R$ 2.000)
+            - Valor da conta de luz (mínimo R$ 400 Para casas e R$ 4.000 para empresas)
             - Poder de decisão
             - Timeline de implementação
             - Nível de engajamento
