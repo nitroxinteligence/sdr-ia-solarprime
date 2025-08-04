@@ -14,25 +14,50 @@ async def kommo_webhook(request: Request):
     Recebe eventos do Kommo CRM
     """
     try:
-        # Receber dados do webhook
-        data = await request.json()
+        # Tentar receber dados em diferentes formatos
+        content_type = request.headers.get("content-type", "")
         
-        # Log do evento recebido
-        logger.info(f"📥 Evento Kommo recebido: {data.get('event_type', 'unknown')}")
+        if "application/json" in content_type:
+            try:
+                data = await request.json()
+            except:
+                # Se falhar, tentar como texto
+                body = await request.body()
+                if body:
+                    data = {"raw_data": body.decode('utf-8', errors='ignore')}
+                else:
+                    data = {"event": "empty_body"}
+        elif "application/x-www-form-urlencoded" in content_type:
+            # Kommo pode enviar como form data
+            form_data = await request.form()
+            data = dict(form_data)
+        else:
+            # Receber como texto raw
+            body = await request.body()
+            if body:
+                data = {"raw_data": body.decode('utf-8', errors='ignore')}
+            else:
+                data = {"event": "ping"}
         
-        # Por enquanto, apenas confirmar recebimento
-        # Futuramente podemos processar eventos específicos como:
-        # - lead.created
-        # - lead.updated
-        # - lead.status_changed
-        # - lead.deleted
+        # Log do evento recebido (apenas em debug para não poluir o log)
+        if data != {"event": "ping"}:
+            logger.debug(f"📥 Evento Kommo recebido: {data}")
         
+        # Processar eventos específicos se necessário
+        if isinstance(data, dict):
+            event_type = data.get('event_type') or data.get('event') or 'unknown'
+            
+            # Processar apenas eventos importantes
+            if event_type in ['lead.created', 'lead.updated', 'lead.status_changed']:
+                logger.info(f"📌 Evento Kommo importante: {event_type}")
+        
+        # Sempre retornar 200 OK para o Kommo
         return {"status": "ok", "received_at": datetime.now().isoformat()}
         
     except Exception as e:
-        logger.error(f"❌ Erro ao processar webhook Kommo: {e}")
+        logger.error(f"❌ Erro inesperado no webhook Kommo: {e}")
         # Retornar 200 mesmo com erro para evitar retry infinito
-        return {"status": "error", "message": str(e)}
+        return {"status": "ok", "error_handled": True}
 
 @router.get("/events")
 async def kommo_webhook_test():
