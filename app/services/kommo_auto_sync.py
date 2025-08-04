@@ -37,13 +37,17 @@ class KommoAutoSyncService:
             "NOT_INTERESTED": "nao_interessado"
         }
         
-        # Tags automáticas baseadas em condições
+        # Tags automáticas baseadas em condições (tags oficiais do sistema)
         self.auto_tags = {
-            "new_lead": ["whatsapp-lead", "SDR IA", "novo"],
-            "qualified": ["qualificado-ia", "prioridade"],
-            "scheduled": ["agendamento-confirmado", "follow-up"],
-            "high_value": ["vip", "high-value"],
-            "low_engagement": ["frio", "nurturing-necessario"]
+            "new_lead": ["whatsapp-lead"],
+            "qualified": ["qualificado-ia"],
+            "scheduled": ["agendamento-pendente"],
+            "follow_up": ["follow-up-automatico"],
+            "hot": ["lead-quente"],
+            "warm": ["lead-morno"],
+            "cold": ["lead-frio"],
+            "no_response": ["sem-resposta"],
+            "invalid_number": ["numero-invalido"]
         }
         
         logger.info("✅ KommoAutoSyncService inicializado")
@@ -161,11 +165,15 @@ class KommoAutoSyncService:
             # Determinar tags baseadas no lead
             tags = self._determine_tags(lead)
             
-            # Criar lead no CRM
-            result = await self.crm.create_or_update_lead(
-                lead_data=lead_data,
-                tags=tags
-            )
+            # Criar lead no CRM usando método direto (sem @tool decorator)
+            if hasattr(self.crm, 'create_or_update_lead_direct'):
+                result = await self.crm.create_or_update_lead_direct(
+                    lead_data=lead_data,
+                    tags=tags
+                )
+            else:
+                logger.error("Método create_or_update_lead_direct não encontrado no CRM")
+                result = {"success": False, "error": "Método não disponível"}
             
             if result.get("success"):
                 kommo_id = result.get("crm_id")
@@ -188,30 +196,43 @@ class KommoAutoSyncService:
     
     def _determine_tags(self, lead: Dict[str, Any]) -> list:
         """Determina tags automáticas baseadas no lead"""
-        tags = self.auto_tags["new_lead"].copy()
+        tags = []
         
-        # Tag de valor
-        bill_value = float(lead.get("bill_value") or 0)
-        if bill_value > 1000:
-            tags.extend(self.auto_tags["high_value"])
-        elif bill_value > 500:
-            tags.append("medium-value")
+        # Tag base para todos os leads do WhatsApp
+        tags.extend(self.auto_tags["new_lead"])
+        
+        # Tag de temperatura baseada no score
+        qualification_score = lead.get("qualification_score") or 0
+        if qualification_score >= 70:
+            tags.extend(self.auto_tags["hot"])  # lead-quente
+        elif qualification_score >= 40:
+            tags.extend(self.auto_tags["warm"])  # lead-morno
         else:
-            tags.append("low-value")
+            tags.extend(self.auto_tags["cold"])  # lead-frio
         
         # Tag de qualificação
         if lead.get("qualification_status") == "QUALIFIED":
-            tags.extend(self.auto_tags["qualified"])
-        elif lead.get("qualification_status") == "NOT_QUALIFIED":
-            tags.append("nao-qualificado")
+            tags.extend(self.auto_tags["qualified"])  # qualificado-ia
         
-        # Tag de interesse
-        if not lead.get("interested"):
-            tags.append("sem-interesse")
+        # Tag de agendamento
+        if lead.get("meeting_scheduled_at"):
+            tags.extend(self.auto_tags["scheduled"])  # agendamento-pendente
         
-        # Tag de decisor
-        if lead.get("is_decision_maker"):
-            tags.append("decisor")
+        # Tag de follow-up
+        if lead.get("follow_up_scheduled"):
+            tags.extend(self.auto_tags["follow_up"])  # follow-up-automatico
+        
+        # Tag de sem resposta (baseado no último contato)
+        last_contact = lead.get("last_contact_at")
+        if last_contact:
+            from datetime import datetime
+            last_contact_date = datetime.fromisoformat(last_contact.replace('Z', '+00:00'))
+            if (datetime.now() - last_contact_date).days > 3:
+                tags.extend(self.auto_tags["no_response"])  # sem-resposta
+        
+        # Tag de número inválido
+        if lead.get("phone_invalid") or lead.get("whatsapp_invalid"):
+            tags.extend(self.auto_tags["invalid_number"])  # numero-invalido
         
         return list(set(tags))  # Remover duplicatas
     
@@ -333,10 +354,12 @@ class KommoAutoSyncService:
         
         try:
             # Buscar leads qualificados sem deal
+            # Como não temos campo kommo_deal_id, vamos usar outro critério
+            # Por exemplo, leads qualificados sem kommo_lead_id ainda
             result = self.db.client.table('leads').select("*").eq(
                 'qualification_status', 'QUALIFIED'
-            ).is_(
-                'has_crm_deal', 'null'
+            ).not_.is_(
+                'kommo_lead_id', 'null'  # Só criar deal para leads já sincronizados
             ).limit(10).execute()
             
             if not result.data:
@@ -368,16 +391,21 @@ class KommoAutoSyncService:
                 )
                 
                 if result.get("success"):
-                    # Marcar que tem deal
-                    self.db.client.table('leads').update({
-                        'has_crm_deal': True
-                    }).eq('id', lead['id']).execute()
+                    # Marcar que tem deal - usar algum campo existente ou apenas logar
+                    # Como não temos kommo_deal_id, vamos apenas logar o sucesso
+                    logger.info(f"✅ Deal criado para lead {lead['id']} - Deal ID: {result.get('deal_id')}")
                     
                     # Adicionar tags de qualificado
-                    await self.crm.add_tags_to_lead(
-                        kommo_id,
-                        ["qualificado", "deal-criado", f"score-{lead.get('qualification_score', 0)}"]
-                    )
+                    qualified_tags = ["qualificado-ia"]
+                    
+                    # Adicionar tag de temperatura baseada no score
+                    score = lead.get('qualification_score', 0)
+                    if score >= 70:
+                        qualified_tags.append("lead-quente")
+                    elif score >= 40:
+                        qualified_tags.append("lead-morno")
+                    
+                    await self.crm.add_tags_to_lead(kommo_id, qualified_tags)
                     
                     logger.info(f"💰 Deal criado para lead qualificado {lead['id']}")
                     
@@ -393,10 +421,9 @@ class KommoAutoSyncService:
         
         try:
             # Buscar leads com reunião agendada
+            # Como não temos campo kommo_meeting_id, vamos usar apenas meeting_scheduled_at
             result = self.db.client.table('leads').select("*").not_.is_(
                 'meeting_scheduled_at', 'null'
-            ).eq(
-                'meeting_synced_to_crm', False
             ).limit(10).execute()
             
             if not result.data:
@@ -439,10 +466,13 @@ class KommoAutoSyncService:
                         )
                 
                 # Adicionar tags
-                await self.crm.add_tags_to_lead(
-                    kommo_id,
-                    ["reuniao-agendada", lead.get("meeting_type", "inicial")]
-                )
+                meeting_tags = ["agendamento-pendente"]
+                
+                # Se já está qualificado, manter tag
+                if lead.get("qualification_status") == "QUALIFIED":
+                    meeting_tags.append("qualificado-ia")
+                
+                await self.crm.add_tags_to_lead(kommo_id, meeting_tags)
                 
                 # Criar tarefa de follow-up
                 meeting_time = lead.get("meeting_scheduled_at")
@@ -454,10 +484,11 @@ class KommoAutoSyncService:
                         complete_till=meeting_time
                     )
                 
-                # Marcar como sincronizado
-                self.db.client.table('leads').update({
-                    'meeting_synced_to_crm': True
-                }).eq('id', lead['id']).execute()
+                # Marcar como sincronizado salvando algum identificador
+                # Como não temos o campo meeting_synced_to_crm, vamos apenas logar
+                # self.db.client.table('leads').update({
+                #     'kommo_meeting_id': 'synced'
+                # }).eq('id', lead['id']).execute()
                 
                 logger.info(f"📅 Reunião sincronizada para lead {lead['id']}")
                 

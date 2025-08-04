@@ -9,6 +9,7 @@ import aiohttp
 from loguru import logger
 
 from app.teams.agents.crm import CRMAgent
+from app.config import settings
 
 
 class KommoEnhancedCRM(CRMAgent):
@@ -40,6 +41,61 @@ class KommoEnhancedCRM(CRMAgent):
         self.pipelines_cache = {}
         
         logger.info("✅ KommoEnhancedCRM inicializado com funcionalidades completas")
+    
+    async def create_or_update_lead_direct(self, lead_data: Dict[str, Any], tags: list = None) -> Dict[str, Any]:
+        """
+        Cria ou atualiza um lead no Kommo (versão direta sem @tool decorator)
+        """
+        try:
+            # Preparar dados do lead
+            kommo_data = {
+                "name": lead_data.get("name", "Sem nome"),
+                "pipeline_id": int(self.kommo_config["pipeline_id"]),
+                "tags": tags or [],
+                "_embedded": {
+                    "tags": tags or []
+                }
+            }
+            
+            # Adicionar telefone se disponível
+            if lead_data.get("phone"):
+                kommo_data["custom_fields_values"] = [
+                    {
+                        "field_id": self.custom_fields.get("phone", 1234),
+                        "values": [{"value": lead_data["phone"]}]
+                    }
+                ]
+            
+            # Adicionar responsável se configurado
+            if hasattr(settings, "kommo_responsible_user_id"):
+                kommo_data["responsible_user_id"] = int(settings.kommo_responsible_user_id)
+            
+            # Criar lead via API
+            response = await self._make_request(
+                "POST",
+                f"{self.kommo_config['base_url']}/api/v4/leads",
+                json=[kommo_data]
+            )
+            
+            if response and "_embedded" in response:
+                lead_id = response["_embedded"]["leads"][0]["id"]
+                return {
+                    "success": True,
+                    "crm_id": lead_id,
+                    "message": "Lead criado com sucesso"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Falha ao criar lead no Kommo"
+                }
+                
+        except Exception as e:
+            logger.error(f"Erro ao criar/atualizar lead: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
     # ==================== MANIPULAÇÃO DE TAGS ====================
     
