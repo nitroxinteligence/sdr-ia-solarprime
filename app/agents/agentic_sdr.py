@@ -1204,21 +1204,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     )
                     
                     if result["status"] == "success":
-                        # Processar transcrição com o agente
+                        # SIMPLES: Apenas retornar a transcrição
+                        # Não precisa processar com agente adicional
                         transcribed_text = result["text"]
-                        
-                        # Criar contexto para o agente
-                        audio_context = f"""O cliente enviou um áudio dizendo:
-                        
-                        \"{transcribed_text}\"
-                        
-                        Por favor, responda adequadamente ao que foi dito no áudio."""
-                        
-                        # Processar com o agente
-                        if hasattr(self.agent, 'arun'):
-                            agent_response = await self.agent.arun(audio_context)
-                        else:
-                            agent_response = await self.agent.run(audio_context)
                         
                         emoji_logger.agentic_multimodal(
                             f"Audio transcrito com sucesso: {len(transcribed_text)} caracteres",
@@ -1229,9 +1217,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         return {
                             "type": "audio",
                             "transcription": transcribed_text,
-                            "response": agent_response,
                             "duration": result.get("duration", 0),
-                            "engine": result.get("engine", "unknown"),
+                            "engine": result.get("engine", "Google Speech Recognition"),
                             "status": "transcribed"
                         }
                     elif result["status"] == "unclear":
