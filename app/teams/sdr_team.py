@@ -12,8 +12,8 @@ from agno.agent import Agent
 from agno.team import Team
 from agno.models.google import Gemini
 # from agno.models.openai import OpenAIChat  # Temporarily disabled due to compatibility issues
-from agno.memory import AgentMemory
-from agno.storage.postgres import PostgresStorage
+# from agno.memory import AgentMemory  # DESABILITADO - causando erros com métodos inexistentes
+# from agno.storage.postgres import PostgresStorage  # DESABILITADO - não necessário sem memory
 from loguru import logger
 from app.utils.logger import emoji_logger
 from app.utils.optional_storage import OptionalStorage
@@ -98,17 +98,13 @@ class SDRTeam:
                     emoji_logger.system_error("SDR Team", f"Todos os modelos Gemini falharam: {e3}")
                     raise Exception("Impossível inicializar modelo Gemini. Verifique a API key.")
         
-        # Memory compartilhada do Team - Simplificada para evitar erros
-        # Por enquanto, usar memória simples sem features avançadas
-        try:
-            # Tentar criar memória básica sem storage
-            self.memory = AgentMemory()
-            logger.info("Memory básico configurado")
-        except Exception as e:
-            logger.warning(f"Erro ao criar AgentMemory: {str(e)[:100]}...")
-            # Se falhar, criar None e deixar Team funcionar sem memória
-            self.memory = None
-            logger.warning("Team funcionará sem memória persistente")
+        # DESABILITADO: AgentMemory causando erros com métodos inexistentes
+        # O framework AGNO está tentando chamar métodos que não existem:
+        # - add_interaction_to_team_context
+        # - get_team_context_str
+        # Por enquanto, vamos funcionar sem memória persistente
+        self.memory = None
+        logger.info("Team funcionará sem memória persistente (AgentMemory desabilitado)")
         
         # Team Leader - Helen SDR Master
         self.team_leader = Agent(
@@ -307,12 +303,9 @@ class SDRTeam:
                 "debug_mode": settings.debug
             }
             
-            # Adicionar memory apenas se disponível e funcional
-            if self.memory is not None:
-                team_config["memory"] = self.memory
-                logger.info("Team configurado com memória")
-            else:
-                logger.info("Team configurado sem memória")
+            # NÃO adicionar memory - causando erros no framework AGNO
+            # team_config["memory"] = self.memory  # DESABILITADO
+            logger.info("Team configurado sem memória (melhor estabilidade)")
             
             # Criar o Team com configurações
             self.team = Team(**team_config)
