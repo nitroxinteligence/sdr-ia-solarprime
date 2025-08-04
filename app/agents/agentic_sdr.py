@@ -183,8 +183,10 @@ class IntelligentModelFallback:
     async def _gemini_call_with_retry(self, message: str, **kwargs):
         """Chamada Gemini com retry automático via decorador"""
         if self.primary_model:
-            # Usar invoke() para Gemini
-            return self.primary_model.invoke(message, **kwargs)
+            # Usar invoke() para Gemini - síncrono, sem await
+            return await asyncio.create_task(
+                asyncio.to_thread(self.primary_model.invoke, message, **kwargs)
+            )
         raise Exception("Modelo primário Gemini não disponível")
     
     @async_retry(OPENAI_RETRY_CONFIG)
@@ -207,8 +209,10 @@ class IntelligentModelFallback:
             try:
                 emoji_logger.system_info(f"🔄 Retry Gemini - Tentativa {attempt + 1}/{self.max_retry_attempts}")
                 
-                # Tenta executar o modelo primário
-                response = self.primary_model.invoke(message, **kwargs)
+                # Tenta executar o modelo primário - síncrono, sem await
+                response = await asyncio.create_task(
+                    asyncio.to_thread(self.primary_model.invoke, message, **kwargs)
+                )
                 
                 if attempt > 0:
                     emoji_logger.system_ready(f"✅ Gemini recuperado após {attempt + 1} tentativa(s)")
