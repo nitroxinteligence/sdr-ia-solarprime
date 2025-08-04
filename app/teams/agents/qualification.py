@@ -470,12 +470,15 @@ class QualificationAgent:
                     .execute()
             
             # Atualizar lead principal
-            await supabase_client.update_lead(lead_id, {
+            # Atualizar lead com campos compatíveis com o schema
+            lead_updates = {
                 "qualification_score": data["score"],
-                "qualification_stage": data["stage"],
-                "is_qualified": data["is_qualified"],
-                "classification": data["classification"]
-            })
+                "current_stage": data["stage"],  # usar current_stage ao invés de qualification_stage
+                "qualification_status": "QUALIFIED" if data["is_qualified"] else "NOT_QUALIFIED"
+                # Removido is_qualified e classification pois não existem na tabela
+            }
+            
+            await supabase_client.update_lead(lead_id, lead_updates)
             
             logger.info(f"✅ Qualificação salva para lead {lead_id}")
             

@@ -444,12 +444,21 @@ class SDRTeam:
             # Extrair informações da sessão do Team
             team_state = getattr(self.team, 'team_session_state', {}) if self.team else {}
             
+            # Preparar updates compatíveis com o schema atual
             updates = {
                 "last_interaction": datetime.now().isoformat(),
-                "qualification_stage": team_state.get("current_stage"),
-                "qualification_score": team_state.get("qualification_score", 0),
-                "is_qualified": team_state.get("is_qualified", False)
+                "current_stage": team_state.get("current_stage", "INITIAL_CONTACT"),
+                "qualification_score": team_state.get("qualification_score", 0)
             }
+            
+            # Atualizar qualification_status baseado em is_qualified
+            # (usar qualification_status ao invés de is_qualified diretamente)
+            if team_state.get("is_qualified", False):
+                updates["qualification_status"] = "QUALIFIED"
+            elif team_state.get("qualification_score", 0) == 0:
+                updates["qualification_status"] = "PENDING"
+            else:
+                updates["qualification_status"] = "NOT_QUALIFIED"
             
             # Atualizar no Supabase
             await supabase_client.update_lead(
