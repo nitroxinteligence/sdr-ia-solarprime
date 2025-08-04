@@ -183,30 +183,16 @@ class IntelligentModelFallback:
     async def _gemini_call_with_retry(self, message: str, **kwargs):
         """Chamada Gemini com retry automático via decorador"""
         if self.primary_model:
-            # SOLUÇÃO DEFINITIVA: Tentar ambos os métodos
-            try:
-                # Primeiro tenta run() que é o documentado
-                if hasattr(self.primary_model, 'run'):
-                    return self.primary_model.run(message, **kwargs)
-            except Exception:
-                pass  # Se falhar, tenta invoke
-            
-            try:
-                # Se run() não existir ou falhar, tenta invoke()
-                if hasattr(self.primary_model, 'invoke'):
-                    return self.primary_model.invoke(message, **kwargs)
-            except Exception:
-                pass  # Se falhar, tenta o último método
-            
-            # Último recurso: chamar direto
-            return self.primary_model(message, **kwargs)
+            # SOLUÇÃO DEFINITIVA: usar run() que é o método correto do AGNO
+            return await self.primary_model.run(message, **kwargs)
         raise Exception("Modelo primário Gemini não disponível")
     
     @async_retry(OPENAI_RETRY_CONFIG)
     async def _openai_call_with_retry(self, message: str, **kwargs):
         """Chamada OpenAI com retry automático via decorador"""
         if self.fallback_model:
-            return self.fallback_model.run(message, **kwargs)
+            # OpenAI também usa run() no AGNO
+            return await self.fallback_model.run(message, **kwargs)
         raise Exception("Modelo fallback OpenAI não disponível")
     
     async def _retry_with_backoff(self, message: str, **kwargs):
@@ -222,23 +208,8 @@ class IntelligentModelFallback:
             try:
                 emoji_logger.system_info(f"🔄 Retry Gemini - Tentativa {attempt + 1}/{self.max_retry_attempts}")
                 
-                # SOLUÇÃO DEFINITIVA: Tentar todos os métodos possíveis
-                response = None
-                try:
-                    if hasattr(self.primary_model, 'run'):
-                        response = self.primary_model.run(message, **kwargs)
-                except:
-                    pass
-                
-                if response is None:
-                    try:
-                        if hasattr(self.primary_model, 'invoke'):
-                            response = self.primary_model.invoke(message, **kwargs)
-                    except:
-                        pass
-                
-                if response is None:
-                    response = self.primary_model(message, **kwargs)
+                # SOLUÇÃO DEFINITIVA: Usar run() que é o método correto do AGNO
+                response = await self.primary_model.run(message, **kwargs)
                 
                 if attempt > 0:
                     emoji_logger.system_ready(f"✅ Gemini recuperado após {attempt + 1} tentativa(s)")
