@@ -183,8 +183,19 @@ class IntelligentModelFallback:
     async def _gemini_call_with_retry(self, message: str, **kwargs):
         """Chamada Gemini com retry automático via decorador"""
         if self.primary_model:
-            # Gemini usa invoke() no AGNO
-            return self.primary_model.invoke(message, **kwargs)
+            # O Gemini no AGNO precisa ser usado através de um Agent
+            # Criar um agente temporário para fazer a chamada
+            from agno.agent import Agent
+            
+            temp_agent = Agent(
+                model=self.primary_model,
+                description="Temporary agent for Gemini calls"
+            )
+            
+            # Usar run() que aceita string diretamente
+            response = temp_agent.run(message, **kwargs)
+            return response
+            
         raise Exception("Modelo primário Gemini não disponível")
     
     @async_retry(OPENAI_RETRY_CONFIG)
@@ -201,6 +212,7 @@ class IntelligentModelFallback:
         Retorna a resposta ou None se todas as tentativas falharem
         """
         import asyncio
+        from agno.agent import Agent
         
         last_error = None
         
@@ -208,8 +220,14 @@ class IntelligentModelFallback:
             try:
                 emoji_logger.system_info(f"🔄 Retry Gemini - Tentativa {attempt + 1}/{self.max_retry_attempts}")
                 
-                # Usar invoke() diretamente no modelo Gemini
-                response = self.primary_model.invoke(message, **kwargs)
+                # O Gemini no AGNO precisa ser usado através de um Agent
+                temp_agent = Agent(
+                    model=self.primary_model,
+                    description="Temporary agent for Gemini retry"
+                )
+                
+                # Usar run() que aceita string diretamente
+                response = temp_agent.run(message, **kwargs)
                 
                 if attempt > 0:
                     emoji_logger.system_ready(f"✅ Gemini recuperado após {attempt + 1} tentativa(s)")
