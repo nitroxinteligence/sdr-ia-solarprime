@@ -10,6 +10,7 @@ from loguru import logger
 from app.utils.logger import emoji_logger
 import tempfile
 import os
+import subprocess
 
 def validate_audio_base64(audio_data: str) -> tuple[bool, str]:
     """
@@ -123,6 +124,26 @@ class AudioTranscriber:
                 # Detectar formato do áudio
                 audio_format = mimetype.split("/")[1] if "/" in mimetype else "ogg"
                 
+                # IMPORTANTE: Áudio do WhatsApp pode vir criptografado
+                # Verificar se é áudio criptografado do WhatsApp (não começa com magic bytes conhecidos)
+                is_encrypted = False
+                if len(audio_bytes) > 4:
+                    # Verificar magic bytes comuns de áudio
+                    magic = audio_bytes[:4]
+                    known_formats = [
+                        b'OggS',  # Ogg
+                        b'RIFF',  # WAV
+                        b'\xff\xfb', b'\xff\xf3', b'\xff\xf2',  # MP3
+                        b'ftyp',  # MP4/M4A
+                        b'ID3'   # MP3 with ID3
+                    ]
+                    is_encrypted = not any(magic.startswith(fmt) for fmt in known_formats)
+                    
+                    if is_encrypted:
+                        logger.warning(f"⚠️ Áudio parece estar criptografado (magic: {magic.hex()})")
+                        # Para áudio criptografado, salvar diretamente e deixar ffmpeg tentar processar
+                        audio_format = "enc"  # Extensão genérica para criptografado
+                
                 # Criar arquivo temporário para o áudio original
                 with tempfile.NamedTemporaryFile(suffix=f".{audio_format}", delete=False) as temp_audio:
                     temp_audio.write(audio_bytes)
@@ -131,22 +152,82 @@ class AudioTranscriber:
                 # Carregar áudio com pydub
                 emoji_logger.system_debug(f"Carregando áudio do formato: {audio_format}")
                 
-                # Tentar diferentes formatos se o especificado falhar
+                # Para áudio do WhatsApp (Opus ou criptografado), usar ffmpeg diretamente
                 audio = None
-                formats_to_try = [audio_format, "ogg", "mp3", "m4a", "wav"]
                 
-                for fmt in formats_to_try:
+                # Verificar se é áudio do WhatsApp (Opus) ou criptografado
+                if "opus" in mimetype.lower() or audio_format == "ogg" or is_encrypted:
                     try:
-                        if fmt == "ogg":
-                            # OGG precisa de codec específico
-                            audio = AudioSegment.from_ogg(temp_audio_path)
+                        # Usar ffmpeg para converter para WAV
+                        logger.info("🎵 Detectado áudio Opus/criptografado do WhatsApp, usando ffmpeg...")
+                        
+                        # Criar arquivo temporário para o WAV
+                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+                            temp_wav_path = temp_wav.name
+                        
+                        # Comando ffmpeg para converter para WAV
+                        # Usar -acodec copy primeiro para tentar copiar sem recodificar
+                        cmd = [
+                            'ffmpeg',
+                            '-i', temp_audio_path,
+                            '-ar', '16000',  # Taxa de amostragem 16kHz
+                            '-ac', '1',      # Mono
+                            '-f', 'wav',
+                            '-loglevel', 'warning',  # Reduzir verbosidade
+                            '-y',            # Sobrescrever arquivo
+                            temp_wav_path
+                        ]
+                        
+                        # Executar ffmpeg
+                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                        
+                        if result.returncode == 0:
+                            # Verificar se o arquivo foi criado e tem conteúdo
+                            if os.path.exists(temp_wav_path) and os.path.getsize(temp_wav_path) > 0:
+                                # Carregar o WAV convertido
+                                audio = AudioSegment.from_wav(temp_wav_path)
+                                emoji_logger.system_debug(f"✅ Áudio convertido com sucesso via ffmpeg")
+                            else:
+                                raise Exception("ffmpeg criou arquivo vazio")
+                            
+                            # Limpar arquivo temporário
+                            try:
+                                os.unlink(temp_wav_path)
+                            except:
+                                pass
                         else:
-                            audio = AudioSegment.from_file(temp_audio_path, format=fmt)
-                        emoji_logger.system_debug(f"Áudio carregado com sucesso usando formato: {fmt}")
-                        break
+                            # Se ffmpeg falhou, pode ser que o formato não foi reconhecido
+                            logger.error(f"ffmpeg retornou erro: {result.stderr}")
+                            
+                            # Tentar com probe primeiro para detectar formato
+                            probe_cmd = ['ffprobe', '-v', 'error', '-show_format', '-show_streams', temp_audio_path]
+                            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+                            logger.debug(f"ffprobe output: {probe_result.stdout}")
+                            
+                            raise Exception(f"ffmpeg falhou ao converter: {result.stderr}")
+                            
+                    except subprocess.TimeoutExpired:
+                        logger.error("ffmpeg timeout após 30 segundos")
+                        raise Exception("ffmpeg demorou muito para processar o áudio")
                     except Exception as e:
-                        logger.debug(f"Formato {fmt} falhou: {e}")
-                        continue
+                        logger.error(f"Erro ao converter com ffmpeg: {e}")
+                        # Tentar fallback com pydub
+                        
+                # Se não é Opus ou ffmpeg falhou, tentar com pydub
+                if audio is None:
+                    formats_to_try = [audio_format, "ogg", "mp3", "m4a", "wav"]
+                    
+                    for fmt in formats_to_try:
+                        try:
+                            if fmt == "ogg":
+                                audio = AudioSegment.from_ogg(temp_audio_path)
+                            else:
+                                audio = AudioSegment.from_file(temp_audio_path, format=fmt)
+                            emoji_logger.system_debug(f"Áudio carregado com sucesso usando formato: {fmt}")
+                            break
+                        except Exception as e:
+                            logger.debug(f"Formato {fmt} falhou: {e}")
+                            continue
                 
                 if audio is None:
                     raise Exception("Não foi possível carregar o áudio em nenhum formato")

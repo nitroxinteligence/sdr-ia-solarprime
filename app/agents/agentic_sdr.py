@@ -947,29 +947,13 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     emoji_logger.system_warning(f"⚠️ IMAGEM: Tamanho grande ({estimated_mb:.2f} MB) - pode causar lentidão")
                 
                 # Preparar prompt específico para análise
-                analysis_prompt = f"""Analise esta imagem detalhadamente.
+                # As instruções detalhadas estão no arquivo prompt-agente.md
+                analysis_prompt = f"""Analise esta imagem e extraia TODAS as informações visíveis de forma detalhada.
                 {f'Contexto fornecido pelo usuário: {caption}' if caption else ''}
                 
-                {'ATENÇÃO: Esta pode ser apenas uma miniatura de baixa resolução.' if is_thumbnail else ''}
+                {'⚠️ ATENÇÃO: Esta pode ser apenas uma miniatura de baixa resolução. Faça o melhor possível com o que consegue ver.' if is_thumbnail else ''}
                 
-                Por favor, extraia todas as informações visíveis:
-                
-                Se for uma conta de luz/energia, identifique:
-                - Valor total da conta (R$)
-                - Consumo em kWh
-                - Nome da distribuidora/concessionária
-                - Mês/período de referência
-                - Bandeira tarifária (se visível)
-                - Histórico de consumo (se visível)
-                
-                Se for outro documento (nota fiscal, boleto, etc), extraia:
-                - Tipo do documento
-                - Valores principais
-                - Datas importantes
-                - Informações relevantes
-                
-                Se não conseguir ler claramente, indique o que é visível e o que não é.
-                """
+                Por favor, extraia e mencione especificamente todos os valores, datas, nomes e informações relevantes que conseguir identificar na imagem."""
                 
                 try:
                     # AGNO Framework Solution: Usar agno.media.Image nativo
@@ -1030,11 +1014,22 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         emoji_logger.agentic_thinking("AGNO Image criado com sucesso")
                         
                         # Usar o agente AGNO para análise da imagem
-                        # Criar agente temporário para análise de imagem se necessário
+                        # IMPORTANTE: Usar Gemini com capacidades multimodais
+                        from agno.models.google import Gemini
+                        from app.config import settings
+                        
+                        # Criar modelo Gemini com capacidades Vision
+                        gemini_model = Gemini(
+                            id="gemini-2.5-pro",  # Modelo principal com Vision API
+                            api_key=settings.google_api_key
+                        )
+                        
+                        # Criar agente temporário para análise de imagem com Gemini Vision
                         temp_agent = Agent(
-                            model=self.model,
+                            model=gemini_model,
                             markdown=True,
-                            show_tool_calls=False
+                            show_tool_calls=False,
+                            instructions="Você é um assistente especializado em análise de imagens e documentos. Extraia todas as informações relevantes de forma detalhada."
                         )
                         
                         # Processar imagem com AGNO nativo

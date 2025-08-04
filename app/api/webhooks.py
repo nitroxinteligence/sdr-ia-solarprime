@@ -465,8 +465,13 @@ async def process_message_with_agent(
                 else:
                     logger.warning(f"jpegThumbnail em formato não reconhecido: {format_detected}")
             
-            # Se não tem thumbnail válido, tentar baixar imagem completa
-            elif img_msg.get("url"):
+            # IMPORTANTE: Se thumbnail for muito pequena (<5KB), baixar imagem completa
+            if image_base64 and len(image_base64) < 5000 and img_msg.get("url"):
+                logger.info(f"🔍 Thumbnail muito pequena ({len(image_base64)} chars), baixando imagem completa...")
+                image_base64 = None  # Resetar para baixar completa
+            
+            # Se não tem imagem válida ainda, baixar completa
+            if not image_base64 and img_msg.get("url"):
                 try:
                     emoji_logger.webhook_process(f"Baixando imagem completa de: {img_msg['url'][:50]}...")
                     
@@ -511,8 +516,8 @@ async def process_message_with_agent(
                 "type": "image",
                 "mimetype": img_msg.get("mimetype", "image/jpeg"),
                 "caption": img_msg.get("caption", ""),
-                "data": image_base64,  # Imagem completa ou thumbnail
-                "has_full_image": bool(image_base64 and img_msg.get("url")),  # Indica se é imagem completa
+                "data": image_base64,  # Imagem completa (se >5KB) ou thumbnail
+                "has_full_image": bool(image_base64 and len(image_base64) > 5000),  # True se é imagem completa
                 "file_size": img_msg.get("fileLength", 0)
             }
         elif original_message.get("message", {}).get("documentMessage"):
