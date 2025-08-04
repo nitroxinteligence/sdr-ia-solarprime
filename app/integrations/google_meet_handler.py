@@ -133,17 +133,9 @@ Para criar um link temporário de reunião:
                 event_data['conferenceData'] = conference_data
                 logger.info("✅ ConferenceData adicionado ao evento")
         else:
-            # Adicionar instruções na descrição se não podemos criar Meet
-            instructions = self.get_meet_instructions()
-            
-            current_description = event_data.get('description', description or '')
-            event_data['description'] = f"""{current_description}
-
-{instructions}"""
-            
-            # Adicionar nota na localização
-            if not event_data.get('location'):
-                event_data['location'] = "Google Meet (configuração necessária)"
+            # NÃO adicionar instruções na descrição - manter simples
+            # Manter apenas a descrição original sem poluir
+            pass
         
         return event_data
     
