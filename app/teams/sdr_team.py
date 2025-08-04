@@ -289,7 +289,7 @@ class SDRTeam:
                 show_tool_calls=True,
                 markdown=True,
                 show_members_responses=True,
-                enable_agentic_context=True,  # Contexto agentic
+                # enable_agentic_context=True,  # Desabilitado temporariamente - causando erro com get_team_context_str
                 debug_mode=settings.debug
             )
             
