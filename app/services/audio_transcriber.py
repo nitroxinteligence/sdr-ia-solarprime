@@ -142,7 +142,7 @@ class AudioTranscriber:
                             show_all=False
                         )
                         
-                        emoji_logger.system_success(f"Transcrição concluída: {len(text)} caracteres")
+                        emoji_logger.system_info(f"✅ Transcrição concluída: {len(text)} caracteres")
                         
                         return {
                             "text": text,

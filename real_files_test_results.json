@@ -1,0 +1,18 @@
+{
+  "timestamp": "2025-08-03T23:34:04.865049",
+  "files_tested": [],
+  "results": {
+    "image": {
+      "status": "error",
+      "error": null
+    },
+    "pdf": {
+      "status": "warning",
+      "message": "Erro ao processar documento: `openai` not installed. Please install using `pip install openai`"
+    },
+    "audio": {
+      "status": "error",
+      "error": "Erro ao processar áudio: `openai` not installed. Please install using `pip install openai`"
+    }
+  }
+}

@@ -98,6 +98,8 @@ class IntelligentModelFallback:
         self.primary_model = None
         self.fallback_model = None
         self.current_model = None
+        # Importar o detector de mídia como atributo da classe
+        self.agno_media_detector = agno_media_detector
         self.fallback_active = False
         
         # Configurações de retry para Gemini
@@ -344,6 +346,12 @@ class AgenticSDR:
     def __init__(self):
         """Inicializa o AGENTIC SDR com todas as capacidades"""
         self.is_initialized = False
+        
+        # Importar o detector de mídia como atributo da classe
+        self.agno_media_detector = agno_media_detector
+        
+        # Armazenar referência ao settings
+        self.settings = settings
         
         # Configurações de funcionalidades baseadas no .env
         self.context_analysis_enabled = settings.enable_context_analysis
@@ -816,10 +824,18 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         Returns:
             Análise do conteúdo multimodal com estrutura padronizada
         """
+        import time
+        start_time = time.time()
+        
         try:
-            emoji_logger.agentic_multimodal(f"Iniciando processamento: {media_type}",
-                                           media_type=media_type,
-                                           has_caption=bool(caption))
+            # Log detalhado de início
+            emoji_logger.system_info("═" * 50)
+            emoji_logger.system_info(f"🎯 MULTIMODAL: Iniciando processamento")
+            emoji_logger.system_info(f"📌 Tipo: {media_type.upper()}")
+            emoji_logger.system_info(f"📊 Tamanho dados base64: {len(media_data):,} caracteres")
+            emoji_logger.system_info(f"💬 Caption: {caption[:50] + '...' if caption and len(caption) > 50 else caption or 'Sem legenda'}")
+            emoji_logger.system_info(f"⏰ Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            emoji_logger.system_info("═" * 50)
             
             # Verificar se análise multimodal está habilitada
             if not self.multimodal_enabled:
@@ -832,7 +848,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             
             # Validar entrada
             if not media_data:
-                emoji_logger.system_warning(f"Dados de mídia vazios para tipo: {media_type}")
+                emoji_logger.system_warning(f"❌ MULTIMODAL: Dados vazios para {media_type}")
+                emoji_logger.system_warning(f"⏱️ Tempo decorrido: {time.time() - start_time:.2f}s")
                 return {
                     "type": media_type,
                     "error": "Dados de mídia não fornecidos"
@@ -841,18 +858,21 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             # Validar tipo de mídia
             valid_types = ["image", "audio", "document", "pdf", "video"]
             if media_type not in valid_types:
-                emoji_logger.system_warning(f"Tipo de mídia inválido: {media_type}")
+                emoji_logger.system_warning(f"❌ MULTIMODAL: Tipo inválido '{media_type}'")
+                emoji_logger.system_warning(f"📝 Tipos válidos: {', '.join(valid_types)}")
                 return {
                     "type": media_type,
                     "error": f"Tipo de mídia '{media_type}' não suportado"
                 }
             if media_type == "image":
                 # AGNO Framework - Processamento nativo de imagens
-                emoji_logger.agentic_multimodal("Processando imagem com AGNO Framework nativo")
+                emoji_logger.system_info("🌆 " + "=" * 45)
+                emoji_logger.system_info("🌆 PROCESSAMENTO DE IMAGEM INICIADO")
+                emoji_logger.system_info("🌆 " + "=" * 45)
                 
                 # Validar se media_data é base64
                 if not media_data or not isinstance(media_data, str):
-                    emoji_logger.system_warning("Dados de imagem inválidos ou vazios")
+                    emoji_logger.system_warning("❌ IMAGEM: Dados inválidos ou vazios")
                     return {
                         "type": "image",
                         "error": "Dados de imagem inválidos",
@@ -861,10 +881,20 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 
                 # Verificar tamanho da imagem
                 data_size = len(media_data)
-                emoji_logger.agentic_multimodal(f"Processando imagem com {data_size} caracteres base64")
+                estimated_bytes = (data_size * 3) // 4  # Estimativa de bytes decodificados
+                estimated_kb = estimated_bytes / 1024
+                estimated_mb = estimated_kb / 1024
+                
+                emoji_logger.system_info(f"📈 IMAGEM - Métricas:")
+                emoji_logger.system_info(f"  • Base64: {data_size:,} caracteres")
+                emoji_logger.system_info(f"  • Estimado: {estimated_bytes:,} bytes ({estimated_kb:.1f} KB / {estimated_mb:.2f} MB)")
                 
                 # Se a imagem é muito pequena, provavelmente é só thumbnail
                 is_thumbnail = data_size < 50000  # Menos de 50KB em base64
+                if is_thumbnail:
+                    emoji_logger.system_warning("⚠️ IMAGEM: Possível thumbnail detectada (<50KB)")
+                elif estimated_mb > 2:
+                    emoji_logger.system_warning(f"⚠️ IMAGEM: Tamanho grande ({estimated_mb:.2f} MB) - pode causar lentidão")
                 
                 # Preparar prompt específico para análise
                 analysis_prompt = f"""Analise esta imagem detalhadamente.
@@ -896,7 +926,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     import base64
                     import google.generativeai as genai
                     
-                    emoji_logger.agentic_thinking("Processando imagem para Vision API...")
+                    emoji_logger.system_info("🔍 Etapa 1/4: Decodificando base64...")
                     
                     # AGNO Framework Solution: Usar agno.media.Image nativo
                     # Validar dados
@@ -904,15 +934,29 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         raise ValueError("Dados da imagem vazios")
                     
                     # Decodificar base64 para bytes
+                    decode_start = time.time()
                     image_bytes = base64.b64decode(media_data)
                     original_size = len(image_bytes)
-                    emoji_logger.agentic_multimodal(f"Imagem decodificada: {original_size:,} bytes")
+                    decode_time = time.time() - decode_start
+                    
+                    emoji_logger.system_info(f"✅ Decodificação completa em {decode_time:.2f}s")
+                    emoji_logger.system_info(f"  • Tamanho real: {original_size:,} bytes")
+                    emoji_logger.system_info(f"  • Taxa compressão: {(1 - original_size/data_size)*100:.1f}%")
                     
                     # AGNO Framework - Detecção robusta de formato de imagem
-                    detection_result = agno_media_detector.detect_media_type(image_bytes)
+                    emoji_logger.system_info("🔍 Etapa 2/4: Detectando formato da imagem...")
+                    detect_start = time.time()
+                    detection_result = self.agno_media_detector.detect_media_type(image_bytes)
+                    detect_time = time.time() - detect_start
                     
                     if not detection_result['detected']:
-                        emoji_logger.system_warning(f"Formato não reconhecido pelo AGNO: {detection_result.get('magic_bytes', 'N/A')}")
+                        emoji_logger.system_warning(f"❌ IMAGEM: Formato não reconhecido")
+                        emoji_logger.system_warning(f"  • Magic bytes: {detection_result.get('magic_bytes', 'N/A')}")
+                        emoji_logger.system_warning(f"  • Tempo detecção: {detect_time:.2f}s")
+                    else:
+                        emoji_logger.system_info(f"✅ Formato detectado: {detection_result['format'].upper()}")
+                        emoji_logger.system_info(f"  • Confiança: {detection_result.get('confidence', 'N/A')}")
+                        emoji_logger.system_info(f"  • Tempo detecção: {detect_time:.2f}s")
                         # Usar fallback suggestion
                         fallback_msg = detection_result.get('fallback_suggestion', 'Formato não suportado')
                         return {
@@ -1039,7 +1083,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 emoji_logger.system_info("Processamento de áudio solicitado")
                 
                 # Verificar se transcrição está habilitada
-                if not settings.enable_voice_message_transcription:
+                if not self.settings.enable_voice_message_transcription:
                     return {
                         "type": "audio",
                         "status": "disabled",
@@ -1101,6 +1145,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                             "transcription": result.get("text", "")
                         }
                     else:
+                        emoji_logger.system_warning(f"❌ ÁUDIO: Erro na transcrição")
+                        emoji_logger.system_warning(f"  • Erro: {result.get('error', 'Erro desconhecido')}")
+                        emoji_logger.system_warning(f"  • Tempo total: {time.time() - start_time:.2f}s")
                         return {
                             "type": "audio",
                             "status": "error",
@@ -1130,9 +1177,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     emoji_logger.agentic_multimodal(f"Documento decodificado: {original_size:,} bytes")
                     
                     # AGNO Framework - Detecção robusta de formato de documento
-                    from app.utils.agno_media_detection import agno_media_detector
-                    
-                    detection_result = agno_media_detector.detect_media_type(document_bytes)
+                    detection_result = self.agno_media_detector.detect_media_type(document_bytes)
                     
                     if not detection_result['detected']:
                         emoji_logger.system_warning(f"Formato de documento não reconhecido pelo AGNO: {detection_result.get('magic_bytes', 'N/A')}")
@@ -1353,14 +1398,26 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             }
             
         except Exception as e:
+            # Log de erro detalhado
             emoji_logger.system_error("Multimodal Processing", f"Erro ao processar {media_type}: {str(e)[:200]}")
             logger.exception(f"Erro completo no processamento multimodal de {media_type}:")
+            
+            # Métricas finais de erro
+            total_time = time.time() - start_time
+            emoji_logger.system_info("═" * 50)
+            emoji_logger.system_info(f"❌ MULTIMODAL: Processamento falhou")
+            emoji_logger.system_info(f"  • Tipo: {media_type}")
+            emoji_logger.system_info(f"  • Erro: {type(e).__name__}")
+            emoji_logger.system_info(f"  • Mensagem: {str(e)[:100]}")
+            emoji_logger.system_info(f"  • Tempo total: {total_time:.2f}s")
+            emoji_logger.system_info("═" * 50)
             
             return {
                 "type": media_type,
                 "error": str(e),
                 "status": "error",
-                "message": f"Erro ao processar {media_type}"
+                "message": f"Erro ao processar {media_type}",
+                "processing_time": total_time
             }
     
     async def search_knowledge_base(
