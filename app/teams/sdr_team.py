@@ -62,7 +62,7 @@ class SDRTeam:
             auto_upgrade_schema=True  # Auto-atualiza schema se necessário
         )
         
-        # Modelo principal - Gemini com fallback robusto e retry logic
+        # Modelo principal - Gemini com fallback robusto
         self.model = None
         self.retry_count = 0
         self.max_retries = 5
@@ -71,9 +71,7 @@ class SDRTeam:
         try:
             self.model = Gemini(
                 id="gemini-2.5-flash",  # Usando Flash que é mais estável
-                api_key=settings.google_api_key,
-                max_retries=5,  # Aumentar retries
-                timeout=30  # Timeout maior
+                api_key=settings.google_api_key
             )
             emoji_logger.system_ready("SDR Team", model="gemini-2.5-flash")
         except Exception as e:
@@ -83,9 +81,7 @@ class SDRTeam:
             try:
                 self.model = Gemini(
                     id="gemini-2.0-flash",  # Versão estável, não experimental
-                    api_key=settings.google_api_key,
-                    max_retries=5,
-                    timeout=30
+                    api_key=settings.google_api_key
                 )
                 emoji_logger.system_ready("SDR Team", model="gemini-2.0-flash (fallback)")
             except Exception as e2:
@@ -95,9 +91,7 @@ class SDRTeam:
                 try:
                     self.model = Gemini(
                         id="gemini-1.5-flash",
-                        api_key=settings.google_api_key,
-                        max_retries=5,
-                        timeout=30
+                        api_key=settings.google_api_key
                     )
                     emoji_logger.system_ready("SDR Team", model="gemini-1.5-flash (emergency fallback)")
                 except Exception as e3:
