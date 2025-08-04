@@ -203,6 +203,10 @@ class Settings(BaseSettings):
     fallback_ai_model: str = Field(default="o1-mini", env="FALLBACK_AI_MODEL")
     enable_model_fallback: bool = Field(default=True, env="ENABLE_MODEL_FALLBACK")
     
+    # Configurações de retry para Gemini
+    gemini_retry_attempts: int = Field(default=2, env="GEMINI_RETRY_ATTEMPTS")
+    gemini_retry_delay: float = Field(default=5.0, env="GEMINI_RETRY_DELAY")
+    
     # Configurações de geração
     ai_max_tokens: int = Field(default=4096, env="AI_MAX_TOKENS")
     ai_temperature: float = Field(default=0.7, env="AI_TEMPERATURE")
