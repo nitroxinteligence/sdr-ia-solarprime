@@ -1015,10 +1015,11 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     
                     emoji_logger.agentic_thinking(f"AGNO detectou: {format_hint} (confiança: {detection_result.get('confidence', 'unknown')})")
                     
-                    # Criar objeto AGNO Image com bytes da imagem usando parâmetros detectados
+                    # Criar objeto AGNO Image com BASE64 da imagem usando parâmetros detectados
+                    # IMPORTANTE: AgnoImage espera BASE64, não bytes!
                     try:
                         agno_image = AgnoImage(
-                            content=image_bytes,
+                            content=media_data,  # Usar BASE64 original, não bytes!
                             format=agno_params['format'],
                             detail=agno_params['detail']
                         )
@@ -1069,7 +1070,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         import google.generativeai as genai
                         
                         try:
-                            img = PILImage.open(BytesIO(image_bytes))
+                            # Decodificar base64 para usar com PIL
+                            fallback_bytes = base64.b64decode(media_data)
+                            img = PILImage.open(BytesIO(fallback_bytes))
                             
                             # Configurar Gemini diretamente como fallback
                             from app.config import settings
