@@ -1015,15 +1015,37 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     
                     emoji_logger.agentic_thinking(f"AGNO detectou: {format_hint} (confiança: {detection_result.get('confidence', 'unknown')})")
                     
-                    # Criar objeto AGNO Image com BASE64 da imagem usando parâmetros detectados
-                    # IMPORTANTE: AgnoImage espera BASE64, não bytes!
+                    # Criar objeto AGNO Image com bytes da imagem
+                    # SOLUÇÃO: AgnoImage precisa dos bytes decodificados, não da string base64
                     try:
-                        agno_image = AgnoImage(
-                            content=media_data,  # Usar BASE64 original, não bytes!
-                            format=agno_params['format'],
-                            detail=agno_params['detail']
-                        )
-                        emoji_logger.agentic_thinking("AGNO Image criado com sucesso")
+                        # Opção 1: Tentar passar os bytes diretamente
+                        try:
+                            agno_image = AgnoImage(
+                                content=image_bytes,  # Usar bytes decodificados
+                                format=agno_params['format'],
+                                detail=agno_params['detail']
+                            )
+                            emoji_logger.agentic_thinking("AGNO Image criado com sucesso (usando bytes)")
+                        except Exception as e1:
+                            # Opção 2: Se falhar, salvar temporariamente e usar o filepath
+                            import tempfile
+                            import os
+                            
+                            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
+                                tmp_file.write(image_bytes)
+                                temp_path = tmp_file.name
+                            
+                            try:
+                                agno_image = AgnoImage(
+                                    filepath=temp_path,
+                                    format=agno_params['format'],
+                                    detail=agno_params['detail']
+                                )
+                                emoji_logger.agentic_thinking("AGNO Image criado com sucesso (usando arquivo temporário)")
+                            finally:
+                                # Limpar arquivo temporário após criar o objeto
+                                if os.path.exists(temp_path):
+                                    os.unlink(temp_path)
                         
                         # Usar o agente AGNO para análise da imagem
                         # IMPORTANTE: Usar Gemini com capacidades multimodais
