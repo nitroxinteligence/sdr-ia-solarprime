@@ -280,15 +280,12 @@ class IntelligentModelFallback:
                     emoji_logger.system_ready("✅ Fallback OpenAI o3-mini ativado com sucesso")
                     return response
                         
-                    except Exception as fallback_error:
-                        emoji_logger.system_error("Fallback OpenAI também falhou", error=str(fallback_error))
-                        # Volta para modelo primário para próxima tentativa
-                        self.current_model = self.primary_model
-                        self.fallback_active = False
-                        raise fallback_error
-                else:
-                    emoji_logger.system_error("Retry falhou e não há fallback configurado", error=str(e))
-                    raise e
+                except Exception as fallback_error:
+                    emoji_logger.system_error("Fallback OpenAI também falhou", error=str(fallback_error))
+                    # Volta para modelo primário para próxima tentativa
+                    self.current_model = self.primary_model
+                    self.fallback_active = False
+                    raise fallback_error
             else:
                 # Erro não recuperável, não faz retry
                 emoji_logger.system_error("Erro não recuperável no Gemini", error=str(e))
