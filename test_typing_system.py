@@ -97,21 +97,16 @@ class TestTypingIntegration:
                 # Enviar typing para mensagem de 200 caracteres
                 await client.send_typing("5511999999999", message_length=200)
                 
-                # Verificar se foi chamado duas vezes (composing e paused)
-                assert mock_request.call_count == 2
+                # Verificar se foi chamado uma vez (composing - para automaticamente)
+                assert mock_request.call_count == 1
                 
-                # Verificar primeira chamada (composing)
-                first_call = mock_request.call_args_list[0]
-                payload = first_call[1]['json']
+                # Verificar chamada (composing)
+                call = mock_request.call_args_list[0]
+                payload = call[1]['json']
                 
                 # A duração deve estar no range esperado (5s ±15% convertido para ms)
                 assert 4250 <= payload['delay'] <= 5750
                 assert payload['state'] == 'composing'
-                
-                # Verificar segunda chamada (paused)
-                second_call = mock_request.call_args_list[1]
-                payload = second_call[1]['json']
-                assert payload['state'] == 'paused'
             
     @pytest.mark.asyncio
     async def test_send_typing_with_custom_duration(self):
@@ -181,12 +176,8 @@ class TestTypingIntegration:
                         await process_message_with_agent(
                             phone="5511999999999",
                             message_content="Olá, teste",
-                            lead={"id": "123", "phone": "5511999999999"},
-                            conversation={"id": "456"},
-                            agentic=mock_agentic,
-                            evolution_client=mock_evolution,
-                            supabase=mock_supabase,
-                            media_data=None
+                            original_message={"key": {"id": "test_msg_123"}},
+                            message_id="test_msg_123"
                         )
                         
                         # Verificar que typing NÃO foi chamado durante o processamento
@@ -232,8 +223,8 @@ class TestProductionScenarios:
                     simulate_typing=True
                 )
                 
-                # Deve haver 3 chamadas: typing composing + typing paused + mensagem
-                assert len(api_calls) == 3
+                # Deve haver 2 chamadas: typing composing + mensagem
+                assert len(api_calls) == 2
                 
                 # Primeira chamada deve ser typing composing
                 typing_call = api_calls[0]
@@ -242,13 +233,8 @@ class TestProductionScenarios:
                 # Duração deve estar no range para ~80 chars (3s ±15%)
                 assert 2550 <= typing_call['payload']['delay'] <= 3450
                 
-                # Segunda chamada deve ser typing paused
-                typing_paused = api_calls[1]
-                assert 'updatePresence' in typing_paused['endpoint']
-                assert typing_paused['payload']['state'] == 'paused'
-                
-                # Terceira chamada deve ser a mensagem
-                message_call = api_calls[2]
+                # Segunda chamada deve ser a mensagem
+                message_call = api_calls[1]
                 assert 'sendText' in message_call['endpoint']
             
     @pytest.mark.asyncio
@@ -283,26 +269,22 @@ class TestProductionScenarios:
                 # Enviar segunda parte
                 await client.send_text_message("5511999999999", chunk2, simulate_typing=True)
                 
-                # Deve haver 6 chamadas: (typing composing + typing paused + msg) * 2
-                assert len(api_calls) == 6
+                # Deve haver 4 chamadas: (typing composing + msg) * 2
+                assert len(api_calls) == 4
                 
                 # Verificar padrão para primeira mensagem
                 assert 'updatePresence' in api_calls[0]['endpoint']
                 assert api_calls[0]['payload']['state'] == 'composing'
-                assert 'updatePresence' in api_calls[1]['endpoint']
-                assert api_calls[1]['payload']['state'] == 'paused'
-                assert 'sendText' in api_calls[2]['endpoint']
+                assert 'sendText' in api_calls[1]['endpoint']
                 
                 # Verificar padrão para segunda mensagem
-                assert 'updatePresence' in api_calls[3]['endpoint']
-                assert api_calls[3]['payload']['state'] == 'composing'
-                assert 'updatePresence' in api_calls[4]['endpoint']
-                assert api_calls[4]['payload']['state'] == 'paused'
-                assert 'sendText' in api_calls[5]['endpoint']
+                assert 'updatePresence' in api_calls[2]['endpoint']
+                assert api_calls[2]['payload']['state'] == 'composing'
+                assert 'sendText' in api_calls[3]['endpoint']
                 
                 # Verificar que as durações são diferentes (baseadas no tamanho)
                 typing1_delay = api_calls[0]['payload']['delay']
-                typing2_delay = api_calls[3]['payload']['delay']
+                typing2_delay = api_calls[2]['payload']['delay']
                 
                 # Segunda mensagem é maior, deve ter typing mais longo
                 assert typing2_delay > typing1_delay

@@ -2013,7 +2013,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         message: str,
         lead_data: Optional[Dict[str, Any]] = None,
         conversation_id: Optional[str] = None,
-        media: Optional[Dict[str, Any]] = None
+        media: Optional[Dict[str, Any]] = None,
+        message_id: Optional[str] = None
     ) -> str:
         """
         Processa mensagem com análise contextual inteligente

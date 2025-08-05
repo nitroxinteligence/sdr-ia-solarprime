@@ -378,17 +378,6 @@ class EvolutionAPIClient:
                 "state": "composing"
             }
             
-            response = await self._make_request(
-                "post",
-                f"/chat/updatePresence/{self.instance_name}",
-                json=payload
-            )
-            
-            # Aguarda duração
-            await asyncio.sleep(duration)
-            
-            # Para digitação
-            payload["state"] = "paused"
             await self._make_request(
                 "post",
                 f"/chat/updatePresence/{self.instance_name}",
@@ -396,6 +385,9 @@ class EvolutionAPIClient:
             )
             
             emoji_logger.evolution_send(phone, "typing", duration_seconds=round(duration, 2), message_length=message_length)
+            
+            # Aguarda duração (sem bloquear o fluxo principal)
+            await asyncio.sleep(duration)
             
         except Exception as e:
             emoji_logger.evolution_error(f"Erro ao simular digitação: {e}")
