@@ -386,7 +386,7 @@ class SDRTeam:
             Mensagem do lead: {message}
             
             {f'''
-            🎵 TRANSCRIÇÃO DE ÁUDIO (CONTEÚDO REAL DA MENSAGEM):
+            TRANSCRIÇÃO DE ÁUDIO (CONTEÚDO REAL DA MENSAGEM):
             "{audio_transcription}"
             
             IMPORTANTE: Use a transcrição acima como o conteúdo principal da mensagem, não a mensagem genérica.
@@ -670,15 +670,21 @@ class SDRTeam:
             - Emoção Dominante: {emotional_triggers.get('dominant_emotion')}
             - Indicadores de Frustração: {emotional_triggers.get('frustration_indicators')}
             - Indicadores de Entusiasmo: {emotional_triggers.get('excitement_indicators')}
+            """
             
-            {f"""
-            🎵 TRANSCRIÇÃO DE ÁUDIO:
-            \"{multimodal_result.get('transcription', 'Não disponível')}\"
+            # Adicionar informação de mídia se houver
+            if multimodal_result and multimodal_result.get('type') == 'audio' and multimodal_result.get('transcription'):
+                specialized_prompt += f"""
+            TRANSCRIÇÃO DE ÁUDIO:
+            "{multimodal_result.get('transcription', 'Não disponível')}"
             (Duração: {multimodal_result.get('duration', 0)}s, Engine: {multimodal_result.get('engine', 'N/A')})
             
             IMPORTANTE: Use ESTA TRANSCRIÇÃO como o conteúdo real da mensagem do usuário.
-            """ if multimodal_result and multimodal_result.get('type') == 'audio' and multimodal_result.get('transcription') else
-            f"Análise de Mídia: {multimodal_result}" if multimodal_result else ""}
+            """
+            elif multimodal_result:
+                specialized_prompt += f"\n            Análise de Mídia: {multimodal_result}"
+            
+            specialized_prompt += f"""
             
             AGENTE RECOMENDADO: {recommended_agent}
             RAZÃO: {reasoning}
