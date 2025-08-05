@@ -128,7 +128,10 @@ class Settings(BaseSettings):
     enable_sdr_team: bool = Field(default=True, env="ENABLE_SDR_TEAM")
     
     # ============= TIMING E HUMANIZAÇÃO =============
-    # Tempos de digitação (segundos)
+    # CONTROLE MASTER DO TYPING
+    enable_typing_simulation: bool = Field(default=False, env="ENABLE_TYPING_SIMULATION")
+    
+    # Tempos de digitação (segundos) - só usados se enable_typing_simulation=True
     typing_duration_short: float = Field(default=2.0, env="TYPING_DURATION_SHORT")
     typing_duration_medium: float = Field(default=4.0, env="TYPING_DURATION_MEDIUM")
     typing_duration_long: float = Field(default=7.0, env="TYPING_DURATION_LONG")

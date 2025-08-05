@@ -294,8 +294,8 @@ class EvolutionAPIClient:
             if delay > 0:
                 await asyncio.sleep(delay)
             
-            # Simular digitação se habilitado
-            if simulate_typing:
+            # Simular digitação se habilitado E se a configuração global permitir
+            if simulate_typing and settings.enable_typing_simulation:
                 await self.send_typing(phone, len(message))
             
             # Preparar payload
@@ -362,6 +362,11 @@ class EvolutionAPIClient:
             message_length: Tamanho da mensagem para calcular duração
             duration_seconds: Duração customizada em segundos (sobrescreve cálculo)
         """
+        # VERIFICAÇÃO MASTER - Se typing está desabilitado globalmente, retorna imediatamente
+        if not settings.enable_typing_simulation:
+            emoji_logger.system_info("Typing simulation desabilitado globalmente")
+            return
+            
         try:
             phone = self._format_phone(phone)
             
@@ -442,8 +447,8 @@ class EvolutionAPIClient:
         try:
             phone = self._format_phone(phone)
             
-            # Simular digitação se habilitado
-            if simulate_typing:
+            # Simular digitação se habilitado E se a configuração global permitir
+            if simulate_typing and settings.enable_typing_simulation:
                 await self.send_typing(phone, len(text))
             
             payload = {
