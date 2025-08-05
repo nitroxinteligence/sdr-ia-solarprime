@@ -90,11 +90,6 @@ async def lifespan(app: FastAPI):
             await kommo_auto_sync_service.start()
             emoji_logger.system_ready("Kommo Auto Sync", sync_interval="30s", features="leads, tags, pipeline, fields")
         
-        # Inicializa Calendar Sync Service
-        if settings.enable_calendar_integration:
-            from app.services.calendar_sync_service import calendar_sync_service
-            await calendar_sync_service.start()
-            emoji_logger.system_ready("Calendar Sync Service", sync_interval="5min", reminders="30min, 2h, 24h")
         
         # Inicializa FollowUp Executor Service
         if settings.enable_follow_up_automation:
@@ -120,11 +115,6 @@ async def lifespan(app: FastAPI):
             await kommo_auto_sync_service.stop()
             emoji_logger.system_info("Kommo Auto Sync encerrado")
         
-        # Para Calendar Sync Service
-        if settings.enable_calendar_integration:
-            from app.services.calendar_sync_service import calendar_sync_service
-            await calendar_sync_service.stop()
-            emoji_logger.system_info("Calendar Sync Service encerrado")
         
         # Para FollowUp Executor Service
         if settings.enable_follow_up_automation:

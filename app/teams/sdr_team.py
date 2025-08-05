@@ -164,9 +164,9 @@ class SDRTeam:
                 emoji_logger.team_member_skip("QualificationAgent", "⏭️ Desabilitado")
             
             # Agente de Calendário
-            logger.info(f"📅 Verificando CalendarAgent - enable_calendar_agent: {settings.enable_calendar_agent}, enable_calendar_integration: {settings.enable_calendar_integration}")
+            logger.info(f"📅 Verificando CalendarAgent - enable_calendar_agent: {settings.enable_calendar_agent}")
             
-            if settings.enable_calendar_agent and settings.enable_calendar_integration:
+            if settings.enable_calendar_agent:
                 logger.info("📅 ATIVANDO CalendarAgent...")
                 self.calendar_agent = CalendarAgent(
                     model=self.model,
@@ -179,7 +179,7 @@ class SDRTeam:
             else:
                 self.calendar_agent = None
                 emoji_logger.team_member_skip("CalendarAgent", "⏭️ Desabilitado")
-                logger.warning(f"⚠️ CalendarAgent DESABILITADO - enable_calendar_agent: {settings.enable_calendar_agent}, enable_calendar_integration: {settings.enable_calendar_integration}")
+                logger.warning(f"⚠️ CalendarAgent DESABILITADO - enable_calendar_agent: {settings.enable_calendar_agent}")
             
             # Agente de Follow-up
             if settings.enable_followup_agent:
@@ -375,8 +375,22 @@ class SDRTeam:
                     context["media_data"] = media.get("data", "")
             
             # Preparar prompt para o Team
+            # Verificar se há transcrição de áudio
+            audio_transcription = None
+            if media and media.get("type") == "audio":
+                # Buscar transcrição no contexto ou processar
+                if hasattr(context, 'multimodal_result') and context.multimodal_result:
+                    audio_transcription = context.multimodal_result.get('transcription')
+            
             team_prompt = f"""
             Mensagem do lead: {message}
+            
+            {f'''
+            🎵 TRANSCRIÇÃO DE ÁUDIO (CONTEÚDO REAL DA MENSAGEM):
+            "{audio_transcription}"
+            
+            IMPORTANTE: Use a transcrição acima como o conteúdo principal da mensagem, não a mensagem genérica.
+            ''' if audio_transcription else ''}
             
             Contexto:
             - Telefone: {phone}
@@ -657,7 +671,14 @@ class SDRTeam:
             - Indicadores de Frustração: {emotional_triggers.get('frustration_indicators')}
             - Indicadores de Entusiasmo: {emotional_triggers.get('excitement_indicators')}
             
-            {"Análise de Mídia: " + str(multimodal_result) if multimodal_result else ""}
+            {f"""
+            🎵 TRANSCRIÇÃO DE ÁUDIO:
+            \"{multimodal_result.get('transcription', 'Não disponível')}\"
+            (Duração: {multimodal_result.get('duration', 0)}s, Engine: {multimodal_result.get('engine', 'N/A')})
+            
+            IMPORTANTE: Use ESTA TRANSCRIÇÃO como o conteúdo real da mensagem do usuário.
+            """ if multimodal_result and multimodal_result.get('type') == 'audio' and multimodal_result.get('transcription') else
+            f"Análise de Mídia: {multimodal_result}" if multimodal_result else ""}
             
             AGENTE RECOMENDADO: {recommended_agent}
             RAZÃO: {reasoning}

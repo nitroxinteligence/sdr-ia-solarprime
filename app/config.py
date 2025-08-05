@@ -145,7 +145,7 @@ class Settings(BaseSettings):
     delay_after_media: float = Field(default=3.0, env="DELAY_AFTER_MEDIA")
     
     # Comportamentos humanos
-    simulate_reading_time: bool = Field(default=True, env="SIMULATE_READING_TIME")
+    simulate_reading_time: bool = Field(default=False, env="SIMULATE_READING_TIME")
     reading_speed_wpm: int = Field(default=200, env="READING_SPEED_WPM")
     response_time_variation: float = Field(default=0.3, env="RESPONSE_TIME_VARIATION")
     
@@ -178,7 +178,6 @@ class Settings(BaseSettings):
     enable_auto_translation: bool = Field(default=False, env="ENABLE_AUTO_TRANSLATION")
     
     # Integrações
-    enable_calendar_integration: bool = Field(default=True, env="ENABLE_CALENDAR_INTEGRATION")
     enable_crm_integration: bool = Field(default=True, env="ENABLE_CRM_INTEGRATION")
     enable_knowledge_base: bool = Field(default=True, env="ENABLE_KNOWLEDGE_BASE")
     enable_follow_up_automation: bool = Field(default=True, env="ENABLE_FOLLOW_UP_AUTOMATION")
