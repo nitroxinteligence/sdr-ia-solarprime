@@ -2250,9 +2250,47 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 # Fallback final se ainda não houver resposta
                 response = "Oi! 😊 Sou a Helen da Solar Prime. Como posso ajudar você hoje?"
             
+            # 10. Determinar se deve reagir ou responder citando
+            result = {
+                "text": response,
+                "reaction": None,
+                "reply_to": None
+            }
+            
+            # Lógica mais natural: apenas ~10% de chance de reagir ou citar
+            import random
+            
+            # Reações: apenas para mensagens muito específicas (10% de chance)
+            message_lower = message.lower().strip()
+            if random.random() < 0.1:  # 10% de chance
+                # Reações para confirmações muito curtas
+                if len(message_lower) < 10 and any(word in message_lower for word in ["ok", "blz", "👍"]):
+                    result["reaction"] = "👍"
+                # Reações para agradecimentos explícitos
+                elif len(message_lower) < 20 and any(word in message_lower for word in ["obrigado", "obrigada", "valeu"]):
+                    result["reaction"] = "❤️"
+                # Reações para risadas
+                elif any(indicator in message_lower for indicator in ["kkkkk", "hahaha", "😂😂", "🤣🤣"]):
+                    result["reaction"] = "😂"
+            
+            # Reação especial para imagens/documentos recebidos
+            if media and media.get("type") in ["image", "document", "pdf"]:
+                result["reaction"] = "✅"  # Confirma recebimento de mídia
+            
+            # Citações: apenas em contextos muito específicos (10% de chance)
+            if message_id and random.random() < 0.1:
+                # Citar quando há múltiplas perguntas ou contexto importante
+                question_count = message.count("?")
+                if question_count > 1:  # Múltiplas perguntas
+                    result["reply_to"] = message_id
+                # Citar quando está respondendo a uma dúvida específica após outras mensagens
+                elif conversation_id and len(messages_history or []) > 5 and "?" in message:
+                    result["reply_to"] = message_id
+            
             emoji_logger.agentic_response(f"Resposta gerada: {response[:100]}...")
             
-            return response
+            # Retornar estrutura enriquecida
+            return result
             
         except Exception as e:
             emoji_logger.system_error("AGENTIC SDR", f"Erro crítico ao processar: {e}")
@@ -2263,7 +2301,12 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 "Oi! Tudo bem? Sou a Helen da Solar Prime! Você tem interesse em economizar na conta de luz?"
             ]
             import random
-            return random.choice(emergency_responses)
+            # Retornar estrutura consistente mesmo em erro
+            return {
+                "text": random.choice(emergency_responses),
+                "reaction": None,
+                "reply_to": None
+            }
     
     async def _personalize_team_response(
         self,

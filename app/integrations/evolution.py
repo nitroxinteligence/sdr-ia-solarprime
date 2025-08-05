@@ -332,6 +332,27 @@ class EvolutionAPIClient:
             emoji_logger.evolution_error(f"Erro ao enviar mensagem: {e}")
             raise
     
+    def _calculate_humanized_typing_duration(self, message_length: int) -> float:
+        """
+        Calcula uma duração de "typing" humanizada baseada no tamanho da mensagem.
+        """
+        if message_length > 500:
+            base_duration = 12.0
+        elif message_length > 250:
+            base_duration = 8.0
+        elif message_length > 150:
+            base_duration = 5.0
+        elif message_length > 50:
+            base_duration = 3.0
+        else:
+            base_duration = 2.0
+
+        # Adicionar uma pequena variação aleatória para mais naturalidade
+        variation = base_duration * 0.15
+        duration = base_duration + random.uniform(-variation, variation)
+        
+        return max(1.0, min(duration, 15.0)) # Garante que a duração esteja entre 1 e 15 segundos
+    
     async def send_typing(self, phone: str, message_length: int = 0, duration_seconds: Optional[float] = None):
         """
         Simula digitação com timing dinâmico baseado no tamanho da mensagem
@@ -345,30 +366,10 @@ class EvolutionAPIClient:
             phone = self._format_phone(phone)
             
             # Calcular duração baseada no tamanho da mensagem
-            if duration_seconds:
-                duration = duration_seconds
+            if not duration_seconds:
+                duration = self._calculate_humanized_typing_duration(message_length)
             else:
-                # Determinar duração base
-                if message_length < 50:
-                    duration = settings.typing_duration_short
-                elif message_length < 200:
-                    duration = settings.typing_duration_medium
-                else:
-                    duration = settings.typing_duration_long
-                
-                # Adicionar tempo baseado na velocidade de digitação
-                if settings.typing_speed_chars_per_second > 0:
-                    typing_time = message_length / settings.typing_speed_chars_per_second
-                    # Usar o maior entre duração configurada e tempo calculado
-                    duration = max(duration, typing_time)
-                
-                # Adicionar variação humana se habilitado
-                if settings.response_time_variation > 0:
-                    variation = duration * settings.response_time_variation
-                    duration += random.uniform(-variation, variation)
-                
-                # Limitar duração
-                duration = max(1.0, min(duration, 15.0))  # Entre 1 e 15 segundos
+                duration = duration_seconds
             
             # Inicia digitação
             payload = {
@@ -434,6 +435,62 @@ class EvolutionAPIClient:
             
         except Exception as e:
             emoji_logger.evolution_error(f"Erro ao enviar reação: {e}")
+            raise
+    
+    async def send_reply(self, phone: str, message_id: str, text: str, simulate_typing: bool = True) -> Dict[str, Any]:
+        """
+        Envia uma resposta citando uma mensagem anterior
+        
+        Args:
+            phone: Número do WhatsApp
+            message_id: ID da mensagem a ser citada
+            text: Texto da resposta
+            simulate_typing: Se deve simular digitação antes de enviar
+        """
+        try:
+            phone = self._format_phone(phone)
+            
+            # Simular digitação se habilitado
+            if simulate_typing:
+                await self.send_typing(phone, len(text))
+            
+            payload = {
+                "number": phone,
+                "text": text,
+                "options": {
+                    "quoted": {
+                        "key": {
+                            "remoteJid": f"{phone}@s.whatsapp.net",
+                            "id": message_id
+                        }
+                    }
+                }
+            }
+            
+            response = await self._make_request(
+                "post",
+                f"/message/sendText/{self.instance_name}",
+                json=payload
+            )
+            
+            # Verificar status da resposta
+            if response.status_code not in [200, 201]:
+                error_text = response.text
+                emoji_logger.evolution_error(f"Evolution API retornou erro {response.status_code}: {error_text}")
+                raise Exception(f"Erro ao enviar resposta: Status {response.status_code} - {error_text}")
+            
+            result = response.json()
+            
+            # Verificar se mensagem foi realmente enviada
+            if not result.get("key", {}).get("id"):
+                emoji_logger.evolution_error(f"Resposta não enviada - sem ID na resposta: {result}")
+                raise Exception(f"Resposta não foi enviada - resposta inválida da API")
+            
+            emoji_logger.evolution_send(phone, "reply", message_length=len(text))
+            return result
+            
+        except Exception as e:
+            emoji_logger.evolution_error(f"Erro ao enviar resposta: {e}")
             raise
     
     async def send_image(

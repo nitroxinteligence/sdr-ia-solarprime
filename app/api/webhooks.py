@@ -810,29 +810,28 @@ async def process_message_with_agent(
         # Processa mensagem com análise contextual inteligente
         emoji_logger.webhook_process(f"Chamando AGENTIC SDR para processar: {message_content[:50]}...")
         
-        # IMPORTANTE: Enviar typing ANTES de processar (mostra que está "pensando")
-        try:
-            # Estima tempo de processamento baseado no tamanho da mensagem
-            estimated_processing_time = max(3.0, min(len(message_content) * 0.05, 10.0))
-            emoji_logger.webhook_process(f"Enviando typing por ~{estimated_processing_time:.1f}s enquanto processa...")
-            
-            # Envia typing sem bloquear o processamento
-            asyncio.create_task(evolution_client.send_typing(phone, duration_seconds=estimated_processing_time))
-            
-        except Exception as typing_error:
-            emoji_logger.system_warning(f"Erro ao enviar typing inicial: {typing_error}")
-            # Continua mesmo se falhar o typing
-        
         try:
             response = await agentic.process_message(
                 phone=phone,
                 message=message_content,
                 lead_data=lead,
                 conversation_id=conversation["id"],
-                media=media_data
+                media=media_data,
+                message_id=message_id
             )
             
-            emoji_logger.webhook_process(f"Resposta recebida do AGENTIC SDR: {response[:100] if response else 'NENHUMA'}...")
+            # Verificar se é estrutura enriquecida ou string simples (compatibilidade)
+            if isinstance(response, dict):
+                response_text = response.get("text", "")
+                reaction = response.get("reaction")
+                reply_to = response.get("reply_to")
+            else:
+                # Compatibilidade com resposta string simples
+                response_text = response
+                reaction = None
+                reply_to = None
+            
+            emoji_logger.webhook_process(f"Resposta recebida do AGENTIC SDR: {response_text[:100] if response_text else 'NENHUMA'}...")
             
         except Exception as agent_error:
             emoji_logger.system_error("AGENTIC SDR", f"Erro ao processar: {agent_error}")
@@ -840,21 +839,38 @@ async def process_message_with_agent(
         
         # Envia resposta
         if response:
+            # response agora pode ser dict ou string (compatibilidade)
+            if isinstance(response, dict):
+                response_text = response.get("text", "")
+                # reaction e reply_to já foram extraídos acima
+            else:
+                response_text = response
+                
             emoji_logger.webhook_process(f"Enviando resposta para {phone}")
+            
+            # Enviar reação se houver
+            if reaction:
+                try:
+                    await evolution_client.send_reaction(phone, message_id, reaction)
+                    emoji_logger.webhook_process(f"Reação enviada: {reaction}")
+                    # Pequeno delay após reação
+                    await asyncio.sleep(0.5)
+                except Exception as reaction_error:
+                    emoji_logger.system_warning(f"Erro ao enviar reação: {reaction_error}")
             
             # Delay antes de enviar mídia se houver
             if media_data and settings.delay_before_media > 0:
                 await asyncio.sleep(settings.delay_before_media)
             
             # Se o splitter está habilitado e a mensagem é longa, divide em chunks
-            if settings.enable_message_splitter and len(response) > settings.message_max_length:
+            if settings.enable_message_splitter and len(response_text) > settings.message_max_length:
                 splitter = get_message_splitter_instance()
-                chunks = splitter.split_message(response)
+                chunks = splitter.split_message(response_text)
                 
                 emoji_logger.system_info(
                     f"Mensagem dividida em {len(chunks)} partes",
                     phone=phone,
-                    original_length=len(response)
+                    original_length=len(response_text)
                 )
                 
                 # Envia cada chunk com delay entre eles
@@ -864,12 +880,21 @@ async def process_message_with_agent(
                         if i > 0 and settings.message_chunk_delay > 0:
                             await asyncio.sleep(settings.message_chunk_delay)
                         
-                        result = await evolution_client.send_text_message(
-                            phone,
-                            chunk,
-                            delay=None,  # Deixar o método calcular automaticamente
-                            simulate_typing=False  # Já enviamos typing antes, não precisa mais
-                        )
+                        # Para chunks, usar reply apenas no primeiro
+                        if i == 0 and reply_to:
+                            result = await evolution_client.send_reply(
+                                phone,
+                                reply_to,
+                                chunk,
+                                simulate_typing=True
+                            )
+                        else:
+                            result = await evolution_client.send_text_message(
+                                phone,
+                                chunk,
+                                delay=None,  # Deixar o método calcular automaticamente
+                                simulate_typing=True
+                            )
                         emoji_logger.evolution_send(phone, "text", preview=chunk[:50])
                         emoji_logger.system_info(f"Chunk {i+1}/{len(chunks)} enviado. ID: {result.get('key', {}).get('id', 'N/A')}")
                         
@@ -879,13 +904,22 @@ async def process_message_with_agent(
             else:
                 # Envia mensagem única (sem dividir)
                 try:
-                    result = await evolution_client.send_text_message(
-                        phone,
-                        response,
-                        delay=None,  # Deixar o método calcular automaticamente
-                        simulate_typing=False  # Já enviamos typing antes, não precisa mais
-                    )
-                    emoji_logger.evolution_send(phone, "text", preview=response[:50])
+                    # Usar reply se foi solicitado
+                    if reply_to:
+                        result = await evolution_client.send_reply(
+                            phone,
+                            reply_to,
+                            response_text,
+                            simulate_typing=True
+                        )
+                    else:
+                        result = await evolution_client.send_text_message(
+                            phone,
+                            response_text,
+                            delay=None,  # Deixar o método calcular automaticamente
+                            simulate_typing=True
+                        )
+                    emoji_logger.evolution_send(phone, "text", preview=response_text[:50])
                     emoji_logger.system_info(f"Mensagem enviada com sucesso. ID: {result.get('key', {}).get('id', 'N/A')}")
                     
                 except Exception as send_error:

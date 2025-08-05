@@ -152,7 +152,7 @@ class Settings(BaseSettings):
     # ============= MESSAGE BUFFER E SPLITTER =============
     # Buffer de mensagens
     enable_message_buffer: bool = Field(default=True, env="ENABLE_MESSAGE_BUFFER")
-    message_buffer_timeout: float = Field(default=30.0, env="MESSAGE_BUFFER_TIMEOUT")  # 30 segundos
+    message_buffer_timeout: float = Field(default=10.0, env="MESSAGE_BUFFER_TIMEOUT")  # 10 segundos
     
     # Splitter de mensagens
     enable_message_splitter: bool = Field(default=True, env="ENABLE_MESSAGE_SPLITTER")

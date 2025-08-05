@@ -13,6 +13,12 @@ create table public.follow_ups (
   follow_up_type character varying(50) not null default 'CUSTOM'::character varying,
   custom_message text null,
   message_template character varying(100) null,
+  priority text null default 'medium'::text,
+  attempt integer null default 0,
+  last_attempt_at timestamp with time zone null,
+  next_retry_at timestamp with time zone null,
+  error_reason text null,
+  response jsonb null,
   constraint follow_ups_pkey primary key (id),
   constraint follow_ups_lead_id_fkey foreign KEY (lead_id) references leads (id) on delete CASCADE,
   constraint follow_ups_follow_up_type_check check (
@@ -72,6 +78,12 @@ create index IF not exists idx_followups_type on public.follow_ups using btree (
 create index IF not exists idx_followups_pending on public.follow_ups using btree (scheduled_at, status) TABLESPACE pg_default
 where
   ((status)::text = 'PENDING'::text);
+
+create index IF not exists idx_follow_ups_pending on public.follow_ups using btree (status, scheduled_at) TABLESPACE pg_default
+where
+  ((status)::text = 'pending'::text);
+
+create index IF not exists idx_follow_ups_lead on public.follow_ups using btree (lead_id, status) TABLESPACE pg_default;
 
 create trigger update_followups_updated_at BEFORE
 update on follow_ups for EACH row
