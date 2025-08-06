@@ -136,7 +136,6 @@ class FollowUpExecutorService:
             # Google Calendar DESABILITADO - sem eventos
             events_24h = type('obj', (object,), {'data': []})()
             events_2h = type('obj', (object,), {'data': []})()
-            ).execute()
             
             # Enviar lembretes de 24h
             for event in events_24h.data:

@@ -55,8 +55,13 @@ class KnowledgeAgent:
             from agno.vectordb.pgvector import PgVector
             from app.config import settings
             
-            # Get the corrected PostgreSQL URL
+            # Get the PostgreSQL URL (pode estar vazia se não usamos mais PostgreSQL)
             db_url = settings.get_postgres_url()
+            
+            # Se não tem URL configurada, não tenta criar PgVector
+            if not db_url or db_url == "":
+                logger.info("📝 PostgreSQL não configurado - Knowledge Base funcionará sem vector database")
+                raise Exception("PostgreSQL URL não configurada")
             
             # Double-check to ensure we have postgresql:// not postgres://
             if db_url.startswith("postgres://"):
