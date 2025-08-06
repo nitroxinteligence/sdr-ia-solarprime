@@ -2448,7 +2448,10 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         emoji_logger.agentic_thinking(f"Mensagem simples, resposta direta")
                         result = await self.intelligent_model.run(contextual_prompt)
                     
-                    response = result.content if hasattr(result, 'content') else str(result)
+                    # Extrair conteúdo da resposta
+                    raw_response = result.content if hasattr(result, 'content') else str(result)
+                    # Formatar com tags para extração
+                    response = f"<RESPOSTA_FINAL>{raw_response}</RESPOSTA_FINAL>"
                     
                 except Exception as agent_error:
                     emoji_logger.system_error("AGENTIC SDR", f"Erro ao gerar resposta: {agent_error}")
@@ -2460,15 +2463,15 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 emoji_logger.system_warning("Nenhuma resposta gerada, usando fallback")
                 # Resposta fallback baseada no contexto
                 if "oi" in message.lower() or "olá" in message.lower() or "ola" in message.lower():
-                    response = "Oi! Tudo bem? Sou a Helen da Solar Prime! Como posso ajudar você hoje?"
+                    response = "<RESPOSTA_FINAL>Oi! Tudo bem? Sou a Helen da Solar Prime! Como posso ajudar você hoje?</RESPOSTA_FINAL>"
                 elif "bom dia" in message.lower():
-                    response = "Bom dia! Que legal você entrar em contato! Sou a Helen da Solar Prime. Em que posso ajudar?"
+                    response = "<RESPOSTA_FINAL>Bom dia! Que legal você entrar em contato! Sou a Helen da Solar Prime. Em que posso ajudar?</RESPOSTA_FINAL>"
                 elif "boa tarde" in message.lower():
-                    response = "Boa tarde! Obrigada por entrar em contato com a Solar Prime! Sou a Helen, como posso ajudar?"
+                    response = "<RESPOSTA_FINAL>Boa tarde! Obrigada por entrar em contato com a Solar Prime! Sou a Helen, como posso ajudar?</RESPOSTA_FINAL>"
                 elif "boa noite" in message.lower():
-                    response = "Boa noite! Que bom falar com você! Sou a Helen da Solar Prime. Como posso ajudar?"
+                    response = "<RESPOSTA_FINAL>Boa noite! Que bom falar com você! Sou a Helen da Solar Prime. Como posso ajudar?</RESPOSTA_FINAL>"
                 else:
-                    response = "Olá! Sou a Helen da Solar Prime. Vi sua mensagem e adoraria ajudar! Você tem interesse em economizar na conta de luz com energia solar?"
+                    response = "<RESPOSTA_FINAL>Olá! Sou a Helen da Solar Prime. Vi sua mensagem e adoraria ajudar! Você tem interesse em economizar na conta de luz com energia solar?</RESPOSTA_FINAL>"
             
             # 7. Calcular novo estado emocional da Helen
             try:
@@ -2501,7 +2504,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 response = self._apply_typing_simulation(response)
             else:
                 # Fallback final se ainda não houver resposta
-                response = "Oi! 😊 Sou a Helen da Solar Prime. Como posso ajudar você hoje?"
+                response = "<RESPOSTA_FINAL>Oi! 😊 Sou a Helen da Solar Prime. Como posso ajudar você hoje?</RESPOSTA_FINAL>"
             
             # 10. Determinar se deve reagir ou responder citando
             result = {
@@ -2549,9 +2552,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             emoji_logger.system_error("AGENTIC SDR", f"Erro crítico ao processar: {e}")
             # Resposta de emergência mais natural
             emergency_responses = [
-                "Oi! Sou a Helen da Solar Prime! Como posso ajudar você hoje com energia solar?",
-                "Olá! Que bom você entrar em contato! Sou a Helen, especialista em energia solar. Em que posso ajudar?",
-                "Oi! Tudo bem? Sou a Helen da Solar Prime! Você tem interesse em economizar na conta de luz?"
+                "<RESPOSTA_FINAL>Oi! Sou a Helen da Solar Prime! Como posso ajudar você hoje com energia solar?</RESPOSTA_FINAL>",
+                "<RESPOSTA_FINAL>Olá! Que bom você entrar em contato! Sou a Helen, especialista em energia solar. Em que posso ajudar?</RESPOSTA_FINAL>",
+                "<RESPOSTA_FINAL>Oi! Tudo bem? Sou a Helen da Solar Prime! Você tem interesse em economizar na conta de luz?</RESPOSTA_FINAL>"
             ]
             import random
             # Retornar estrutura consistente mesmo em erro
@@ -2587,7 +2590,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         else:
             # Fallback para run() se arun() não estiver disponível
             result = await self.agent.run(personalization_prompt)
-        return result.content if hasattr(result, 'content') else str(result)
+        # Extrair conteúdo e formatar com tags
+        raw_response = result.content if hasattr(result, 'content') else str(result)
+        return f"<RESPOSTA_FINAL>{raw_response}</RESPOSTA_FINAL>"
     
     def _update_emotional_state(
         self,
