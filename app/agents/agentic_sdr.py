@@ -754,7 +754,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         if cache_key in self._message_cache:
             cached_time, cached_data = self._message_cache[cache_key]
             if now - cached_time < self._cache_ttl:
-                emoji_logger.agentic_cache(f"✅ Cache hit! Economizou busca de 100 mensagens")
+                emoji_logger.agentic_context(f"✅ Cache hit! Economizou busca de 100 mensagens")
                 return cached_data
         
         try:
@@ -797,7 +797,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             # Cachear resultado antes de retornar - OTIMIZAÇÃO DE PERFORMANCE
             if messages:  # Se encontrou mensagens
                 self._message_cache[cache_key] = (now, messages)
-                emoji_logger.agentic_cache(f"💾 Mensagens cacheadas por {self._cache_ttl}s")
+                emoji_logger.agentic_context(f"💾 Mensagens cacheadas por {self._cache_ttl}s")
                 
                 # Limpar cache antigo (manter só últimos 10)
                 if len(self._message_cache) > 10:
@@ -2421,7 +2421,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     
                     # Usar reasoning APENAS para casos complexos
                     # Determinar se a mensagem atual é complexa
-                    is_complex = self._is_complex_message(current_message)
+                    is_complex = self._is_complex_message(message)
                     
                     if self.reasoning_enabled and is_complex:
                         emoji_logger.agentic_thinking(f"Mensagem complexa detectada, ativando reasoning mode")
