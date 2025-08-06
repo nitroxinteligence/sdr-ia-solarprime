@@ -5,9 +5,10 @@ Arquitetura modular simples - zero complexidade
 
 from typing import Optional, Any, Dict
 from loguru import logger
-from agno.storage.postgres import PostgresStorage
 import asyncio
 import time
+from app.utils.supabase_storage import SupabaseStorage
+from app.integrations.supabase_client import supabase_client
 
 
 class OptionalStorage:
@@ -40,71 +41,24 @@ class OptionalStorage:
         self._connect_with_retry(table_name, db_url, schema, auto_upgrade_schema)
     
     def _connect_with_retry(self, table_name: str, db_url: str, schema: str, auto_upgrade_schema: bool):
-        """Tenta conectar ao PostgreSQL com retry e backoff exponencial"""
-        
-        # Corrige o dialeto para postgresql (SQLAlchemy moderno)
-        if db_url.startswith("postgres://"):
-            db_url = db_url.replace("postgres://", "postgresql://", 1)
-            logger.info("🔧 URL corrigida: postgres:// → postgresql://")
-        
-        # Primeiro, verifica se as dependências estão disponíveis
+        """Conecta usando SupabaseStorage em vez de PostgreSQL direto"""
         try:
-            import psycopg2
-            import sqlalchemy
-            logger.info(f"✅ Dependências PostgreSQL disponíveis: psycopg2={psycopg2.__version__}, sqlalchemy={sqlalchemy.__version__}")
-        except ImportError as e:
-            logger.error(f"❌ Dependências PostgreSQL não encontradas: {e}")
+            # Usa SupabaseStorage com o cliente Supabase existente
+            self.storage = SupabaseStorage(
+                table_name=table_name,
+                supabase_client=supabase_client,
+                schema=schema,
+                auto_upgrade_schema=auto_upgrade_schema
+            )
+            logger.info(f"✅ SupabaseStorage conectado para tabela: {table_name}")
+            logger.info(f"🚀 Usando Supabase Client - sem necessidade de PostgreSQL direto!")
+        except Exception as e:
+            logger.warning(f"⚠️ Erro ao conectar SupabaseStorage: {e}")
             logger.warning(f"📝 Sistema funcionará com storage em memória para: {table_name}")
             self.storage = None
-            return
-        
-        max_retries = 3  # Reduzido para 3 tentativas quando há erro de driver
-        retry_delay = 2.0
-        
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"📡 Tentando conectar ao PostgreSQL (tentativa {attempt + 1}/{max_retries})...")
-                
-                self.storage = PostgresStorage(
-                    table_name=table_name,
-                    db_url=db_url,
-                    schema=schema,
-                    auto_upgrade_schema=auto_upgrade_schema
-                )
-                
-                logger.info(f"✅ PostgresStorage conectado para tabela: {table_name}")
-                return  # Sucesso!
-                
-            except Exception as e:
-                error_msg = str(e)[:300]
-                
-                # Detectar tipos específicos de erro
-                if "Can't load plugin" in error_msg and "postgres" in error_msg:
-                    logger.error(f"❌ Driver PostgreSQL não disponível no SQLAlchemy")
-                    logger.error(f"💡 Solução: pip install psycopg2-binary sqlalchemy[postgresql]")
-                    break  # Não adianta tentar novamente se é erro de driver
-                
-                elif "2a05:d016" in error_msg or "IPv6" in error_msg.lower():
-                    logger.warning(f"⚠️ Erro de conexão IPv6 detectado. Usando pooler na porta 6543 deve resolver.")
-                
-                elif "connection refused" in error_msg.lower() or "timeout" in error_msg.lower():
-                    logger.warning(f"⚠️ Erro de conectividade de rede detectado")
-                
-                logger.warning(f"⚠️ PostgreSQL não disponível (tentativa {attempt + 1}/{max_retries}): {error_msg}")
-                
-                if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)  # Backoff exponencial
-                    logger.info(f"⏳ Aguardando {wait_time:.1f}s antes de tentar novamente...")
-                    time.sleep(wait_time)
-        
-        # Se chegou aqui, todas as tentativas falharam
-        logger.error(f"❌ Falha ao conectar ao PostgreSQL após {max_retries} tentativas.")
-        logger.warning(f"📝 Sistema funcionará com storage em memória para: {table_name}")
-        logger.info(f"ℹ️ Para resolver: verifique se psycopg2-binary está instalado e a URL está correta")
-        self.storage = None
     
     def is_connected(self) -> bool:
-        """Verifica se está conectado ao PostgreSQL"""
+        """Verifica se está conectado ao storage"""
         return self.storage is not None
     
     # Métodos compatíveis com AGNO Storage

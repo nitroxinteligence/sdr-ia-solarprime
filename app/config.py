@@ -257,29 +257,10 @@ class Settings(BaseSettings):
         return f"redis://{self.redis_host}:{self.redis_port}/0"
     
     def get_postgres_url(self) -> str:
-        """Retorna a URL de conexão PostgreSQL do Supabase"""
-        import os
-        from app.utils.ipv6_detector import get_optimal_postgres_url
-        
-        # Tenta pegar direto do ambiente primeiro
-        db_url = os.getenv('SUPABASE_DB_URL') or self.supabase_db_url
-        
-        if db_url and db_url != "":
-            # Corrige o dialeto para postgresql (SQLAlchemy moderno)
-            if db_url.startswith("postgres://"):
-                db_url = db_url.replace("postgres://", "postgresql://", 1)
-            
-            # Detecta suporte IPv6 e converte para pooler se necessário
-            db_url = get_optimal_postgres_url(db_url)
-            
-            # Oculta senha para log
-            safe_url = db_url.split('@')[1] if '@' in db_url else db_url
-            print(f"✅ PostgreSQL URL configurada: ...@{safe_url}")
-            return db_url
-        
-        # Fallback para localhost se não estiver configurada
-        print("⚠️ SUPABASE_DB_URL não encontrada, usando localhost (desenvolvimento)")
-        return "postgresql://postgres:postgres@localhost:5432/postgres"
+        """DEPRECATED - Não usamos mais conexão direta com PostgreSQL"""
+        # Mantido por compatibilidade, mas não é mais usado
+        # Agora usamos apenas Supabase Client
+        return ""
     
     def is_business_hours(self) -> bool:
         """Verifica se está dentro do horário comercial"""
