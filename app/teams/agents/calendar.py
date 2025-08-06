@@ -281,6 +281,31 @@ class CalendarAgent:
                     meeting_type=meeting_type
                 )
                 
+                # NOVO: Criar qualificação do lead quando agenda reunião
+                try:
+                    from app.integrations.supabase_client import supabase_client
+                    
+                    qualification_data = {
+                        'lead_id': lead_id,
+                        'qualification_status': 'QUALIFIED',
+                        'score': 85,  # Score alto por agendar reunião
+                        'criteria': {
+                            'meeting_scheduled': True,
+                            'meeting_type': meeting_type,
+                            'meeting_date': start_time.isoformat(),
+                            'interest_level': 'high',
+                            'decision_maker': True
+                        },
+                        'notes': f'Lead qualificado - Reunião "{title}" agendada para {date} às {time}'
+                    }
+                    
+                    await supabase_client.create_lead_qualification(qualification_data)
+                    logger.info(f"✅ Lead {lead_id} qualificado após agendar reunião")
+                    
+                except Exception as qual_error:
+                    logger.error(f"Erro ao criar qualificação: {qual_error}")
+                    # Não falha o agendamento se a qualificação falhar
+                
                 logger.info(f"✅ Reunião agendada: {title} em {date} às {time}")
                 
                 return {

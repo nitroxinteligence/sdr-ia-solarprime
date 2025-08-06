@@ -497,6 +497,58 @@ class SupabaseClient:
         except Exception as e:
             logger.error(f"Erro ao limpar sessões: {str(e)}")
     
+    # ============= LEAD QUALIFICATIONS =============
+    
+    async def create_lead_qualification(self, qualification_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Cria uma qualificação de lead quando uma reunião é agendada
+        
+        Args:
+            qualification_data: Dados da qualificação incluindo:
+                - lead_id: ID do lead (obrigatório)
+                - qualification_status: Status (default: 'QUALIFIED')
+                - score: Pontuação de 0-100 (default: 80 para reunião agendada)
+                - criteria: Critérios em formato JSON
+                - notes: Notas sobre a qualificação
+                
+        Returns:
+            Dados da qualificação criada
+        """
+        try:
+            # Valores padrão para reunião agendada
+            if 'qualification_status' not in qualification_data:
+                qualification_data['qualification_status'] = 'QUALIFIED'
+            
+            if 'score' not in qualification_data:
+                qualification_data['score'] = 80  # Score alto por ter agendado reunião
+            
+            if 'criteria' not in qualification_data:
+                qualification_data['criteria'] = {
+                    'meeting_scheduled': True,
+                    'interest_level': 'high',
+                    'decision_maker': True
+                }
+            
+            if 'notes' not in qualification_data:
+                qualification_data['notes'] = 'Lead qualificado - Reunião agendada com sucesso'
+            
+            # Adicionar timestamps
+            qualification_data['qualified_at'] = datetime.now().isoformat()
+            qualification_data['created_at'] = datetime.now().isoformat()
+            qualification_data['updated_at'] = datetime.now().isoformat()
+            
+            result = self.client.table('leads_qualifications').insert(qualification_data).execute()
+            
+            if result.data:
+                logger.info(f"✅ Qualificação criada para lead {qualification_data['lead_id']}")
+                return result.data[0]
+            
+            raise Exception("Erro ao criar qualificação")
+            
+        except Exception as e:
+            logger.error(f"Erro ao criar qualificação: {str(e)}")
+            raise
+    
     async def close(self):
         """Fecha conexão com Supabase"""
         # Supabase client não precisa de close explícito
