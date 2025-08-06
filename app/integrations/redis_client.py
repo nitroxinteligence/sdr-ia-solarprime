@@ -18,22 +18,43 @@ class RedisClient:
         self.default_ttl = 3600  # 1 hora padrão
         
     async def connect(self):
-        """Conecta ao Redis"""
-        try:
-            self.redis_client = await redis.from_url(
-                self.redis_url,
-                encoding="utf-8",
-                decode_responses=True,
-                max_connections=50
-            )
-            
-            # Testa conexão
-            await self.redis_client.ping()
-            logger.info("Conectado ao Redis com sucesso")
-            
-        except Exception as e:
-            logger.warning(f"Redis não disponível: {e}. Sistema funcionará sem cache.")
-            self.redis_client = None  # Define como None para indicar que não está conectado
+        """Conecta ao Redis com retry automático"""
+        import asyncio
+        
+        max_retries = 5
+        retry_delay = 2.0
+        
+        for attempt in range(max_retries):
+            try:
+                self.redis_client = await redis.from_url(
+                    self.redis_url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                    max_connections=50
+                )
+                
+                # Testa conexão
+                await self.redis_client.ping()
+                logger.info(f"✅ Conectado ao Redis com sucesso! URL: {self.redis_url.split('@')[1] if '@' in self.redis_url else self.redis_url}")
+                return  # Sucesso, sai do loop
+                
+            except Exception as e:
+                error_msg = str(e)
+                if "Error 8" in error_msg or "Name or service not known" in error_msg:
+                    logger.warning(f"⚠️ Redis host não encontrado (tentativa {attempt + 1}/{max_retries})")
+                    logger.info(f"📍 Tentando conectar em: {self.redis_url.split('@')[1] if '@' in self.redis_url else self.redis_url}")
+                else:
+                    logger.warning(f"⚠️ Erro ao conectar no Redis (tentativa {attempt + 1}/{max_retries}): {e}")
+                
+                if attempt < max_retries - 1:
+                    # Backoff exponencial: 2s, 4s, 8s, 16s
+                    wait_time = retry_delay * (2 ** attempt)
+                    logger.info(f"⏳ Aguardando {wait_time}s antes de tentar novamente...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error("❌ Falha ao conectar ao Redis após múltiplas tentativas.")
+                    logger.info("💡 Sistema funcionará sem cache. Verifique as configurações do Redis.")
+                    self.redis_client = None
     
     async def disconnect(self):
         """Desconecta do Redis"""

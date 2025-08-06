@@ -247,6 +247,11 @@ class Settings(BaseSettings):
     
     def get_redis_url(self) -> str:
         """Constrói a URL do Redis com autenticação se necessário"""
+        # Se já tem uma URL completa configurada, usa ela
+        if self.redis_url and self.redis_url != "redis://localhost:6379/0":
+            return self.redis_url
+        
+        # Senão, constrói a URL baseada nos componentes
         if self.redis_password:
             return f"redis://{self.redis_username}:{self.redis_password}@{self.redis_host}:{self.redis_port}/0"
         return f"redis://{self.redis_host}:{self.redis_port}/0"
