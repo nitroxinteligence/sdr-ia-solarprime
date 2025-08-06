@@ -863,6 +863,18 @@ class KommoEnhancedCRM(CRMAgent):
             logger.info(f"🔍 Criando task para {entity_type} ID {entity_id}")
             logger.info(f"📅 Data de conclusão recebida: {complete_till}")
             
+            # Verificar se a entidade existe antes de criar a task
+            logger.info(f"🔍 Verificando se {entity_type} ID {entity_id} existe...")
+            check_url = f"{self.kommo_config['base_url']}/api/v4/{entity_type}/{entity_id}"
+            
+            check_response = await self._make_request("GET", check_url)
+            if not check_response:
+                logger.error(f"❌ {entity_type} ID {entity_id} não existe no Kommo!")
+                return {
+                    "success": False, 
+                    "error": f"{entity_type} ID {entity_id} não encontrado no Kommo. Verifique se o ID está correto."
+                }
+            
             # Converter string ISO para timestamp
             try:
                 if isinstance(complete_till, str):

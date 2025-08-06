@@ -192,9 +192,20 @@ class KommoAutoSyncService:
                 await self._move_to_correct_stage(kommo_id, lead)
                 
                 logger.info(f"✅ Lead {lead['id']} sincronizado com Kommo (ID: {kommo_id})")
+                
+                # Retornar o resultado com o kommo_id
+                return {
+                    "success": True,
+                    "kommo_id": kommo_id,
+                    "lead_id": lead['id']
+                }
+            else:
+                logger.error(f"❌ Falha ao criar/atualizar lead no Kommo: {result}")
+                return {"success": False, "error": result.get("error", "Erro desconhecido")}
             
         except Exception as e:
             logger.error(f"❌ Erro ao sincronizar lead {lead.get('id')}: {e}")
+            return {"success": False, "error": str(e)}
     
     def _determine_tags(self, lead: Dict[str, Any]) -> list:
         """Determina tags automáticas baseadas no lead"""
@@ -443,11 +454,28 @@ class KommoAutoSyncService:
         """Sincroniza reunião agendada com o CRM"""
         try:
             kommo_id = lead.get("kommo_lead_id")
-            if not kommo_id:
-                await self._sync_single_lead(lead)
-                kommo_id = lead.get("kommo_lead_id")
             
-            if kommo_id and self.crm:
+            # Se não tem kommo_id, tentar sincronizar primeiro
+            if not kommo_id:
+                logger.info(f"🔄 Lead {lead.get('id')} não tem kommo_id, sincronizando primeiro...")
+                sync_result = await self._sync_single_lead(lead)
+                if sync_result and isinstance(sync_result, dict):
+                    kommo_id = sync_result.get("kommo_id")
+                    # Atualizar o lead local com o novo kommo_id
+                    lead["kommo_lead_id"] = kommo_id
+                else:
+                    logger.error(f"❌ Falha ao sincronizar lead {lead.get('id')} com Kommo")
+                    return
+            
+            # Validar que temos um kommo_id válido
+            if not kommo_id or kommo_id == "None" or kommo_id == 0:
+                logger.error(f"❌ kommo_id inválido para lead {lead.get('id')}: {kommo_id}")
+                return
+            
+            # Log para debug
+            logger.info(f"✅ Sincronizando reunião para lead {lead.get('id')} com kommo_id {kommo_id}")
+            
+            if self.crm:
                 # Atualizar campos da reunião
                 meeting_fields = {
                     "link_evento_google": lead.get("google_event_id"),
@@ -479,10 +507,15 @@ class KommoAutoSyncService:
                 # Criar tarefa de follow-up
                 meeting_time = lead.get("meeting_scheduled_at")
                 if meeting_time:
+                    # Garantir que temos um nome válido
+                    lead_name = lead.get('name')
+                    if not lead_name or lead_name == "None":
+                        lead_name = f"Cliente {lead.get('phone_number', '')}"
+                    
                     await self.crm.add_task(
                         entity_id=kommo_id,
                         entity_type="leads",
-                        text=f"Reunião agendada - {lead.get('name', 'Cliente')}",
+                        text=f"Reunião agendada - {lead_name}",
                         complete_till=meeting_time
                     )
                 
