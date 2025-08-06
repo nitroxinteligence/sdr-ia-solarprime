@@ -238,7 +238,7 @@ async def health_check():
 if __name__ == "__main__":
     # Configurações do servidor
     host = settings.api_host if hasattr(settings, 'api_host') else "0.0.0.0"
-    port = settings.api_port if hasattr(settings, 'api_port') else 8000
+    port = int(settings.api_port) if hasattr(settings, 'api_port') else 8000
     reload = settings.debug if hasattr(settings, 'debug') else False
     
     emoji_logger.system_start(f"Servidor Uvicorn em {host}:{port}")

@@ -777,6 +777,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             
             # Buscar últimas 100 mensagens
             emoji_logger.system_info(f"Executando query para conversation_id: {conversation_id}")
+            
+            # GARANTIR que sempre tentamos buscar 100 mensagens
             query = supabase_client.client.table("messages")\
                 .select("*")\
                 .eq("conversation_id", conversation_id)\
@@ -786,13 +788,24 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             response = query.execute()  # Removido await - cliente síncrono
             messages = response.data if response.data else []
             
-            emoji_logger.system_info(f"Query executada, {len(messages)} mensagens encontradas")
+            # Log detalhado para debug
+            emoji_logger.system_info(f"Query executada, {len(messages)} mensagens encontradas (limite solicitado: 100)")
+            
+            # Se encontrou menos de 100 mensagens, informar
+            if len(messages) < 100:
+                emoji_logger.system_warning(f"Apenas {len(messages)} mensagens disponíveis (menos que o limite de 100)")
             
             # Reverter para ordem cronológica
             messages.reverse()
             
-            emoji_logger.supabase_success(f"Mensagens recuperadas: {len(messages)}",
-                                         execution_time=0.1)
+            # Log de sucesso com informação completa
+            success_msg = f"Mensagens recuperadas: {len(messages)}"
+            if len(messages) < 100:
+                success_msg += f" (conversa tem apenas {len(messages)} mensagens no total)"
+            else:
+                success_msg += " (limite de 100 atingido)"
+                
+            emoji_logger.supabase_success(success_msg, execution_time=0.1)
             
             # Cachear resultado antes de retornar - OTIMIZAÇÃO DE PERFORMANCE
             if messages:  # Se encontrou mensagens
