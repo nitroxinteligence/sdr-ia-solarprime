@@ -34,7 +34,7 @@ Modifiquei o arquivo `app/prompts/prompt-agente.md` para incluir uma diretiva de
 *Decisão de qual agente usar...*
 
 <RESPOSTA_FINAL>
-Oi, Mateus! Aqui é a Helen. Já analisei sua conta e a notícia é ótima! Para compensar a confusão do nosso sistema, preparei uma proposta com um benefício especial. Posso te ligar amanhã no melhor horário para você?
+Oi, Mateus! Aqui é a Helen. Já analisei sua conta e a notícia é ótima! Para compensar a confusão do nosso sistema, preparei uma proposta com um benefício especial. Vamos agendar uma reunião com o Leonardo para que possamos te explicar melhor como tudo funciona??
 </RESPOSTA_FINAL>
 
 **NUNCA coloque o raciocínio dentro das tags de resposta.**

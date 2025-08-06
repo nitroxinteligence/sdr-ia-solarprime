@@ -259,6 +259,7 @@ class Settings(BaseSettings):
     def get_postgres_url(self) -> str:
         """Retorna a URL de conexão PostgreSQL do Supabase"""
         import os
+        from app.utils.ipv6_detector import get_optimal_postgres_url
         
         # Tenta pegar direto do ambiente primeiro
         db_url = os.getenv('SUPABASE_DB_URL') or self.supabase_db_url
@@ -267,6 +268,9 @@ class Settings(BaseSettings):
             # Corrige o dialeto para postgresql (SQLAlchemy moderno)
             if db_url.startswith("postgres://"):
                 db_url = db_url.replace("postgres://", "postgresql://", 1)
+            
+            # Detecta suporte IPv6 e converte para pooler se necessário
+            db_url = get_optimal_postgres_url(db_url)
             
             # Oculta senha para log
             safe_url = db_url.split('@')[1] if '@' in db_url else db_url
