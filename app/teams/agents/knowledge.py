@@ -55,10 +55,18 @@ class KnowledgeAgent:
             from agno.vectordb.pgvector import PgVector
             from app.config import settings
             
+            # Get the corrected PostgreSQL URL
+            db_url = settings.get_postgres_url()
+            
+            # Double-check to ensure we have postgresql:// not postgres://
+            if db_url.startswith("postgres://"):
+                db_url = db_url.replace("postgres://", "postgresql://", 1)
+                logger.info("🔧 Corrigindo dialeto para PgVector: postgres:// → postgresql://")
+            
             # Try to create a real PgVector instance
             vector_db = PgVector(
                 table_name="knowledge_base",
-                db_url=settings.get_postgres_url()
+                db_url=db_url
             )
             
             self.knowledge_base = AgentKnowledge(

@@ -42,6 +42,11 @@ class OptionalStorage:
     def _connect_with_retry(self, table_name: str, db_url: str, schema: str, auto_upgrade_schema: bool):
         """Tenta conectar ao PostgreSQL com retry e backoff exponencial"""
         
+        # Corrige o dialeto para postgresql (SQLAlchemy moderno)
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+            logger.info("🔧 URL corrigida: postgres:// → postgresql://")
+        
         # Primeiro, verifica se as dependências estão disponíveis
         try:
             import psycopg2

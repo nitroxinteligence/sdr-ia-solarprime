@@ -264,6 +264,10 @@ class Settings(BaseSettings):
         db_url = os.getenv('SUPABASE_DB_URL') or self.supabase_db_url
         
         if db_url and db_url != "":
+            # Corrige o dialeto para postgresql (SQLAlchemy moderno)
+            if db_url.startswith("postgres://"):
+                db_url = db_url.replace("postgres://", "postgresql://", 1)
+            
             # Oculta senha para log
             safe_url = db_url.split('@')[1] if '@' in db_url else db_url
             print(f"✅ PostgreSQL URL configurada: ...@{safe_url}")

@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, List, Union
 import asyncio
 import base64
 import json
+import re
 from datetime import datetime
 from loguru import logger
 from app.utils.logger import emoji_logger
@@ -28,6 +29,47 @@ message_splitter = None
 
 # Instância do detector AGNO para validação de mídia
 agno_detector = AGNOMediaDetector()
+
+def extract_final_response(full_response: str) -> str:
+    """
+    Extrai apenas a resposta final das tags <RESPOSTA_FINAL>
+    
+    Args:
+        full_response: Resposta completa do LLM incluindo raciocínio
+        
+    Returns:
+        Apenas o conteúdo dentro das tags RESPOSTA_FINAL
+    """
+    try:
+        # Busca o conteúdo entre as tags <RESPOSTA_FINAL> e </RESPOSTA_FINAL>
+        pattern = r'<RESPOSTA_FINAL>(.*?)</RESPOSTA_FINAL>'
+        match = re.search(pattern, full_response, re.DOTALL | re.IGNORECASE)
+        
+        if match:
+            # Extrai e limpa o conteúdo
+            final_response = match.group(1).strip()
+            emoji_logger.system_debug(f"Resposta final extraída com sucesso: {final_response[:50]}...")
+            return final_response
+        else:
+            # Fallback: Se não encontrar as tags, tenta pegar a última linha significativa
+            emoji_logger.system_warning("Tags <RESPOSTA_FINAL> não encontradas. Usando fallback.")
+            
+            # Remove linhas vazias e pega a última linha não vazia
+            lines = [line.strip() for line in full_response.split('\n') if line.strip()]
+            if lines:
+                # Pega a última linha como resposta final
+                fallback_response = lines[-1]
+                emoji_logger.system_warning(f"Fallback: usando última linha como resposta: {fallback_response[:50]}...")
+                return fallback_response
+            else:
+                # Se não houver nenhuma linha válida, retorna a resposta completa
+                emoji_logger.system_error("Nenhuma linha válida encontrada. Retornando resposta completa.")
+                return full_response
+                
+    except Exception as e:
+        emoji_logger.system_error("extract_final_response", f"Erro ao extrair resposta: {e}")
+        # Em caso de erro, retorna a resposta completa para não quebrar o fluxo
+        return full_response
 
 def detect_media_format(media_data: Any) -> str:
     """
@@ -825,6 +867,11 @@ async def process_message_with_agent(
                 reaction = None
                 reply_to = None
             
+            # ===== EXTRAÇÃO DA RESPOSTA FINAL =====
+            # Extrai apenas o conteúdo dentro das tags <RESPOSTA_FINAL>
+            response_text = extract_final_response(response_text)
+            # ======================================
+            
             # ===== SANITIZAÇÃO DE QUEBRAS DE LINHA =====
             # Garante que não haverá quebras de linha, substituindo-as por espaços
             response_text = response_text.replace('\n', ' ').replace('\r', ' ').strip()
@@ -879,6 +926,11 @@ async def process_message_with_agent(
                 # reaction e reply_to já foram extraídos acima
             else:
                 response_text = response
+            
+            # ===== EXTRAÇÃO DA RESPOSTA FINAL =====
+            # Extrai apenas o conteúdo dentro das tags <RESPOSTA_FINAL>
+            response_text = extract_final_response(response_text)
+            # ======================================
             
             # ===== SANITIZAÇÃO DE QUEBRAS DE LINHA =====
             # Garante que não haverá quebras de linha, substituindo-as por espaços
@@ -1043,6 +1095,11 @@ async def process_message_with_agent(
                     response_text = response.get("text", "")
                 else:
                     response_text = response
+                
+                # ===== EXTRAÇÃO DA RESPOSTA FINAL =====
+                # Extrai apenas o conteúdo dentro das tags <RESPOSTA_FINAL>
+                response_text = extract_final_response(response_text)
+                # ======================================
                 
                 # ===== SANITIZAÇÃO DE QUEBRAS DE LINHA =====
                 # Garante que não haverá quebras de linha, substituindo-as por espaços
