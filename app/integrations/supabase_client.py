@@ -188,17 +188,12 @@ class SupabaseClient:
     async def get_conversation_emotional_state(self, conversation_id: str) -> str:
         """Obtém o estado emocional atual da conversa"""
         try:
-            result = self.client.table('conversations').select(
-                'emotional_state'
-            ).eq('id', conversation_id).execute()
-            
-            if result.data and result.data[0]:
-                return result.data[0].get('emotional_state', 'ENTUSIASMADA')
-            
+            # Por enquanto retorna estado padrão até a coluna ser criada no banco
+            emoji_logger.supabase_warning("Campo emotional_state não implementado no banco, usando estado padrão")
             return 'ENTUSIASMADA'  # Estado padrão
             
         except Exception as e:
-            logger.error(f"Erro ao buscar estado emocional: {str(e)}")
+            emoji_logger.supabase_error(f"Erro ao buscar estado emocional: {str(e)}", table="conversations")
             return 'ENTUSIASMADA'
     
     async def update_conversation_emotional_state(self, conversation_id: str, emotional_state: str) -> None:

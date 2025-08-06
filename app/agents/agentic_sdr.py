@@ -2393,7 +2393,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         new_emotional_state
                     )
             except Exception as e:
-                emoji_logger.error(f"Erro ao atualizar estado emocional: {str(e)}")
+                emoji_logger.system_error("AGENTIC SDR", f"Erro ao atualizar estado emocional: {str(e)}")
                 new_emotional_state = current_emotional_state or "ENTUSIASMADA"
             
             # 8. Memória é gerenciada automaticamente pelo Agent no AGNO v1.7.6
