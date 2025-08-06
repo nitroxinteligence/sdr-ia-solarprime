@@ -357,6 +357,12 @@ async def process_message_with_agent(
         message_id: ID da mensagem
     """
     try:
+        # GARANTIA: Parar qualquer typing que possa estar ativo quando usuário envia mensagem
+        try:
+            await evolution_client.send_typing(phone, 0, context="USER_MESSAGE")
+            emoji_logger.system_debug("Typing parado ao receber mensagem do usuário")
+        except:
+            pass  # Se falhar, continua normalmente
         # OTIMIZAÇÃO: Busca lead primeiro (necessário para conversation)
         lead = await supabase_client.get_lead_by_phone(phone)
         
@@ -1001,16 +1007,16 @@ async def process_message_with_agent(
                 # Envia resposta contextual se disponível
                 if contextual_response:
                     try:
-                        await send_messages_with_typing(
-                            evolution_client=evolution_client,
-                            phone=phone,
-                            messages=[contextual_response],
-                            typing_delay=4000,  # Typing mais rápido para urgência
-                            delay_between_messages=0
+                        # CORREÇÃO: Usar método correto do evolution_client
+                        await evolution_client.send_text_message(
+                            phone,
+                            contextual_response,
+                            simulate_typing=False,  # NÃO simular typing para respostas de erro
+                            delay=0  # Sem delay
                         )
                         emoji_logger.webhook_process("Resposta contextual enviada")
-                    except:
-                        pass  # Se falhar, mantém silêncio
+                    except Exception as e:
+                        emoji_logger.system_warning(f"Falha ao enviar resposta contextual: {e}")
         
     except Exception as e:
         emoji_logger.system_error("Agent Message Processing", str(e))
@@ -1046,12 +1052,12 @@ async def process_message_with_agent(
                 # ============================================
                     
                 if response_text:
-                    await send_messages_with_typing(
-                        evolution_client=evolution_client,
-                        phone=phone,
-                        messages=[response_text],
-                        typing_delay=settings.typing_delay,
-                        delay_between_messages=settings.delay_between_messages
+                    # CORREÇÃO: Usar método correto do evolution_client
+                    await evolution_client.send_text_message(
+                        phone,
+                        response_text,
+                        simulate_typing=True,  # Simular typing normal para resposta do agente
+                        delay=0  # Sem delay adicional
                     )
                     emoji_logger.webhook_process("Recuperação bem-sucedida!")
                     

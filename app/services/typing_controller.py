@@ -112,8 +112,9 @@ class TypingController:
             return 9.0
 
 
-# Singleton global
-typing_controller = TypingController()
+# Singleton global com configuração do sistema
+from app.config import settings
+typing_controller = TypingController(enable_typing=settings.enable_typing_simulation)
 
 
 # Funções de conveniência para uso direto
