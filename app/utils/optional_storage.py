@@ -6,6 +6,8 @@ Arquitetura modular simples - zero complexidade
 from typing import Optional, Any, Dict
 from loguru import logger
 from agno.storage.postgres import PostgresStorage
+import asyncio
+import time
 
 
 class OptionalStorage:
@@ -34,19 +36,45 @@ class OptionalStorage:
         self.memory_storage = {}  # Storage em memória como fallback
         self.table_name = table_name
         
-        # Tenta conectar ao PostgreSQL
-        try:
-            self.storage = PostgresStorage(
-                table_name=table_name,
-                db_url=db_url,
-                schema=schema,
-                auto_upgrade_schema=auto_upgrade_schema
-            )
-            logger.info(f"✅ PostgresStorage conectado para tabela: {table_name}")
-        except Exception as e:
-            logger.warning(f"⚠️ PostgreSQL não disponível: {str(e)[:100]}...")
-            logger.warning(f"📝 Sistema funcionará com storage em memória para: {table_name}")
-            self.storage = None
+        # Tenta conectar ao PostgreSQL com retry
+        self._connect_with_retry(table_name, db_url, schema, auto_upgrade_schema)
+    
+    def _connect_with_retry(self, table_name: str, db_url: str, schema: str, auto_upgrade_schema: bool):
+        """Tenta conectar ao PostgreSQL com retry e backoff exponencial"""
+        max_retries = 5
+        retry_delay = 2.0
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"📡 Tentando conectar ao PostgreSQL (tentativa {attempt + 1}/{max_retries})...")
+                
+                self.storage = PostgresStorage(
+                    table_name=table_name,
+                    db_url=db_url,
+                    schema=schema,
+                    auto_upgrade_schema=auto_upgrade_schema
+                )
+                
+                logger.info(f"✅ PostgresStorage conectado para tabela: {table_name}")
+                return  # Sucesso!
+                
+            except Exception as e:
+                error_msg = str(e)[:200]
+                
+                # Se for erro de IPv6, mostra mensagem específica
+                if "2a05:d016" in error_msg or "IPv6" in error_msg.lower():
+                    logger.warning(f"⚠️ Erro de conexão IPv6 detectado. Usando pooler na porta 6543 deve resolver.")
+                
+                logger.warning(f"⚠️ PostgreSQL não disponível (tentativa {attempt + 1}/{max_retries}): {error_msg}...")
+                
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)  # Backoff exponencial
+                    logger.info(f"⏳ Aguardando {wait_time:.1f}s antes de tentar novamente...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"❌ Falha ao conectar ao PostgreSQL após {max_retries} tentativas.")
+                    logger.warning(f"📝 Sistema funcionará com storage em memória para: {table_name}")
+                    self.storage = None
     
     def is_connected(self) -> bool:
         """Verifica se está conectado ao PostgreSQL"""
