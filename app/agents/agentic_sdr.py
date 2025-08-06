@@ -22,6 +22,8 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
+from app.utils.time_utils import get_period_of_day
+
 
 class SimpleOpenAIWrapper:
     """
@@ -433,6 +435,10 @@ class AgenticSDR:
         self.reasoning_enabled = settings.agno_reasoning_enabled
         self.multimodal_enabled = settings.enable_multimodal_analysis
         self.knowledge_search_enabled = settings.enable_knowledge_base
+        
+        # Cache para histórico de mensagens - OTIMIZAÇÃO DE PERFORMANCE
+        self._message_cache = {}
+        self._cache_ttl = 300  # 5 minutos de cache
         self.sentiment_analysis_enabled = settings.enable_sentiment_analysis
         self.emotional_triggers_enabled = settings.enable_emotional_triggers
         self.lead_scoring_enabled = settings.enable_lead_scoring
@@ -614,7 +620,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             tools=self.tools,
             memory=self.memory,
             knowledge=self.knowledge,
-            show_tool_calls=True,
+            show_tool_calls=False,
             markdown=True,
             debug_mode=settings.debug,
             # Context includes personality configurations
@@ -622,9 +628,58 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 "emotional_state": "ENTUSIASMADA",  # Estado padrão, será sobrescrito em process_message
                 "cognitive_load": 0.0,
                 "current_time": datetime.now().strftime("%H:%M"),
-                "day_of_week": datetime.now().strftime("%A")
+                "day_of_week": datetime.now().strftime("%A"),
+                "period_of_day": get_period_of_day(settings.timezone)  # Manhã, Tarde ou Noite
             }
         )
+    
+    def _is_complex_message(self, message: str) -> bool:
+        """
+        Determina se a mensagem é complexa e requer reasoning (OTIMIZADO)
+        
+        Critérios mais restritivos para economizar tempo:
+        - Mensagens muito curtas (< 15 chars) = simples
+        - Saudações e respostas diretas = simples
+        - Apenas perguntas ELABORADAS = complexa
+        """
+        message_lower = message.lower().strip()
+        
+        # Mensagens muito curtas são sempre simples - AUMENTADO DE 10 PARA 15
+        if len(message_lower) < 15:
+            return False
+            
+        # Respostas diretas que NÃO precisam reasoning - EXPANDIDO
+        simple_responses = {
+            'oi', 'olá', 'bom dia', 'boa tarde', 'boa noite',
+            'tudo bem', 'tudo certo', 'sim', 'não', 'ok', 'certo', 
+            'beleza', 'entendi', 'pode ser', 'claro', 'com certeza',
+            'obrigado', 'obrigada', 'tchau', 'até mais', 'valeu',
+            'ta bom', 'ta ok', 'legal', 'ótimo', 'perfeito',
+            'isso', 'isso mesmo', 'exato', 'concordo'
+        }
+        
+        # Se é uma resposta simples, não precisa reasoning
+        if message_lower in simple_responses or any(
+            message_lower.startswith(resp) and len(message_lower) < 25 
+            for resp in simple_responses
+        ):
+            return False
+        
+        # SÓ ativar reasoning para questões REALMENTE complexas
+        complex_indicators = [
+            'como funciona', 'me explica', 'não entendi',
+            'quanto custa', 'qual o valor', 'economia',
+            'comparar', 'diferença', 'vantagem',
+            'garantia', 'manutenção', 'instalação',
+            'o que é', 'por que', 'quando'
+        ]
+        
+        # Precisa ter pelo menos 2 indicadores OU pergunta muito elaborada
+        indicator_count = sum(1 for ind in complex_indicators if ind in message_lower)
+        has_multiple_questions = message.count('?') > 1
+        is_long_question = '?' in message and len(message) > 50
+        
+        return indicator_count >= 2 or has_multiple_questions or is_long_question
     
     async def analyze_conversation_context(
         self,
@@ -684,7 +739,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
     
     async def get_last_100_messages(self, identifier: str) -> List[Dict[str, Any]]:
         """
-        Busca as últimas 100 mensagens do Supabase
+        Busca as últimas 100 mensagens do Supabase COM CACHE
         
         Args:
             identifier: Número do telefone ou conversation_id
@@ -692,6 +747,16 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         Returns:
             Lista com últimas 100 mensagens
         """
+        # Verificar cache primeiro - OTIMIZAÇÃO DE PERFORMANCE
+        cache_key = f"hist_{identifier}"
+        now = datetime.now().timestamp()
+        
+        if cache_key in self._message_cache:
+            cached_time, cached_data = self._message_cache[cache_key]
+            if now - cached_time < self._cache_ttl:
+                emoji_logger.agentic_cache(f"✅ Cache hit! Economizou busca de 100 mensagens")
+                return cached_data
+        
         try:
             conversation_id = None
             
@@ -728,6 +793,17 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             
             emoji_logger.supabase_success(f"Mensagens recuperadas: {len(messages)}",
                                          execution_time=0.1)
+            
+            # Cachear resultado antes de retornar - OTIMIZAÇÃO DE PERFORMANCE
+            if messages:  # Se encontrou mensagens
+                self._message_cache[cache_key] = (now, messages)
+                emoji_logger.agentic_cache(f"💾 Mensagens cacheadas por {self._cache_ttl}s")
+                
+                # Limpar cache antigo (manter só últimos 10)
+                if len(self._message_cache) > 10:
+                    oldest_key = min(self._message_cache.keys(), 
+                                   key=lambda k: self._message_cache[k][0])
+                    del self._message_cache[oldest_key]
             
             return messages
             
@@ -2343,13 +2419,20 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     Responda de forma natural, empática e personalizada, levando em conta todo o contexto e histórico da conversa.
                     """
                     
-                    # Usar reasoning para casos complexos
-                    # IMPORTANTE: Usar intelligent_model.run() para ter retry + fallback OpenAI
-                    if self.reasoning_enabled and context_analysis.get("complexity_score", 0) > 0.5:
-                        # Usar o wrapper com fallback ao invés do modelo direto
-                        result = await self.intelligent_model.run(contextual_prompt)
+                    # Usar reasoning APENAS para casos complexos
+                    # Determinar se a mensagem atual é complexa
+                    is_complex = self._is_complex_message(current_message)
+                    
+                    if self.reasoning_enabled and is_complex:
+                        emoji_logger.agentic_thinking(f"Mensagem complexa detectada, ativando reasoning mode")
+                        # Usar reasoning model para perguntas complexas
+                        if hasattr(self, 'reasoning_model'):
+                            result = await self.reasoning_model.run(contextual_prompt)
+                        else:
+                            result = await self.intelligent_model.run(contextual_prompt)
                     else:
-                        # Sempre usar intelligent_model para garantir fallback
+                        # Mensagem simples - resposta direta sem reasoning
+                        emoji_logger.agentic_thinking(f"Mensagem simples, resposta direta")
                         result = await self.intelligent_model.run(contextual_prompt)
                     
                     response = result.content if hasattr(result, 'content') else str(result)
@@ -2386,8 +2469,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 
                 # Salva o novo estado no banco para a próxima interação
                 if conversation_id:
-                    from app.integrations.supabase_client import get_supabase_client
-                    supabase_client = get_supabase_client()
+                    from app.integrations.supabase_client import supabase_client
                     await supabase_client.update_conversation_emotional_state(
                         conversation_id,
                         new_emotional_state

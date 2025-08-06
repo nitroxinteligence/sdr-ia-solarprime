@@ -87,10 +87,21 @@ def extract_base64_from_data_url(data_url: str) -> str:
         return data_url.split(";base64,")[1]
     return data_url
 
+# Cache global do agente - SINGLETON para performance
+_cached_agent = None
+_agent_lock = asyncio.Lock()
+
 async def get_agentic_agent():
-    """Cria nova instância do AGENTIC SDR para cada requisição - isolamento total"""
-    # SEMPRE criar nova instância para garantir isolamento entre usuários
-    return await create_agentic_sdr()
+    """Retorna instância única e reutilizável do agente (Singleton)"""
+    global _cached_agent
+    
+    async with _agent_lock:
+        if _cached_agent is None:
+            emoji_logger.webhook_process("🚀 Criando AgenticSDR singleton pela primeira vez...")
+            _cached_agent = await create_agentic_sdr()
+            emoji_logger.system_ready("✅ AgenticSDR singleton criado e pronto!")
+        
+        return _cached_agent
 
 def get_message_buffer_instance():
     """Obtém instância do Message Buffer (deve ser inicializado no startup)"""
@@ -346,7 +357,7 @@ async def process_message_with_agent(
         message_id: ID da mensagem
     """
     try:
-        # Busca ou cria lead no banco
+        # OTIMIZAÇÃO: Busca lead primeiro (necessário para conversation)
         lead = await supabase_client.get_lead_by_phone(phone)
         
         if not lead:
@@ -362,33 +373,46 @@ async def process_message_with_agent(
             
             emoji_logger.supabase_insert("leads", 1, phone=phone)
         
-        # Busca ou cria conversa
-        conversation = await supabase_client.get_conversation_by_phone(phone)
-        if not conversation:
-            conversation = await supabase_client.create_conversation(phone, lead["id"])
+        # OTIMIZAÇÃO: Buscar conversa em paralelo com preparação de dados
+        conversation_task = asyncio.create_task(
+            supabase_client.get_conversation_by_phone(phone)
+        )
         
-        # Salva mensagem no banco
-        await supabase_client.save_message({
-            "conversation_id": conversation["id"],
+        # Preparar dados da mensagem enquanto busca conversa
+        message_data = {
             "content": message_content,
-            "role": "user",  # Campo obrigatório
+            "role": "user",
             "sender": "user",
-            "media_data": {  # Usar media_data em vez de metadata
+            "media_data": {
                 "message_id": message_id,
                 "raw_data": original_message
             }
-        })
+        }
         
-        # Cache da conversa
-        await redis_client.cache_conversation(
-            phone,
-            {
-                "lead_id": lead["id"],
-                "conversation_id": conversation["id"],
-                "last_message": message_content,
-                "timestamp": datetime.now().isoformat()
-            }
-        )
+        # Aguardar resultado da conversa
+        conversation = await conversation_task
+        
+        if not conversation:
+            conversation = await supabase_client.create_conversation(phone, lead["id"])
+        
+        # OTIMIZAÇÃO: Executar em PARALELO - salvar mensagem + cache
+        message_data["conversation_id"] = conversation["id"]
+        
+        save_tasks = [
+            supabase_client.save_message(message_data),
+            redis_client.cache_conversation(
+                phone,
+                {
+                    "lead_id": lead["id"],
+                    "conversation_id": conversation["id"],
+                    "last_message": message_content,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        ]
+        
+        # Executar tarefas em paralelo
+        await asyncio.gather(*save_tasks, return_exceptions=True)
         
         # Processa com o AGENTIC SDR
         emoji_logger.webhook_process("Obtendo instância do AGENTIC SDR")

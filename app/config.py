@@ -94,8 +94,8 @@ class Settings(BaseSettings):
     timezone: str = Field(default="America/Sao_Paulo", env="TIMEZONE")
     
     # Configurações do Sistema
-    debug: bool = Field(default=True)  # Habilitado temporariamente para testes
-    environment: str = Field(default="development")
+    debug: bool = Field(default=False)
+    environment: str = Field(default="production")
     log_level: str = Field(default="INFO")
     
     # AGnO Framework

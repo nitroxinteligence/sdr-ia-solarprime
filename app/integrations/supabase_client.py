@@ -189,7 +189,7 @@ class SupabaseClient:
         """Obtém o estado emocional atual da conversa"""
         try:
             # Por enquanto retorna estado padrão até a coluna ser criada no banco
-            emoji_logger.supabase_warning("Campo emotional_state não implementado no banco, usando estado padrão")
+            emoji_logger.system_warning("Campo emotional_state não implementado no banco, usando estado padrão")
             return 'ENTUSIASMADA'  # Estado padrão
             
         except Exception as e:
