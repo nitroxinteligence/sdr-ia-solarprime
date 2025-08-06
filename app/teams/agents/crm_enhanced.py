@@ -69,6 +69,17 @@ class KommoEnhancedCRM(CRMAgent):
                     else:
                         error_text = await response.text()
                         logger.error(f"Erro na requisição {method} {url}: {response.status} - {error_text}")
+                        
+                        # Tratamento específico para erro 237
+                        if "Error code 237" in error_text:
+                            logger.error("❌ ERRO 237 - Dados inválidos na requisição do Kommo")
+                            logger.error("🔍 Possíveis causas:")
+                            logger.error("   1. ID da entidade não existe")
+                            logger.error("   2. Formato de data incorreto")
+                            logger.error("   3. Token sem permissão para criar tasks")
+                            logger.error("   4. Campos obrigatórios faltando")
+                            logger.error(f"📤 Dados enviados: {kwargs.get('json', 'N/A')}")
+                        
                         return None
                         
         except Exception as e:
@@ -837,15 +848,46 @@ class KommoEnhancedCRM(CRMAgent):
         try:
             from datetime import datetime
             
+            # Validação de entrada
+            if not entity_id:
+                logger.error("❌ entity_id não pode ser vazio")
+                return {"success": False, "error": "entity_id é obrigatório"}
+            
+            # Validação do entity_type
+            valid_types = ["leads", "contacts", "companies"]
+            if entity_type not in valid_types:
+                logger.error(f"❌ entity_type inválido: {entity_type}. Deve ser um de: {valid_types}")
+                return {"success": False, "error": f"entity_type deve ser um de: {valid_types}"}
+            
+            # Log detalhado para debug
+            logger.info(f"🔍 Criando task para {entity_type} ID {entity_id}")
+            logger.info(f"📅 Data de conclusão recebida: {complete_till}")
+            
             # Converter string ISO para timestamp
-            if isinstance(complete_till, str):
-                dt = datetime.fromisoformat(complete_till.replace('Z', '+00:00'))
-                timestamp = int(dt.timestamp())
-            else:
-                timestamp = int(datetime.fromisoformat(complete_till).timestamp())
+            try:
+                if isinstance(complete_till, str):
+                    # Remover 'Z' e adicionar timezone UTC se necessário
+                    if complete_till.endswith('Z'):
+                        dt = datetime.fromisoformat(complete_till.replace('Z', '+00:00'))
+                    else:
+                        dt = datetime.fromisoformat(complete_till)
+                    timestamp = int(dt.timestamp())
+                else:
+                    timestamp = int(datetime.fromisoformat(str(complete_till)).timestamp())
+                
+                logger.info(f"⏰ Timestamp convertido: {timestamp}")
+            except Exception as e:
+                logger.error(f"❌ Erro ao converter data: {e}")
+                return {"success": False, "error": f"Formato de data inválido: {complete_till}"}
+            
+            # Garantir que o timestamp está no futuro
+            now = int(datetime.now().timestamp())
+            if timestamp < now:
+                logger.warning(f"⚠️ Data no passado detectada. Ajustando para 1 hora no futuro.")
+                timestamp = now + 3600  # 1 hora no futuro
             
             task_data = {
-                "text": text,
+                "text": text[:255],  # Limitar texto a 255 caracteres
                 "complete_till": timestamp,
                 "entity_id": int(entity_id),
                 "entity_type": entity_type,
@@ -853,8 +895,15 @@ class KommoEnhancedCRM(CRMAgent):
             }
             
             # Adicionar responsável se configurado
-            if hasattr(settings, "kommo_responsible_user_id"):
-                task_data["responsible_user_id"] = int(settings.kommo_responsible_user_id)
+            if hasattr(settings, "kommo_responsible_user_id") and settings.kommo_responsible_user_id:
+                try:
+                    task_data["responsible_user_id"] = int(settings.kommo_responsible_user_id)
+                    logger.info(f"👤 Responsável definido: {task_data['responsible_user_id']}")
+                except (ValueError, TypeError):
+                    logger.warning("⚠️ kommo_responsible_user_id inválido, ignorando")
+            
+            # Log dos dados que serão enviados
+            logger.info(f"📤 Dados da task: {task_data}")
             
             response = await self._make_request(
                 "POST",
