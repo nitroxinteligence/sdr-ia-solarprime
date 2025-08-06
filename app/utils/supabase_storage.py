@@ -36,7 +36,7 @@ class SupabaseStorage:
         self.supabase_client = supabase_client
         self.session_prefix = f"{table_name}:"
         
-        logger.info(f"✅ SupabaseStorage inicializado para: {table_name}")
+        # Inicializado com sucesso (sem logs repetitivos)
     
     def _get_session_id(self, key: str) -> str:
         """Gera ID único para a sessão baseado na chave"""

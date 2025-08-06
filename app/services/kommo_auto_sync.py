@@ -78,7 +78,7 @@ class KommoAutoSyncService:
         asyncio.create_task(self._sync_new_leads_loop())
         asyncio.create_task(self._sync_updates_loop())
         asyncio.create_task(self._sync_qualifications_loop())
-        asyncio.create_task(self._sync_meetings_loop())
+        # asyncio.create_task(self._sync_meetings_loop())  # DESABILITADO - Sem Google Calendar
     
     async def stop(self):
         """Para o serviço de sincronização"""

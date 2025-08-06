@@ -23,17 +23,17 @@ class SupabaseClient:
             supabase_url=settings.supabase_url,
             supabase_key=settings.supabase_service_key
         )
-        emoji_logger.supabase_connect("Cliente inicializado com sucesso")
+        # Cliente inicializado (sem logs repetitivos)
     
     async def test_connection(self) -> bool:
         """Testa conexão com o Supabase"""
         try:
             # Tenta fazer uma query simples
             result = self.client.table('leads').select("id").limit(1).execute()
-            emoji_logger.supabase_success("Conexão estabelecida")
+            # Conexão OK (sem log)
             return True
         except Exception as e:
-            emoji_logger.supabase_error(f"Erro de conexão: {str(e)}")
+            logger.error(f"Erro de conexão Supabase: {str(e)}")
             return False
     
     # ============= LEADS =============
@@ -48,7 +48,7 @@ class SupabaseClient:
             result = self.client.table('leads').insert(lead_data).execute()
             
             if result.data:
-                emoji_logger.supabase_insert("leads", 1, lead_id=result.data[0]['id'])
+                # Lead criado com sucesso
                 return result.data[0]
             
             raise Exception("Erro ao criar lead")
@@ -79,7 +79,7 @@ class SupabaseClient:
             result = self.client.table('leads').update(update_data).eq('id', lead_id).execute()
             
             if result.data:
-                emoji_logger.supabase_update("leads", 1, lead_id=lead_id)
+                # Lead atualizado com sucesso
                 return result.data[0]
             
             raise Exception("Erro ao atualizar lead")
@@ -141,7 +141,7 @@ class SupabaseClient:
             result = self.client.table('conversations').insert(conversation_data).execute()
             
             if result.data:
-                emoji_logger.supabase_insert("conversations", 1, conversation_id=result.data[0]['id'])
+                # Conversa criada com sucesso
                 return result.data[0]
             
             raise Exception("Erro ao criar conversa")
@@ -203,11 +203,7 @@ class SupabaseClient:
                 conversation_id,
                 {'emotional_state': emotional_state}
             )
-            emoji_logger.supabase_update(
-                "conversations", 1, 
-                conversation_id=conversation_id,
-                emotional_state=emotional_state
-            )
+            # Estado emocional atualizado
         except Exception as e:
             logger.error(f"Erro ao atualizar estado emocional: {str(e)}")
     
@@ -504,7 +500,7 @@ class SupabaseClient:
     async def close(self):
         """Fecha conexão com Supabase"""
         # Supabase client não precisa de close explícito
-        logger.info("Cliente Supabase encerrado")
+        # Cliente encerrado
     
     async def test_connection(self) -> bool:
         """Testa a conexão com o Supabase"""

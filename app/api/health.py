@@ -166,13 +166,14 @@ async def check_dependencies(request: Request):
             "type": "cache"
         }
     
-    # Google Calendar (se configurado)
+    # Google Calendar (funciona mas sem sync com Supabase)
     try:
         from app.config import settings
-        if settings.GOOGLE_SERVICE_ACCOUNT_PATH:
+        if settings.google_service_account_email:
             dependencies["google_calendar"] = {
                 "status": "configured",
-                "type": "calendar"
+                "type": "calendar",
+                "message": "Funcionando sem sync Supabase"
             }
         else:
             dependencies["google_calendar"] = {

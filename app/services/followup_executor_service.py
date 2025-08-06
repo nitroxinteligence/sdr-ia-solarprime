@@ -133,25 +133,9 @@ class FollowUpExecutorService:
             tomorrow = now + timedelta(hours=24)
             two_hours = now + timedelta(hours=2)
             
-            # Buscar eventos do calendário
-            events_24h = self.db.client.table('calendar_events').select("*").eq(
-                'status', 'confirmed'
-            ).gte(
-                'start_time', tomorrow.isoformat()
-            ).lte(
-                'start_time', (tomorrow + timedelta(minutes=30)).isoformat()
-            ).eq(
-                'reminder_24h_sent', False
-            ).execute()
-            
-            events_2h = self.db.client.table('calendar_events').select("*").eq(
-                'status', 'confirmed'
-            ).gte(
-                'start_time', two_hours.isoformat()
-            ).lte(
-                'start_time', (two_hours + timedelta(minutes=30)).isoformat()
-            ).eq(
-                'reminder_2h_sent', False
+            # Google Calendar DESABILITADO - sem eventos
+            events_24h = type('obj', (object,), {'data': []})()
+            events_2h = type('obj', (object,), {'data': []})()
             ).execute()
             
             # Enviar lembretes de 24h

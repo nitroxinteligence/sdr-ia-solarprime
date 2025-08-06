@@ -50,8 +50,7 @@ class OptionalStorage:
                 schema=schema,
                 auto_upgrade_schema=auto_upgrade_schema
             )
-            logger.info(f"✅ SupabaseStorage conectado para tabela: {table_name}")
-            logger.info(f"🚀 Usando Supabase Client - sem necessidade de PostgreSQL direto!")
+            # Conectado com sucesso (sem logs repetitivos)
         except Exception as e:
             logger.warning(f"⚠️ Erro ao conectar SupabaseStorage: {e}")
             logger.warning(f"📝 Sistema funcionará com storage em memória para: {table_name}")
