@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Script de verificação para garantir que o typing está completamente desabilitado
+Script de verificação para garantir que o typing funciona APENAS nas respostas do agente
+(não no reading time quando usuário envia mensagem)
 """
 
 import sys
@@ -10,8 +11,8 @@ from colorama import init, Fore, Style
 init(autoreset=True)
 
 def check_typing_configuration():
-    """Verifica se todas as configurações de typing estão corretas"""
-    print(f"\n{Fore.CYAN}=== VERIFICANDO CONFIGURAÇÃO DE TYPING ==={Style.RESET_ALL}\n")
+    """Verifica se o typing está configurado corretamente (apenas para respostas)"""
+    print(f"\n{Fore.CYAN}=== VERIFICANDO CONFIGURAÇÃO DE TYPING SELETIVO ==={Style.RESET_ALL}\n")
     
     errors = []
     warnings = []
@@ -23,10 +24,10 @@ def check_typing_configuration():
         
         # Verificar enable_typing_simulation
         if hasattr(settings, 'enable_typing_simulation'):
-            if settings.enable_typing_simulation == False:
-                success.append("✅ enable_typing_simulation está DESABILITADO")
+            if settings.enable_typing_simulation == True:
+                success.append("✅ enable_typing_simulation está HABILITADO (correto para respostas)")
             else:
-                errors.append("❌ enable_typing_simulation está HABILITADO - DEVE SER false!")
+                errors.append("❌ enable_typing_simulation está DESABILITADO - typing não funcionará nas respostas!")
         else:
             errors.append("❌ enable_typing_simulation não encontrado no settings!")
             
@@ -44,10 +45,10 @@ def check_typing_configuration():
         with open('.env', 'r') as f:
             env_content = f.read()
             
-        if 'ENABLE_TYPING_SIMULATION=false' in env_content:
-            success.append("✅ ENABLE_TYPING_SIMULATION=false encontrado no .env")
-        elif 'ENABLE_TYPING_SIMULATION=true' in env_content:
-            errors.append("❌ ENABLE_TYPING_SIMULATION=true no .env - DEVE SER false!")
+        if 'ENABLE_TYPING_SIMULATION=true' in env_content:
+            success.append("✅ ENABLE_TYPING_SIMULATION=true encontrado no .env (correto)")
+        elif 'ENABLE_TYPING_SIMULATION=false' in env_content:
+            errors.append("❌ ENABLE_TYPING_SIMULATION=false no .env - typing não funcionará!")
         else:
             warnings.append("⚠️  ENABLE_TYPING_SIMULATION não encontrado no .env")
             
@@ -94,8 +95,9 @@ def check_typing_configuration():
     # Resumo final
     print(f"\n{Fore.CYAN}=== RESUMO ==={Style.RESET_ALL}")
     if not errors:
-        print(f"{Fore.GREEN}✅ TYPING ESTÁ COMPLETAMENTE DESABILITADO!{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}Todas as verificações passaram com sucesso.{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}✅ TYPING CONFIGURADO CORRETAMENTE!{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}• Reading time (usuário envia): DESABILITADO{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}• Typing nas respostas: HABILITADO{Style.RESET_ALL}")
         return True
     else:
         print(f"{Fore.RED}❌ PROBLEMAS ENCONTRADOS!{Style.RESET_ALL}")

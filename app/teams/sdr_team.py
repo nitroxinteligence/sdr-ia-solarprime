@@ -378,9 +378,8 @@ class SDRTeam:
             # Verificar se há transcrição de áudio
             audio_transcription = None
             if media and media.get("type") == "audio":
-                # Buscar transcrição no contexto ou processar
-                if hasattr(context, 'multimodal_result') and context.multimodal_result:
-                    audio_transcription = context.multimodal_result.get('transcription')
+                # Acessar diretamente o 'transcription' do dicionário 'media'
+                audio_transcription = media.get('transcription')
             
             team_prompt = f"""
             Mensagem do lead: {message}

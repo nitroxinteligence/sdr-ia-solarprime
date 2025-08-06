@@ -294,9 +294,16 @@ class EvolutionAPIClient:
             if delay > 0:
                 await asyncio.sleep(delay)
             
-            # Simular digitação se habilitado E se a configuração global permitir
-            if simulate_typing and settings.enable_typing_simulation:
-                await self.send_typing(phone, len(message))
+            # Simular digitação se habilitado - SEMPRE é resposta do agente aqui
+            if simulate_typing:
+                # Enviar typing em PARALELO - não bloquear o envio da mensagem
+                typing_task = asyncio.create_task(
+                    self.send_typing(phone, len(message), context="agent_response")
+                )
+                # NÃO aguardar - deixar rodar em paralelo
+                
+                # Pequeno delay para garantir que o typing apareça primeiro
+                await asyncio.sleep(0.5)
             
             # Preparar payload
             payload = {
@@ -353,7 +360,7 @@ class EvolutionAPIClient:
         
         return max(1.0, min(duration, 15.0)) # Garante que a duração esteja entre 1 e 15 segundos
     
-    async def send_typing(self, phone: str, message_length: int = 0, duration_seconds: Optional[float] = None):
+    async def send_typing(self, phone: str, message_length: int = 0, duration_seconds: Optional[float] = None, context: str = "unknown"):
         """
         Simula digitação com timing dinâmico baseado no tamanho da mensagem
         
@@ -361,18 +368,35 @@ class EvolutionAPIClient:
             phone: Número do WhatsApp
             message_length: Tamanho da mensagem para calcular duração
             duration_seconds: Duração customizada em segundos (sobrescreve cálculo)
+            context: Contexto da operação (agent_response, user_message, etc)
         """
-        # VERIFICAÇÃO MASTER - Se typing está desabilitado globalmente, retorna imediatamente
-        if not settings.enable_typing_simulation:
-            emoji_logger.system_info("Typing simulation desabilitado globalmente")
+        # Importar o controller aqui para evitar import circular
+        from app.services.typing_controller import typing_controller, TypingContext
+        
+        # Mapear contexto string para enum
+        context_map = {
+            "agent_response": TypingContext.AGENT_RESPONSE,
+            "user_message": TypingContext.USER_MESSAGE,
+            "system_message": TypingContext.SYSTEM_MESSAGE,
+            "media_upload": TypingContext.MEDIA_UPLOAD,
+            "unknown": TypingContext.SYSTEM_MESSAGE  # Default seguro
+        }
+        
+        typing_context = context_map.get(context, TypingContext.SYSTEM_MESSAGE)
+        
+        # Usar o controller para decidir
+        decision = typing_controller.should_show_typing(typing_context, message_length)
+        
+        if not decision.should_show:
+            logger.debug(f"Typing não será mostrado: {decision.reason}")
             return
             
         try:
             phone = self._format_phone(phone)
             
-            # Calcular duração baseada no tamanho da mensagem
+            # Usar duração do controller ou customizada
             if not duration_seconds:
-                duration = self._calculate_humanized_typing_duration(message_length)
+                duration = decision.duration or 2.0  # Fallback para 2 segundos
             else:
                 duration = duration_seconds
             
@@ -391,8 +415,9 @@ class EvolutionAPIClient:
             
             emoji_logger.evolution_send(phone, "typing", duration_seconds=round(duration, 2), message_length=message_length)
             
-            # Aguarda duração (sem bloquear o fluxo principal)
-            await asyncio.sleep(duration)
+            # NÃO aguardar aqui - deixar o typing rodar em paralelo
+            # O sleep agora é feito de forma não bloqueante
+            logger.debug(f"Typing iniciado por {duration}s em paralelo")
             
         except Exception as e:
             emoji_logger.evolution_error(f"Erro ao simular digitação: {e}")
@@ -447,9 +472,9 @@ class EvolutionAPIClient:
         try:
             phone = self._format_phone(phone)
             
-            # Simular digitação se habilitado E se a configuração global permitir
-            if simulate_typing and settings.enable_typing_simulation:
-                await self.send_typing(phone, len(text))
+            # Simular digitação se habilitado - SEMPRE é resposta do agente aqui
+            if simulate_typing:
+                await self.send_typing(phone, len(text), context="agent_response")
             
             payload = {
                 "number": phone,

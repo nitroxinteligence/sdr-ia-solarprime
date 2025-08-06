@@ -301,11 +301,59 @@ class AGNOContextManager:
                     if caption:
                         context_parts.append(f"💬 Legenda: {caption}")
                     
+                    # Análise da imagem se disponível
+                    analysis = multimodal_result.get('analysis', '')
+                    if analysis:
+                        context_parts.append(f"📸 Análise da imagem:")
+                        if len(analysis) > 1000:
+                            analysis = analysis[:1000] + "...\n[Análise truncada para contexto]"
+                        context_parts.append(analysis)
+                    
                     # AGNO metadata se disponível
                     if multimodal_result.get('agno_metadata'):
                         agno_meta = multimodal_result['agno_metadata']
                         confidence = agno_meta.get('combined_confidence', 'unknown')
                         context_parts.append(f"📊 Confiança: {confidence}")
+                
+                elif media_type == 'audio':
+                    context_parts.append("=== ÁUDIO RECEBIDO ===")
+                    
+                    # Transcrição do áudio (MAIS IMPORTANTE!)
+                    transcription = multimodal_result.get('transcription', '')
+                    if transcription:
+                        context_parts.append(f"🎤 TRANSCRIÇÃO DO ÁUDIO:")
+                        context_parts.append(f'"{transcription}"')
+                        context_parts.append("")  # Linha em branco
+                    
+                    # Informações adicionais
+                    duration = multimodal_result.get('duration', 0)
+                    if duration:
+                        context_parts.append(f"⏱️ Duração: {duration} segundos")
+                    
+                    engine = multimodal_result.get('engine', '')
+                    if engine:
+                        context_parts.append(f"🔧 Engine: {engine}")
+                    
+                    # Se tem análise de sentimento
+                    if multimodal_result.get('sentiment'):
+                        context_parts.append(f"💭 Sentimento: {multimodal_result['sentiment']}")
+                
+                elif media_type == 'pdf':
+                    context_parts.append("=== PDF RECEBIDO ===")
+                    filename = multimodal_result.get('filename', 'documento.pdf')
+                    context_parts.append(f"📄 Arquivo: {filename}")
+                    
+                    # Conteúdo extraído do PDF
+                    content = multimodal_result.get('content', '')
+                    if content:
+                        if len(content) > 1500:
+                            content = content[:1500] + "...\n[PDF truncado para contexto]"
+                        context_parts.append(f"Conteúdo extraído:\n{content}")
+                    
+                    # Metadados se disponível
+                    pages = multimodal_result.get('pages', 0)
+                    if pages:
+                        context_parts.append(f"📊 Total de páginas: {pages}")
                 
                 context_parts.append("")  # Linha em branco
             

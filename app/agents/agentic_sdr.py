@@ -86,6 +86,7 @@ from app.teams.sdr_team import SDRTeam
 
 # AGNO Framework Enhancement - Context utilities apenas
 from app.services.agno_context_agent import format_context_with_agno
+from app.services.document_processor_enhanced import process_document_enhanced
 
 
 class IntelligentModelFallback:
@@ -108,6 +109,48 @@ class IntelligentModelFallback:
         self.retry_delay = getattr(settings, 'gemini_retry_delay', 5.0)  # 5 segundos entre tentativas
         
         self._initialize_models()
+    
+    @property
+    def id(self):
+        """Expõe o ID do modelo atual para compatibilidade com agno.agent.Agent"""
+        if self.current_model:
+            return self.current_model.id
+        return "unknown_model"
+    
+    @property
+    def provider(self):
+        """Expõe o provider do modelo atual para compatibilidade com agno.agent.Agent"""
+        if self.current_model and hasattr(self.current_model, 'provider'):
+            return self.current_model.provider
+        # Inferir provider do ID do modelo
+        if self.current_model and hasattr(self.current_model, 'id'):
+            model_id = self.current_model.id
+            if 'gemini' in model_id.lower():
+                return 'google'
+            elif 'gpt' in model_id.lower() or 'o3' in model_id.lower():
+                return 'openai'
+        return "unknown"
+    
+    def __getattr__(self, name):
+        """
+        Delega qualquer atributo/método não encontrado para o modelo atual.
+        Isso garante compatibilidade total com agno.agent.Agent.
+        """
+        if name.startswith('_'):  # Evitar recursão infinita com atributos privados
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        
+        if self.current_model is None:
+            raise AttributeError(f"No current model available to delegate '{name}'")
+        
+        # Tentar obter o atributo/método do modelo atual
+        try:
+            return getattr(self.current_model, name)
+        except AttributeError:
+            # Se o modelo atual não tem o atributo, retornar um valor padrão ou função vazia
+            if name == 'get_instructions_for_model':
+                # Retornar função vazia que retorna string vazia
+                return lambda: ""
+            raise AttributeError(f"'{self.__class__.__name__}' object and current model have no attribute '{name}'")
     
     def _initialize_models(self):
         """Inicializa os modelos primário e fallback"""
@@ -395,11 +438,8 @@ class AgenticSDR:
         self.lead_scoring_enabled = settings.enable_lead_scoring
         self.emoji_usage_enabled = settings.enable_emoji_usage
         
-        # Estado emocional e cognitivo
-        self.emotional_state = EmotionalState.ENTUSIASMADA
-        self.cognitive_load = 0.0
-        self.conversations_today = 0
-        self.last_break_time = datetime.now()
+        # REMOVIDO: Estado emocional como atributo de instância
+        # Agora o estado é gerenciado por conversa no banco de dados
         
         # Configuração do PostgreSQL/Supabase para storage com fallback
         # Storage persistente com fallback para memória se PostgreSQL não disponível
@@ -579,8 +619,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             debug_mode=settings.debug,
             # Context includes personality configurations
             context={
-                "emotional_state": self.emotional_state.value,
-                "cognitive_load": self.cognitive_load,
+                "emotional_state": "ENTUSIASMADA",  # Estado padrão, será sobrescrito em process_message
+                "cognitive_load": 0.0,
                 "current_time": datetime.now().strftime("%H:%M"),
                 "day_of_week": datetime.now().strftime("%A")
             }
@@ -852,6 +892,32 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                                      score=decision_factors['complexity_score'])
         return False, None, "AGENTIC SDR pode resolver esta conversa"
     
+    def _get_media_type_from_mimetype(self, mimetype: str) -> str:
+        """
+        Mapeia mimetype para tipo de mídia
+        SIMPLES E FUNCIONAL!
+        """
+        if not mimetype:
+            return "unknown"
+        
+        mimetype_lower = mimetype.lower()
+        
+        # Mapeamento simples e direto
+        if "image" in mimetype_lower:
+            return "image"
+        elif "audio" in mimetype_lower:
+            return "audio"
+        elif "video" in mimetype_lower:
+            return "video"
+        elif "pdf" in mimetype_lower:
+            return "pdf"
+        elif mimetype_lower in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"]:
+            return "document"
+        elif "sticker" in mimetype_lower or "webp" in mimetype_lower:
+            return "sticker"
+        else:
+            return "document"  # Default para documentos
+    
     async def process_multimodal_content(
         self,
         media_type: str,
@@ -902,11 +968,17 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             
             return "", "too_short"
         import time
+        import asyncio
         start_time = time.time()
         
-        try:
-            # Log detalhado de início
-            emoji_logger.system_info("═" * 50)
+        # Configurar timeout de 30 segundos para todo o processamento
+        MULTIMODAL_TIMEOUT = 30
+        
+        async def process_with_timeout():
+            """Processa mídia com timeout"""
+            # Usar nonlocal para acessar variáveis do escopo externo
+            nonlocal media_data
+            
             emoji_logger.system_info(f"🎯 MULTIMODAL: Iniciando processamento")
             emoji_logger.system_info(f"📌 Tipo: {media_type.upper()}")
             emoji_logger.system_info(f"📊 Tamanho dados base64: {len(media_data):,} caracteres")
@@ -984,12 +1056,49 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 emoji_logger.system_info(f"  • Base64: {data_size:,} caracteres")
                 emoji_logger.system_info(f"  • Estimado: {estimated_bytes:,} bytes ({estimated_kb:.1f} KB / {estimated_mb:.2f} MB)")
                 
-                # Se a imagem é muito pequena, provavelmente é só thumbnail
-                is_thumbnail = data_size < 50000  # Menos de 50KB em base64
-                if is_thumbnail:
-                    emoji_logger.system_warning("⚠️ IMAGEM: Possível thumbnail detectada (<50KB)")
-                elif estimated_mb > 2:
-                    emoji_logger.system_warning(f"⚠️ IMAGEM: Tamanho grande ({estimated_mb:.2f} MB) - pode causar lentidão")
+                # Validar qualidade da imagem ANTES de enviar
+                try:
+                    import base64 as b64_module
+                    from PIL import Image
+                    from io import BytesIO
+                    
+                    # Decodificar imagem
+                    img_bytes = b64_module.b64decode(media_data)
+                    img = Image.open(BytesIO(img_bytes))
+                    width, height = img.size
+                    
+                    emoji_logger.system_info(f"📐 IMAGEM - Dimensões: {width}x{height} pixels")
+                    
+                    # Validar tamanho mínimo (100x100)
+                    if width < 100 or height < 100:
+                        emoji_logger.system_error(f"❌ IMAGEM: Muito pequena ({width}x{height}). Mínimo: 100x100")
+                        return {
+                            "type": "image",
+                            "error": f"Imagem muito pequena ({width}x{height} pixels). Envie uma imagem maior que 100x100.",
+                            "status": "too_small",
+                            "dimensions": {"width": width, "height": height}
+                        }
+                    
+                    # Validar tamanho máximo (10MB)
+                    if len(img_bytes) > 10 * 1024 * 1024:
+                        emoji_logger.system_error(f"❌ IMAGEM: Muito grande ({len(img_bytes) / 1024 / 1024:.1f}MB). Máximo: 10MB")
+                        return {
+                            "type": "image",
+                            "error": "Imagem muito grande. Por favor, envie uma imagem menor que 10MB.",
+                            "status": "too_large",
+                            "size_mb": len(img_bytes) / 1024 / 1024
+                        }
+                    
+                    # Avisos sobre qualidade
+                    is_thumbnail = data_size < 50000  # Menos de 50KB em base64
+                    if is_thumbnail:
+                        emoji_logger.system_warning("⚠️ IMAGEM: Possível thumbnail detectada (<50KB)")
+                    elif estimated_mb > 2:
+                        emoji_logger.system_warning(f"⚠️ IMAGEM: Tamanho grande ({estimated_mb:.2f} MB) - pode causar lentidão")
+                    
+                except Exception as val_error:
+                    emoji_logger.system_error(f"❌ Erro ao validar imagem: {str(val_error)}")
+                    # Continuar mesmo com erro de validação
                 
                 # Preparar prompt específico para análise
                 # As instruções detalhadas estão no arquivo prompt-agente.md
@@ -1092,27 +1201,19 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                                 if os.path.exists(temp_path):
                                     os.unlink(temp_path)
                         
-                        # Usar o agente AGNO para análise da imagem
-                        # IMPORTANTE: Usar Gemini com capacidades multimodais
-                        from agno.models.google import Gemini
-                        from app.config import settings
+                        # Usar IntelligentModelFallback para análise com fallback automático
+                        emoji_logger.agentic_thinking("Usando IntelligentModelFallback para análise de imagem...")
                         
-                        # Criar modelo Gemini com capacidades Vision
-                        gemini_model = Gemini(
-                            id="gemini-2.5-pro",  # Modelo principal com Vision API
-                            api_key=settings.google_api_key
-                        )
-                        
-                        # Criar agente temporário para análise de imagem com Gemini Vision
+                        # Criar agente temporário com o modelo inteligente
                         temp_agent = Agent(
-                            model=gemini_model,
+                            model=self.intelligent_model,  # Usa o wrapper com fallback
                             markdown=True,
                             show_tool_calls=False,
                             instructions="Você é um assistente especializado em análise de imagens e documentos. Extraia todas as informações relevantes de forma detalhada."
                         )
                         
-                        # Processar imagem com AGNO nativo
-                        emoji_logger.agentic_thinking("Enviando para AGNO Agent com Gemini Vision...")
+                        # Processar imagem com fallback automático
+                        emoji_logger.agentic_thinking("Enviando imagem para análise com fallback automático...")
                         response = temp_agent.run(
                             analysis_prompt,
                             images=[agno_image]
@@ -1326,112 +1427,47 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     extracted_text = ""
                     doc_metadata = {}
                     
-                    if is_pdf:
+                    if is_pdf or is_docx:
                         try:
-                            # AGNO PDFReader nativo
-                            from agno.document import PDFReader
+                            # Usar processador centralizado de documentos
+                            emoji_logger.agentic_thinking(f"Processando documento {document_type} com EnhancedDocumentProcessor...")
                             
-                            emoji_logger.agentic_thinking("Usando AGNO PDFReader...")
+                            # Processar documento usando o serviço centralizado
+                            result = await process_document_enhanced(
+                                data=document_bytes,
+                                filename=f"document.{document_type}",
+                                enable_ocr=True
+                            )
                             
-                            # Criar BytesIO stream para PDFReader
-                            pdf_stream = BytesIO(document_bytes)
-                            
-                            # Usar AGNO PDFReader
-                            pdf_reader = PDFReader(pdf=pdf_stream)
-                            extracted_text = pdf_reader.read()
-                            
-                            document_type = "pdf"
-                            doc_metadata = {
-                                "reader": "agno_pdf_reader",
-                                "format": "pdf",
-                                "size_bytes": original_size
-                            }
-                            
-                            emoji_logger.agentic_thinking("AGNO PDFReader processamento concluído")
-                            
-                        except Exception as pdf_error:
-                            emoji_logger.system_warning(f"AGNO PDFReader falhou: {str(pdf_error)}")
-                            
-                            # Fallback para processamento manual se AGNO falhar
-                            try:
-                                import pypdf
-                                from io import BytesIO
-                                
-                                pdf_stream = BytesIO(document_bytes)
-                                reader = pypdf.PdfReader(pdf_stream)
-                                
-                                text_parts = []
-                                for page_num, page in enumerate(reader.pages):
-                                    page_text = page.extract_text()
-                                    if page_text:
-                                        text_parts.append(f"--- Página {page_num + 1} ---\n{page_text}")
-                                
-                                extracted_text = "\n\n".join(text_parts)
-                                document_type = "pdf"
+                            if result.get('status') == 'success':
+                                extracted_text = result.get('content', '')
                                 doc_metadata = {
-                                    "reader": "pypdf_fallback",
-                                    "format": "pdf",
-                                    "pages": len(reader.pages),
-                                    "size_bytes": original_size
+                                    "reader": "enhanced_document_processor",
+                                    "format": document_type,
+                                    "size_bytes": original_size,
+                                    "text_extracted": result.get('text_extracted', False),
+                                    "images_processed": result.get('images_processed', 0),
+                                    "ocr_content": result.get('ocr_content', False)
                                 }
                                 
-                                emoji_logger.system_info("Fallback pypdf bem-sucedido")
+                                if is_pdf:
+                                    doc_metadata["pages"] = result.get('pages', 0)
+                                elif is_docx:
+                                    doc_metadata["sections"] = result.get('sections', 0)
                                 
-                            except Exception as fallback_error:
-                                raise Exception(f"PDF processing failed: {str(fallback_error)}")
-                    
-                    elif is_docx:
-                        try:
-                            # AGNO DocxReader nativo
-                            from agno.document import DocxReader
+                                emoji_logger.agentic_thinking(f"Documento processado com sucesso: {len(extracted_text)} caracteres extraídos")
+                            else:
+                                raise Exception(f"Falha no processamento: {result.get('error', 'Unknown error')}")
                             
-                            emoji_logger.agentic_thinking("Usando AGNO DocxReader...")
-                            
-                            # Criar BytesIO stream para DocxReader
-                            docx_stream = BytesIO(document_bytes)
-                            
-                            # Usar AGNO DocxReader
-                            docx_reader = DocxReader(file=docx_stream)
-                            extracted_text = docx_reader.read()
-                            
-                            document_type = "docx"
-                            doc_metadata = {
-                                "reader": "agno_docx_reader",
-                                "format": "docx",
-                                "size_bytes": original_size
+                        except Exception as doc_error:
+                            emoji_logger.system_error("Document Processing", f"Erro ao processar documento: {str(doc_error)}")
+                            # Não lançar exceção, retornar erro estruturado
+                            return {
+                                "type": "document",
+                                "error": str(doc_error),
+                                "status": "error",
+                                "message": f"Erro ao processar documento: {str(doc_error)[:100]}"
                             }
-                            
-                            emoji_logger.agentic_thinking("AGNO DocxReader processamento concluído")
-                            
-                        except Exception as docx_error:
-                            emoji_logger.system_warning(f"AGNO DocxReader falhou: {str(docx_error)}")
-                            
-                            # Fallback para processamento manual se AGNO falhar
-                            try:
-                                import docx
-                                from io import BytesIO
-                                
-                                docx_stream = BytesIO(document_bytes)
-                                doc = docx.Document(docx_stream)
-                                
-                                paragraphs = []
-                                for paragraph in doc.paragraphs:
-                                    if paragraph.text.strip():
-                                        paragraphs.append(paragraph.text.strip())
-                                
-                                extracted_text = "\n\n".join(paragraphs)
-                                document_type = "docx"
-                                doc_metadata = {
-                                    "reader": "python_docx_fallback",
-                                    "format": "docx",
-                                    "paragraphs": len(paragraphs),
-                                    "size_bytes": original_size
-                                }
-                                
-                                emoji_logger.system_info("Fallback python-docx bem-sucedido")
-                                
-                            except Exception as fallback_error:
-                                raise Exception(f"DOCX processing failed: {str(fallback_error)}")
                     
                     else:
                         # Formato não suportado pelos readers AGNO
@@ -1449,7 +1485,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         extracted_text = result["text"]
                         doc_type = result.get("document_type", "documento")
                         
-                        # Criar contexto para o agente
+                        # Criar contexto para análise do documento
                         doc_context = f"""O cliente enviou um {doc_type} com o seguinte conteúdo:
                         
                         {extracted_text[:3000]}...
@@ -1462,11 +1498,36 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         2. Se for uma conta de luz, extraia valor e consumo
                         3. Se for outro documento, resuma os pontos importantes"""
                         
-                        # Processar com o agente
-                        if hasattr(self.agent, 'arun'):
-                            agent_response = await self.agent.arun(doc_context)
-                        else:
-                            agent_response = await self.agent.run(doc_context)
+                        # Usar IntelligentModelFallback diretamente para evitar dependência do OpenAI
+                        emoji_logger.agentic_thinking("Analisando documento com IntelligentModelFallback...")
+                        try:
+                            # Criar um agente temporário apenas com o modelo inteligente
+                            from agno.agent import Agent as AgnoAgent
+                            
+                            temp_agent = AgnoAgent(
+                                model=self.intelligent_model,  # Usa o wrapper com fallback
+                                markdown=True,
+                                show_tool_calls=False,
+                                instructions="Você é um assistente especializado em análise de documentos. Extraia todas as informações relevantes de forma detalhada."
+                            )
+                            
+                            # Processar documento
+                            response = temp_agent.run(doc_context)
+                            
+                            # Extrair conteúdo da resposta
+                            if hasattr(response, 'content'):
+                                agent_response = response.content
+                            elif isinstance(response, dict) and 'content' in response:
+                                agent_response = response['content']
+                            elif isinstance(response, str):
+                                agent_response = response
+                            else:
+                                agent_response = str(response)
+                            
+                            emoji_logger.agentic_thinking(f"Documento analisado com sucesso: {len(str(agent_response))} caracteres")
+                        except Exception as analysis_error:
+                            emoji_logger.system_error("Document Analysis", f"Erro ao analisar: {str(analysis_error)}")
+                            agent_response = "Não foi possível analisar o documento neste momento."
                         
                         emoji_logger.agentic_multimodal(
                             f"Documento processado: {doc_type}, {len(extracted_text)} caracteres",
@@ -1520,6 +1581,38 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 "type": media_type,
                 "processed": False,
                 "message": f"Tipo {media_type} não tem processamento específico"
+            }
+            
+        # Executar com timeout
+        try:
+            result = await asyncio.wait_for(
+                process_with_timeout(),
+                timeout=MULTIMODAL_TIMEOUT
+            )
+            
+            # Métricas finais de sucesso
+            total_time = time.time() - start_time
+            emoji_logger.system_info("═" * 50)
+            emoji_logger.system_info(f"✅ MULTIMODAL: Processamento concluído")
+            emoji_logger.system_info(f"  • Tipo: {media_type}")
+            emoji_logger.system_info(f"  • Status: {result.get('status', 'success')}")
+            emoji_logger.system_info(f"  • Tempo total: {total_time:.2f}s")
+            emoji_logger.system_info("═" * 50)
+            
+            return result
+            
+        except asyncio.TimeoutError:
+            total_time = time.time() - start_time
+            emoji_logger.system_error(f"❌ MULTIMODAL: Timeout após {MULTIMODAL_TIMEOUT}s")
+            emoji_logger.system_error(f"  • Tipo: {media_type}")
+            emoji_logger.system_error(f"  • Tempo decorrido: {total_time:.2f}s")
+            
+            return {
+                "type": media_type,
+                "error": f"Processamento excedeu o limite de {MULTIMODAL_TIMEOUT} segundos",
+                "status": "timeout",
+                "timeout_seconds": MULTIMODAL_TIMEOUT,
+                "processing_time": total_time
             }
             
         except Exception as e:
@@ -2014,7 +2107,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         lead_data: Optional[Dict[str, Any]] = None,
         conversation_id: Optional[str] = None,
         media: Optional[Dict[str, Any]] = None,
-        message_id: Optional[str] = None
+        message_id: Optional[str] = None,
+        current_emotional_state: Optional[str] = None
     ) -> str:
         """
         Processa mensagem com análise contextual inteligente
@@ -2107,8 +2201,10 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             # 3. Processar multimodal se necessário
             multimodal_result = None
             if media:
+                # Mapear mimetype para type (O SIMPLES FUNCIONA!)
+                media_type = self._get_media_type_from_mimetype(media.get("mimetype", ""))
                 multimodal_result = await self.process_multimodal_content(
-                    media.get("type"),
+                    media_type,
                     media.get("data", ""),
                     media.get("caption")
                 )
@@ -2155,7 +2251,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     # AGENTIC SDR ainda personaliza a resposta final
                     response = await self._personalize_team_response(
                         team_response,
-                        emotional_triggers
+                        emotional_triggers,
+                        new_emotional_state
                     )
                 except Exception as team_error:
                     emoji_logger.system_warning(f"SDR Team falhou: {str(team_error)[:50]}")
@@ -2188,6 +2285,50 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     {formatted_history}
                     
                     MENSAGEM ATUAL DO CLIENTE: {message}
+                    """
+                    
+                    # Se tem resultado multimodal, adicionar informações EXPLICITAMENTE
+                    if multimodal_result and not multimodal_result.get('error'):
+                        media_type = multimodal_result.get('type')
+                        
+                        if media_type == 'audio' and multimodal_result.get('transcription'):
+                            contextual_prompt += f"""
+                    
+                    🎤 TRANSCRIÇÃO DO ÁUDIO RECEBIDO:
+                    "{multimodal_result.get('transcription')}"
+                    (Duração: {multimodal_result.get('duration', 0)}s)
+                    
+                    IMPORTANTE: Use a transcrição acima como o conteúdo real da mensagem do cliente, não a mensagem genérica.
+                    """
+                        
+                        elif media_type == 'image':
+                            contextual_prompt += f"""
+                    
+                    📸 IMAGEM RECEBIDA - ANÁLISE:
+                    {multimodal_result.get('analysis', 'Análise não disponível')}
+                    
+                    """
+                            if multimodal_result.get('is_bill'):
+                                contextual_prompt += f"""
+                    💡 CONTA DE LUZ DETECTADA:
+                    - Valor mensal: R$ {multimodal_result.get('bill_amount', 0):.2f}
+                    - Consumo: {multimodal_result.get('consumption', 'N/A')} kWh
+                    - Concessionária: {multimodal_result.get('provider', 'N/A')}
+                    """
+                        
+                        elif media_type == 'pdf':
+                            contextual_prompt += f"""
+                    
+                    📄 DOCUMENTO PDF RECEBIDO:
+                    Arquivo: {multimodal_result.get('filename', 'documento.pdf')}
+                    
+                    Conteúdo extraído:
+                    {multimodal_result.get('content', 'Conteúdo não disponível')[:1000]}
+                    """
+                            if len(multimodal_result.get('content', '')) > 1000:
+                                contextual_prompt += "\n[... documento truncado para contexto]"
+                    
+                    contextual_prompt += f"""
                     
                     Análise Contextual:
                     - Contexto Principal: {context_analysis.get('primary_context')}
@@ -2233,11 +2374,27 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 else:
                     response = "Olá! Sou a Helen da Solar Prime. Vi sua mensagem e adoraria ajudar! Você tem interesse em economizar na conta de luz com energia solar?"
             
-            # 7. Ajustar estado emocional da Helen
+            # 7. Calcular novo estado emocional da Helen
             try:
-                self._update_emotional_state(emotional_triggers, context_analysis)
-            except:
-                pass  # Ignorar erros não críticos
+                # Usa o estado emocional passado como parâmetro ou padrão
+                current_state = current_emotional_state or "ENTUSIASMADA"
+                new_emotional_state = self._update_emotional_state(
+                    emotional_triggers, 
+                    context_analysis,
+                    current_state
+                )
+                
+                # Salva o novo estado no banco para a próxima interação
+                if conversation_id:
+                    from app.integrations.supabase_client import get_supabase_client
+                    supabase_client = get_supabase_client()
+                    await supabase_client.update_conversation_emotional_state(
+                        conversation_id,
+                        new_emotional_state
+                    )
+            except Exception as e:
+                emoji_logger.error(f"Erro ao atualizar estado emocional: {str(e)}")
+                new_emotional_state = current_emotional_state or "ENTUSIASMADA"
             
             # 8. Memória é gerenciada automaticamente pelo Agent no AGNO v1.7.6
             # O Agent salva automaticamente as interações quando configurado com memory
@@ -2312,7 +2469,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
     async def _personalize_team_response(
         self,
         team_response: str,
-        emotional_triggers: Dict[str, Any]
+        emotional_triggers: Dict[str, Any],
+        emotional_state: str = "ENTUSIASMADA"
     ) -> str:
         """Personaliza resposta do Team com toque do AGENTIC SDR"""
         
@@ -2321,7 +2479,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         Resposta técnica: {team_response}
         
         Emoção do lead: {emotional_triggers.get('dominant_emotion')}
-        Seu estado emocional: {self.emotional_state.value}
+        Seu estado emocional: {emotional_state}
         
         Reescreva mantendo a informação mas com seu toque pessoal,
         empatia e naturalidade. Mantenha breve e direto.
@@ -2339,34 +2497,39 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
     def _update_emotional_state(
         self,
         emotional_triggers: Dict[str, Any],
-        context_analysis: Dict[str, Any]
-    ):
-        """Atualiza estado emocional do AGENTIC SDR baseado na conversa"""
+        context_analysis: Dict[str, Any],
+        current_state: str
+    ) -> str:
+        """Calcula novo estado emocional baseado na conversa"""
         
         # Lógica simplificada de transição de estados
         dominant_emotion = emotional_triggers.get("dominant_emotion")
         
         if dominant_emotion == "frustration" and \
            emotional_triggers.get("frustration_indicators", 0) > 3:
-            self.emotional_state = EmotionalState.FRUSTRADA_SUTIL
+            new_state = "FRUSTRADA_SUTIL"
         
         elif dominant_emotion == "excitement":
-            self.emotional_state = EmotionalState.ENTUSIASMADA
+            new_state = "ENTUSIASMADA"
         
         elif dominant_emotion == "hesitation":
-            self.emotional_state = EmotionalState.EMPATICA
+            new_state = "EMPATICA"
         
         elif context_analysis.get("decision_stage") == "decision":
-            self.emotional_state = EmotionalState.DETERMINADA
+            new_state = "DETERMINADA"
         
-        elif self.conversations_today > 20:
-            self.emotional_state = EmotionalState.CANSADA
+        else:
+            # Mantém o estado atual se não houver mudança
+            new_state = current_state
         
-        # Incrementar contador de conversas
-        self.conversations_today += 1
+        # REMOVIDO: Limite de conversas e estado CANSADA
+        # O agente SEMPRE responde a TODOS os usuários
+        # Sem limites, sem cansaço, sempre disponível!
         
-        emoji_logger.agentic_thinking(f"Estado emocional atualizado: {self.emotional_state.value}",
-                                     emotional_state=self.emotional_state.value)
+        emoji_logger.agentic_thinking(f"Estado emocional atualizado: {new_state}",
+                                     emotional_state=new_state)
+        
+        return new_state
     
     def _apply_typing_simulation(self, text: str) -> str:
         """Retorna o texto sem modificação - typing é feito via Evolution API"""
@@ -2379,27 +2542,14 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         """Retorna métricas do agente"""
         return {
             "emotional_state": self.emotional_state.value,
-            "conversations_today": self.conversations_today,
             "cognitive_load": self.cognitive_load,
             "is_initialized": self.is_initialized
         }
 
 
-# Factory function
-def create_agentic_sdr() -> AgenticSDR:
-    """Cria e retorna instância do AGENTIC SDR"""
-    return AgenticSDR()
-
-
-# Singleton global
-agentic_sdr_instance = None
-
-async def get_agentic_sdr() -> AgenticSDR:
-    """Retorna instância singleton do AGENTIC SDR"""
-    global agentic_sdr_instance
-    
-    if agentic_sdr_instance is None:
-        agentic_sdr_instance = AgenticSDR()
-        await agentic_sdr_instance.initialize()
-    
-    return agentic_sdr_instance
+# Factory function - SEMPRE cria nova instância para isolamento total
+async def create_agentic_sdr() -> AgenticSDR:
+    """Cria e inicializa nova instância do AGENTIC SDR para cada requisição"""
+    agent = AgenticSDR()
+    await agent.initialize()
+    return agent

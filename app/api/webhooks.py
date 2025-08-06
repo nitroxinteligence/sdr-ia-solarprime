@@ -12,7 +12,7 @@ from app.utils.logger import emoji_logger
 from app.integrations.supabase_client import supabase_client
 from app.integrations.redis_client import redis_client
 from app.integrations.evolution import evolution_client
-from app.agents.agentic_sdr import get_agentic_sdr  # Importa o AGENTIC SDR
+from app.agents.agentic_sdr import create_agentic_sdr  # Importa o AGENTIC SDR
 from app.config import settings
 from app.services.message_buffer import MessageBuffer, set_message_buffer
 from app.services.message_splitter import MessageSplitter, set_message_splitter
@@ -20,8 +20,7 @@ from app.utils.agno_media_detection import AGNOMediaDetector
 
 router = APIRouter(prefix="/webhook", tags=["webhooks"])  # Mudado para /webhook (sem 's')
 
-# Instância global do AGENTIC SDR
-agentic_agent = None
+# REMOVIDO: Instância global do AGENTIC SDR - agora criamos nova instância por requisição
 
 # Instâncias dos serviços de mensagem
 message_buffer = None
@@ -89,11 +88,9 @@ def extract_base64_from_data_url(data_url: str) -> str:
     return data_url
 
 async def get_agentic_agent():
-    """Obtém ou cria instância do AGENTIC SDR"""
-    global agentic_agent
-    if agentic_agent is None:
-        agentic_agent = await get_agentic_sdr()
-    return agentic_agent
+    """Cria nova instância do AGENTIC SDR para cada requisição - isolamento total"""
+    # SEMPRE criar nova instância para garantir isolamento entre usuários
+    return await create_agentic_sdr()
 
 def get_message_buffer_instance():
     """Obtém instância do Message Buffer (deve ser inicializado no startup)"""
@@ -398,12 +395,8 @@ async def process_message_with_agent(
         agentic = await get_agentic_agent()
         emoji_logger.webhook_process("AGENTIC SDR obtido com sucesso")
         
-        # Simular tempo de leitura da mensagem recebida
-        if settings.simulate_reading_time:
-            reading_time = evolution_client.calculate_reading_time(message_content)
-            if reading_time > 0:
-                await asyncio.sleep(reading_time)
-                emoji_logger.webhook_process(f"Tempo de leitura simulado: {round(reading_time, 2)}s")
+        # REMOVIDO: Não simular tempo de leitura quando usuário envia mensagem
+        # Isso estava causando typing aparecer quando não deveria
         
         # Preparar mídia se houver
         media_data = None
@@ -436,59 +429,12 @@ async def process_message_with_agent(
             if img_msg.get("url"):
                 logger.info(f"URL presente: {img_msg['url'][:50]}...")
             
-            # Tentar usar jpegThumbnail primeiro (mais rápido e já disponível)
+            # Sempre priorizar imagem completa para melhor qualidade
             image_base64 = None
             
-            # Validar formato do jpegThumbnail usando detect_media_format
-            if jpeg_thumbnail:
-                format_detected = detect_media_format(jpeg_thumbnail)
-                logger.info(f"📸 jpegThumbnail formato detectado: {format_detected}")
-                
-                if format_detected == "base64":
-                    # É base64 válido, mas verificar se não está criptografado
-                    try:
-                        import base64 as b64_module
-                        img_bytes = b64_module.b64decode(jpeg_thumbnail)
-                        
-                        # Verificar com AGNO se é mídia válida ou criptografada
-                        detection = agno_detector.detect_media_type(img_bytes)
-                        
-                        if detection.get('detected'):
-                            # Mídia válida, usar thumbnail
-                            image_base64 = jpeg_thumbnail
-                            emoji_logger.system_info(f"✅ jpegThumbnail validado como base64: {len(image_base64)} chars")
-                        else:
-                            # Mídia não reconhecida ou criptografada
-                            logger.warning(f"⚠️ Thumbnail parece estar criptografada: {detection.get('magic_bytes', 'unknown')}")
-                            logger.info("🔄 Forçando download da imagem completa...")
-                            image_base64 = None  # Forçar download completo
-                    except Exception as e:
-                        logger.warning(f"Erro ao validar thumbnail: {e}")
-                        image_base64 = None
-                    
-                elif format_detected == "data_url":
-                    # É data URL, extrair base64
-                    image_base64 = extract_base64_from_data_url(jpeg_thumbnail)
-                    emoji_logger.system_info(f"✅ Extraído base64 de data URL: {len(image_base64)} chars")
-                    
-                elif format_detected == "bytes":
-                    # São bytes, converter para base64
-                    try:
-                        import base64 as b64_module
-                        image_base64 = b64_module.b64encode(jpeg_thumbnail).decode('utf-8')
-                        emoji_logger.system_info(f"✅ Convertido bytes para base64: {len(image_base64)} chars")
-                    except:
-                        logger.warning("Falha ao converter bytes para base64")
-                else:
-                    logger.warning(f"jpegThumbnail em formato não reconhecido: {format_detected}")
             
-            # IMPORTANTE: Se thumbnail for muito pequena (<5KB), baixar imagem completa
-            if image_base64 and len(image_base64) < 5000 and img_msg.get("url"):
-                logger.info(f"🔍 Thumbnail muito pequena ({len(image_base64)} chars), baixando imagem completa...")
-                image_base64 = None  # Resetar para baixar completa
-            
-            # Se não tem imagem válida ainda, baixar completa
-            if not image_base64 and img_msg.get("url"):
+            # SEMPRE tentar baixar imagem completa primeiro para máxima qualidade
+            if img_msg.get("url"):
                 try:
                     emoji_logger.webhook_process(f"Baixando imagem completa de: {img_msg['url'][:50]}...")
                     
@@ -520,6 +466,20 @@ async def process_message_with_agent(
                         
                 except Exception as download_error:
                     emoji_logger.system_warning(f"Erro ao baixar imagem: {download_error}")
+            
+            # NÃO usar thumbnail - sempre exigir imagem completa
+            if not image_base64:
+                emoji_logger.system_error("❌ Falha ao obter imagem completa")
+                logger.error("Não foi possível baixar a imagem completa. Thumbnail não é aceita para garantir qualidade.")
+                
+                # Retornar erro informativo para o usuário
+                media_data = {
+                    "type": "image",
+                    "error": "Não foi possível baixar a imagem. Por favor, tente enviar novamente.",
+                    "data": None,
+                    "has_full_image": False
+                }
+                return original_message, media_data
             
             # Validar com AGNO detector se o base64 é uma imagem válida
             if image_base64:
@@ -810,6 +770,9 @@ async def process_message_with_agent(
         # Processa mensagem com análise contextual inteligente
         emoji_logger.webhook_process(f"Chamando AGENTIC SDR para processar: {message_content[:50]}...")
         
+        # Obter estado emocional atual da conversa
+        current_emotional_state = await supabase_client.get_conversation_emotional_state(conversation["id"])
+        
         try:
             response = await agentic.process_message(
                 phone=phone,
@@ -817,7 +780,8 @@ async def process_message_with_agent(
                 lead_data=lead,
                 conversation_id=conversation["id"],
                 media=media_data,
-                message_id=message_id
+                message_id=message_id,
+                current_emotional_state=current_emotional_state
             )
             
             # Verificar se é estrutura enriquecida ou string simples (compatibilidade)
@@ -831,11 +795,51 @@ async def process_message_with_agent(
                 reaction = None
                 reply_to = None
             
+            # ===== SANITIZAÇÃO DE QUEBRAS DE LINHA =====
+            # Garante que não haverá quebras de linha, substituindo-as por espaços
+            response_text = response_text.replace('\n', ' ').replace('\r', ' ').strip()
+            # Remove espaços múltiplos que podem ter sido criados
+            response_text = ' '.join(response_text.split())
+            # ============================================
+            
             emoji_logger.webhook_process(f"Resposta recebida do AGENTIC SDR: {response_text[:100] if response_text else 'NENHUMA'}...")
             
         except Exception as agent_error:
             emoji_logger.system_error("AGENTIC SDR", f"Erro ao processar: {agent_error}")
+            
+            # RETRY INTELIGENTE: Tentar novamente com nova instância
+            retry_count = 0
+            max_retries = 3
             response = None
+            
+            while retry_count < max_retries and response is None:
+                retry_count += 1
+                emoji_logger.webhook_process(f"Tentando novamente ({retry_count}/{max_retries})...")
+                
+                try:
+                    # Criar NOVA instância para o retry - limpa qualquer estado problemático
+                    new_agent = await create_agentic_sdr()
+                    
+                    # Pequeno delay exponencial entre tentativas
+                    await asyncio.sleep(retry_count * 0.5)
+                    
+                    # Tentar processar novamente
+                    response = await new_agent.process_message(
+                        phone=phone,
+                        message=message_content,
+                        lead_data=lead,
+                        conversation_id=conversation["id"],
+                        media=media_data,
+                        message_id=message_id
+                    )
+                    
+                    if response:
+                        emoji_logger.webhook_process(f"Sucesso no retry {retry_count}!")
+                        break
+                        
+                except Exception as retry_error:
+                    emoji_logger.system_warning(f"Retry {retry_count} falhou: {retry_error}")
+                    continue
         
         # Envia resposta
         if response:
@@ -845,6 +849,13 @@ async def process_message_with_agent(
                 # reaction e reply_to já foram extraídos acima
             else:
                 response_text = response
+            
+            # ===== SANITIZAÇÃO DE QUEBRAS DE LINHA =====
+            # Garante que não haverá quebras de linha, substituindo-as por espaços
+            response_text = response_text.replace('\n', ' ').replace('\r', ' ').strip()
+            # Remove espaços múltiplos que podem ter sido criados
+            response_text = ' '.join(response_text.split())
+            # ============================================
                 
             emoji_logger.webhook_process(f"Enviando resposta para {phone}")
             
@@ -950,12 +961,79 @@ async def process_message_with_agent(
             
             emoji_logger.webhook_process("Mensagem processada com sucesso!")
         else:
-            emoji_logger.system_warning(f"Nenhuma resposta gerada para {phone}")
+            emoji_logger.system_warning(f"Nenhuma resposta gerada para {phone} após todas as tentativas")
+            
+            # Resposta contextual inteligente baseada no erro
+            if last_error and evolution_client:
+                contextual_response = None
+                
+                if "timeout" in str(last_error).lower():
+                    contextual_response = "Oi! Vi sua mensagem... só um minutinho que te respondo"
+                elif "rate" in str(last_error).lower() or "limit" in str(last_error).lower():
+                    contextual_response = "Nossa, muita gente interessada em energia solar agora! Me dá uns minutinhos que já te respondo"
+                elif "connection" in str(last_error).lower():
+                    contextual_response = "Eu não entendi rs. Pode explicar sua pergunta?"
+                
+                # Envia resposta contextual se disponível
+                if contextual_response:
+                    try:
+                        await send_messages_with_typing(
+                            evolution_client=evolution_client,
+                            phone=phone,
+                            messages=[contextual_response],
+                            typing_delay=4000,  # Typing mais rápido para urgência
+                            delay_between_messages=0
+                        )
+                        emoji_logger.webhook_process("Resposta contextual enviada")
+                    except:
+                        pass  # Se falhar, mantém silêncio
         
     except Exception as e:
         emoji_logger.system_error("Agent Message Processing", str(e))
         logger.exception("Erro detalhado no processamento com agente:")
-        # Não lança exceção para não travar o webhook
+        
+        # Última tentativa de recuperação com nova instância
+        try:
+            emoji_logger.webhook_process("Tentativa final de recuperação...")
+            recovery_agent = await create_agentic_sdr()
+            await asyncio.sleep(1)  # Delay de 1 segundo
+            
+            response = await recovery_agent.process_message(
+                phone=phone,
+                message=message_content,
+                lead_data=lead,
+                conversation_id=conversation["id"],
+                media=media_data,
+                message_id=message_id
+            )
+            
+            if response:
+                # Processar resposta recuperada
+                if isinstance(response, dict):
+                    response_text = response.get("text", "")
+                else:
+                    response_text = response
+                
+                # ===== SANITIZAÇÃO DE QUEBRAS DE LINHA =====
+                # Garante que não haverá quebras de linha, substituindo-as por espaços
+                response_text = response_text.replace('\n', ' ').replace('\r', ' ').strip()
+                # Remove espaços múltiplos que podem ter sido criados
+                response_text = ' '.join(response_text.split())
+                # ============================================
+                    
+                if response_text:
+                    await send_messages_with_typing(
+                        evolution_client=evolution_client,
+                        phone=phone,
+                        messages=[response_text],
+                        typing_delay=settings.typing_delay,
+                        delay_between_messages=settings.delay_between_messages
+                    )
+                    emoji_logger.webhook_process("Recuperação bem-sucedida!")
+                    
+        except Exception as recovery_error:
+            emoji_logger.system_error("Recovery failed", str(recovery_error))
+            # Falha silenciosa - melhor não responder do que parecer robô
 
 def extract_message_content(message: Dict[str, Any]) -> Optional[str]:
     """

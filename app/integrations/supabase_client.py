@@ -185,6 +185,37 @@ class SupabaseClient:
             emoji_logger.supabase_error(f"Erro ao atualizar conversa: {str(e)}", table="conversations")
             raise
     
+    async def get_conversation_emotional_state(self, conversation_id: str) -> str:
+        """Obtém o estado emocional atual da conversa"""
+        try:
+            result = self.client.table('conversations').select(
+                'emotional_state'
+            ).eq('id', conversation_id).execute()
+            
+            if result.data and result.data[0]:
+                return result.data[0].get('emotional_state', 'ENTUSIASMADA')
+            
+            return 'ENTUSIASMADA'  # Estado padrão
+            
+        except Exception as e:
+            logger.error(f"Erro ao buscar estado emocional: {str(e)}")
+            return 'ENTUSIASMADA'
+    
+    async def update_conversation_emotional_state(self, conversation_id: str, emotional_state: str) -> None:
+        """Atualiza o estado emocional da conversa"""
+        try:
+            await self.update_conversation(
+                conversation_id,
+                {'emotional_state': emotional_state}
+            )
+            emoji_logger.supabase_update(
+                "conversations", 1, 
+                conversation_id=conversation_id,
+                emotional_state=emotional_state
+            )
+        except Exception as e:
+            logger.error(f"Erro ao atualizar estado emocional: {str(e)}")
+    
     # ============= MESSAGES =============
     
     async def save_message(self, message_data: Dict[str, Any]) -> Dict[str, Any]:

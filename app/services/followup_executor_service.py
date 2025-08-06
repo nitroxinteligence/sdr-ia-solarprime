@@ -32,28 +32,28 @@ class FollowUpExecutorService:
         # Templates de mensagens por tipo
         self.templates = {
             "IMMEDIATE_REENGAGEMENT": [
-                "Oi {name}! 👋 Vi que nossa conversa ficou pela metade...",
+                "Oi {name}! Vi que nossa conversa ficou pela metade...",
                 "Ainda posso te ajudar com a economia na conta de luz?",
-                "Se preferir, podemos conversar em outro momento 😊"
+                "Se preferir, podemos conversar em outro momento"
             ],
             "DAILY_NURTURING": [
-                "{name}, você sabia que clientes como você economizam em média R$ {savings} por ano? 💰",
-                "A Solar Prime tem a solução perfeita para sua conta de R$ {bill_value} 🌞",
+                "{name}, você sabia que clientes como você economizam em média R$ {savings} por ano?",
+                "A Solar Prime tem a solução perfeita para sua conta de R$ {bill_value}",
                 "Vamos conversar sobre como reduzir sua conta de luz?"
             ],
             "MEETING_CONFIRMATION": [
-                "Oi {name}! 📅 Passando para confirmar nossa reunião de amanhã às {time}",
+                "Oi {name}! Passando para confirmar nossa reunião de amanhã às {time}",
                 "Você confirma presença? É só responder SIM ou NÃO",
-                "Vou te mostrar como economizar {percentage}% na conta de luz! 💡"
+                "Vou te mostrar como economizar {percentage}% na conta de luz!"
             ],
             "MEETING_REMINDER": [
-                "{name}, nossa reunião é daqui a {hours} horas! ⏰",
-                "Já preparei tudo para te mostrar a economia 📊",
+                "{name}, nossa reunião é daqui a {hours} horas!",
+                "Já preparei tudo para te mostrar a economia",
                 "Link da reunião: {meeting_link}"
             ],
             "ABANDONMENT_CHECK": [
                 "{name}, há {days} dias você demonstrou interesse em economizar na conta de luz",
-                "Ainda tem interesse? A Solar Prime continua com as melhores condições 🌟",
+                "Ainda tem interesse? A SolarPrime continua com as melhores condições",
                 "Posso te ajudar com alguma dúvida?"
             ]
         }

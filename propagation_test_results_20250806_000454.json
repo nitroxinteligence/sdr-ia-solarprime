@@ -1,0 +1,11 @@
+{
+  "timestamp": "20250806_000454",
+  "results": {
+    "audio": false,
+    "image": false,
+    "pdf": false
+  },
+  "passed": 0,
+  "total": 3,
+  "success_rate": "0%"
+}
