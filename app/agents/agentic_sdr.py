@@ -487,33 +487,11 @@ class AgenticSDR:
             )
             emoji_logger.system_ready("Memory", status="com Supabase")
         except Exception as e:
-            emoji_logger.system_info(f"Memory fallback local: {str(e)[:40]}...")
-            # Memory local sem persistência como fallback
-            # Criar um dicionário simples como memória local em vez de None
-            from agno.memory import MemoryDb
-            
-            class SimpleMemoryDb(MemoryDb):
-                """Memória local simples para evitar warnings"""
-                def __init__(self):
-                    self.storage = {}
-                
-                def create(self, **kwargs):
-                    pass
-                
-                def search(self, **kwargs):
-                    return []
-                
-                def update(self, **kwargs):
-                    pass
-                
-                def delete(self, **kwargs):
-                    pass
-            
-            self.memory = AgentMemory(
-                db=SimpleMemoryDb(),  # Memória local simples
-                create_user_memories=True,
-                create_session_summary=True
-            )
+            emoji_logger.system_info(f"Memory fallback: {str(e)[:100]}...")
+            # Memória não é crítica - Agent funciona sem ela
+            # O Agent da AGNO aceita memory=None
+            self.memory = None
+            emoji_logger.system_info("💾 Memory: Desabilitado (Agent funcionará sem persistência)")
         
         # Knowledge base SEM PostgreSQL - usando apenas dados locais
         # Sistema funciona perfeitamente sem vector database PostgreSQL
