@@ -3051,17 +3051,12 @@ Retorne em formato estruturado:
                     emoji_logger.system_info(f"📄 raw_response (primeiros 200 chars): {raw_response[:200] if raw_response else 'VAZIO'}...")
                     emoji_logger.system_info(f"📏 Tamanho raw_response: {len(raw_response) if raw_response else 0} caracteres")
                     
-                    # CORREÇÃO: Verificar se é None ou "None"
-                    if raw_response is None or str(raw_response).strip().lower() == "none":
-                        emoji_logger.system_warning("⚠️ raw_response é None! Usando fallback...")
-                        raw_response = None  # Força None para cair no fallback
-                    
                     # Verificar se resposta está vazia antes de processar
                     if not raw_response or str(raw_response).strip() == "":
                         emoji_logger.system_warning("⚠️ raw_response está vazio ANTES da verificação!")
                     
                     # ✅ CORREÇÃO: Verificar se a resposta está vazia antes de processar
-                    if not raw_response or raw_response.strip() == "" or str(raw_response).strip().lower() == "none":
+                    if not raw_response or raw_response.strip() == "":
                         emoji_logger.system_warning("⚠️ Agent retornou resposta vazia! Usando fallback...")
                         
                         # Debug: Entender por que está vazio
@@ -3194,19 +3189,11 @@ Retorne em formato estruturado:
             
             # 9. Aplicar simulação de digitação natural
             # Garantir que response tem um valor antes de aplicar simulação
-            if response and str(response).strip() != "" and str(response).strip().lower() != "none":
+            if response:
                 response = self._apply_typing_simulation(response)
             else:
-                # Fallback final se ainda não houver resposta ou se for None
-                emoji_logger.system_warning("⚠️ Response vazio ou None no final, usando fallback de emergência")
-                
-                # Verificar contexto para resposta apropriada
-                if messages_history and len(messages_history) > 0:
-                    # Já há conversa anterior
-                    response = "<RESPOSTA_FINAL>Oi! Me desculpe, tive um pequeno problema aqui. Pode repetir sua última mensagem?</RESPOSTA_FINAL>"
-                else:
-                    # Primeira interação
-                    response = "<RESPOSTA_FINAL>Oi! 😊 Sou a Helen da Solar Prime. Como posso ajudar você hoje?</RESPOSTA_FINAL>"
+                # Fallback final se ainda não houver resposta
+                response = "<RESPOSTA_FINAL>Oi! 😊 Sou a Helen da Solar Prime. Como posso ajudar você hoje?</RESPOSTA_FINAL>"
             
             # 10. Determinar se deve reagir ou responder citando
             result = {
