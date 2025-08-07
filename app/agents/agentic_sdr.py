@@ -2845,8 +2845,16 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     
                     # Extrair conteúdo da resposta
                     raw_response = result.content if hasattr(result, 'content') else str(result)
-                    # Formatar com tags para extração
-                    response = f"<RESPOSTA_FINAL>{raw_response}</RESPOSTA_FINAL>"
+                    
+                    # ✅ CORREÇÃO: Verificar se já há tags antes de adicionar (evita duplicação)
+                    if "<RESPOSTA_FINAL>" in raw_response:
+                        # Resposta já tem tags - usar diretamente
+                        response = raw_response
+                        emoji_logger.system_debug("✅ Tags <RESPOSTA_FINAL> já presentes - usando resposta diretamente")
+                    else:
+                        # Resposta sem tags - adicionar tags para extração
+                        response = f"<RESPOSTA_FINAL>{raw_response}</RESPOSTA_FINAL>"
+                        emoji_logger.system_debug("➕ Adicionando tags <RESPOSTA_FINAL> à resposta")
                     
                 except Exception as agent_error:
                     emoji_logger.system_error("AGENTIC SDR", f"Erro ao gerar resposta: {agent_error}")
@@ -2984,9 +2992,18 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         else:
             # Fallback para run() se arun() não estiver disponível
             result = await self.agent.run(personalization_prompt)
-        # Extrair conteúdo e formatar com tags
+        # Extrair conteúdo e verificar se já há tags (evita duplicação)
         raw_response = result.content if hasattr(result, 'content') else str(result)
-        return f"<RESPOSTA_FINAL>{raw_response}</RESPOSTA_FINAL>"
+        
+        # ✅ CORREÇÃO: Verificar se já há tags antes de adicionar (evita duplicação)
+        if "<RESPOSTA_FINAL>" in raw_response:
+            # Resposta já tem tags - usar diretamente
+            emoji_logger.system_debug("✅ Tags <RESPOSTA_FINAL> já presentes na personalização - usando diretamente")
+            return raw_response
+        else:
+            # Resposta sem tags - adicionar tags para extração
+            emoji_logger.system_debug("➕ Adicionando tags <RESPOSTA_FINAL> à personalização")
+            return f"<RESPOSTA_FINAL>{raw_response}</RESPOSTA_FINAL>"
     
     def _update_emotional_state(
         self,

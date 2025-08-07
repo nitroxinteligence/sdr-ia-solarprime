@@ -97,28 +97,29 @@ def extract_final_response(full_response: str) -> str:
         if match:
             # Extrai e limpa o conteúdo
             final_response = match.group(1).strip()
-            emoji_logger.system_debug(f"Resposta final extraída com sucesso: {final_response[:50]}...")
+            emoji_logger.system_debug(f"✅ Resposta final extraída com sucesso: {final_response[:50]}...")
             return final_response
         else:
-            # Fallback: Se não encontrar as tags, tenta pegar a última linha significativa
-            emoji_logger.system_warning("Tags <RESPOSTA_FINAL> não encontradas. Usando fallback.")
+            # 🚨 CORREÇÃO CRÍTICA: NUNCA retornar conteúdo bruto ou raciocínio interno
+            emoji_logger.system_error(f"🚨 TAGS <RESPOSTA_FINAL> NÃO ENCONTRADAS - BLOQUEANDO VAZAMENTO")
+            emoji_logger.system_error(f"📝 Conteúdo original (primeiros 200 chars): {full_response[:200]}...")
             
-            # Remove linhas vazias e pega a última linha não vazia
-            lines = [line.strip() for line in full_response.split('\n') if line.strip()]
-            if lines:
-                # Pega a última linha como resposta final
-                fallback_response = lines[-1]
-                emoji_logger.system_warning(f"Fallback: usando última linha como resposta: {fallback_response[:50]}...")
-                return fallback_response
-            else:
-                # Se não houver nenhuma linha válida, retorna a resposta completa
-                emoji_logger.system_error("Nenhuma linha válida encontrada. Retornando resposta completa.")
-                return full_response
+            # ✅ RESPOSTA SEGURA: fallback controlado que não vaza raciocínio
+            safe_fallback = "Oi! Desculpe, estou processando sua mensagem. Me dê só um minutinho que já te respondo! 😊"
+            
+            emoji_logger.system_warning(f"🔒 Usando resposta segura para evitar vazamento de raciocínio interno")
+            return safe_fallback
                 
     except Exception as e:
-        emoji_logger.system_error("extract_final_response", f"Erro ao extrair resposta: {e}")
-        # Em caso de erro, retorna a resposta completa para não quebrar o fluxo
-        return full_response
+        emoji_logger.system_error("extract_final_response", f"🚨 ERRO CRÍTICO ao extrair resposta: {e}")
+        emoji_logger.system_error(f"📝 Conteúdo que causou erro (primeiros 200 chars): {full_response[:200] if full_response else 'None'}...")
+        
+        # 🚨 CORREÇÃO CRÍTICA: NUNCA retornar resposta completa em caso de erro
+        # ✅ RESPOSTA SEGURA: fallback de emergência que não vaza raciocínio
+        emergency_fallback = "Oi! Tive um probleminha técnico processando sua mensagem. Me dê só um momento que já resolvo! 🔧"
+        
+        emoji_logger.system_warning(f"🔒 Usando resposta de emergência para evitar vazamento em caso de erro")
+        return emergency_fallback
 
 def detect_media_format(media_data: Any) -> str:
     """
