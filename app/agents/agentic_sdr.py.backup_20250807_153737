@@ -1616,58 +1616,1424 @@ Retorne em formato estruturado:
                             # Processar documento
                             response = temp_agent.run(doc_context)
                             
-                                                # Extrair conteúdo da resposta - CORREÇÃO DEFINITIVA AGNO RunResponse
-                    raw_response = None
-                    
-                    # 1. Primeiro tentar content (mais comum)
-                    if hasattr(result, 'content') and result.content:
-                        raw_response = result.content
-                        emoji_logger.system_info(f"✅ Conteúdo extraído de result.content")
-                    
-                    # 2. Se content vazio, verificar messages (AGNO RunResponse padrão)
-                    elif hasattr(result, 'messages') and result.messages:
-                        emoji_logger.system_info(f"📬 result.content vazio, verificando messages ({len(result.messages)} mensagens)")
-                        # Procurar última mensagem do assistant
-                        for msg in reversed(result.messages):
-                            if hasattr(msg, 'role') and msg.role == 'assistant':
-                                if hasattr(msg, 'content') and msg.content:
-                                    raw_response = msg.content
-                                    emoji_logger.system_info(f"✅ Conteúdo extraído de messages[assistant]")
-                                    break
-                                elif hasattr(msg, 'text') and msg.text:
-                                    raw_response = msg.text
-                                    emoji_logger.system_info(f"✅ Conteúdo extraído de messages[assistant].text")
-                                    break
-                    
-                    # 3. Verificar outros atributos comuns
-                    if not raw_response:
-                        if hasattr(result, 'text') and result.text:
-                            raw_response = result.text
-                            emoji_logger.system_info(f"✅ Conteúdo extraído de result.text")
-                        elif hasattr(result, 'message') and result.message:
-                            raw_response = result.message
-                            emoji_logger.system_info(f"✅ Conteúdo extraído de result.message")
-                        elif hasattr(result, 'reasoning_content') and result.reasoning_content:
-                            raw_response = result.reasoning_content
-                            emoji_logger.system_info(f"✅ Conteúdo extraído de result.reasoning_content")
-                    
-                    # 4. Se ainda vazio, tentar dict
-                    if not raw_response and isinstance(result, dict):
-                        raw_response = result.get('content') or result.get('text') or result.get('message')
-                        if raw_response:
-                            emoji_logger.system_info(f"✅ Conteúdo extraído de result dict")
-                    
-                    # 5. Debug completo se ainda vazio
-                    if not raw_response:
-                        emoji_logger.system_error("Response Extraction", f"Falha total na extração!")
-                        emoji_logger.system_error("Response Extraction", f"Tipo: {type(result)}")
-                        emoji_logger.system_error("Response Extraction", f"Atributos: {[attr for attr in dir(result) if not attr.startswith('_')]}")
-                        if hasattr(result, 'messages') and result.messages:
-                            emoji_logger.system_error("Response Extraction", f"Messages[0]: {result.messages[0] if result.messages else 'vazio'}")
-                        if hasattr(result, 'status'):
-                            emoji_logger.system_error("Response Extraction", f"Status: {result.status}")
+                            # Extrair conteúdo da resposta
+                            if hasattr(response, 'content'):
+                                agent_response = response.content
+                            elif isinstance(response, dict) and 'content' in response:
+                                agent_response = response['content']
+                            elif isinstance(response, str):
+                                agent_response = response
+                            else:
+                                agent_response = str(response)
+                            
+                            emoji_logger.agentic_thinking(f"Documento analisado com sucesso: {len(str(agent_response))} caracteres")
+                        except Exception as analysis_error:
+                            emoji_logger.system_error("Document Analysis", f"Erro ao analisar: {str(analysis_error)}")
+                            agent_response = "Não foi possível analisar o documento neste momento."
                         
-                        # Último recurso - converter para string
+                        emoji_logger.agentic_multimodal(
+                            f"Documento processado: {doc_type}, {len(extracted_text)} caracteres",
+                            media_type="document",
+                            pages=result.get("pages", 0)
+                        )
+                        
+                        return {
+                            "type": "document",
+                            "document_type": doc_type,
+                            "content": extracted_text[:5000],  # Limitar resposta
+                            "analysis": agent_response,
+                            "pages": result.get("pages", 0),
+                            "method": result.get("method", "unknown"),
+                            "status": "processed"
+                        }
+                    elif result["status"] == "no_text":
+                        # PDF escaneado (precisa OCR)
+                        return {
+                            "type": "document",
+                            "status": "scanned",
+                            "message": "Documento parece ser escaneado. Tente enviar como imagem para análise visual.",
+                            "pages": result.get("pages", 0)
+                        }
+                    else:
+                        return {
+                            "type": "document",
+                            "status": "error",
+                            "message": f"Erro ao processar documento: {result.get('error', 'Erro desconhecido')}"
+                        }
+                        
+                except Exception as e:
+                    emoji_logger.system_warning(f"Erro ao processar documento: {e}")
+                    return {
+                        "type": "document",
+                        "status": "error",
+                        "message": f"Erro ao processar documento: {str(e)}"
+                    }
+            
+            elif media_type == "video":
+                # Processar vídeo
+                emoji_logger.system_info("Processamento de vídeo solicitado")
+                return {
+                    "type": "video",
+                    "status": "not_supported",
+                    "message": "Processamento de vídeo não implementado"
+                }
+            
+            # Tipo desconhecido (não deveria chegar aqui devido à validação)
+            return {
+                "type": media_type,
+                "processed": False,
+                "message": f"Tipo {media_type} não tem processamento específico"
+            }
+            
+        # Executar com timeout
+        try:
+            result = await asyncio.wait_for(
+                process_with_timeout(),
+                timeout=MULTIMODAL_TIMEOUT
+            )
+            
+            # Métricas finais de sucesso
+            total_time = time.time() - start_time
+            emoji_logger.system_info("═" * 50)
+            emoji_logger.system_info(f"✅ MULTIMODAL: Processamento concluído")
+            emoji_logger.system_info(f"  • Tipo: {media_type}")
+            emoji_logger.system_info(f"  • Status: {result.get('status', 'success')}")
+            emoji_logger.system_info(f"  • Tempo total: {total_time:.2f}s")
+            emoji_logger.system_info("═" * 50)
+            
+            return result
+            
+        except asyncio.TimeoutError:
+            total_time = time.time() - start_time
+            emoji_logger.system_error("Multimodal Timeout", f"❌ MULTIMODAL: Timeout após {MULTIMODAL_TIMEOUT}s")
+            emoji_logger.system_info(f"  • Tipo: {media_type}")
+            emoji_logger.system_info(f"  • Tempo decorrido: {total_time:.2f}s")
+            
+            return {
+                "type": media_type,
+                "error": f"Processamento excedeu o limite de {MULTIMODAL_TIMEOUT} segundos",
+                "status": "timeout",
+                "timeout_seconds": MULTIMODAL_TIMEOUT,
+                "processing_time": total_time
+            }
+            
+        except Exception as e:
+            # Log de erro detalhado
+            emoji_logger.system_error("Multimodal Processing", f"Erro ao processar {media_type}: {str(e)[:200]}")
+            logger.exception(f"Erro completo no processamento multimodal de {media_type}:")
+            
+            # Métricas finais de erro
+            total_time = time.time() - start_time
+            emoji_logger.system_info("═" * 50)
+            emoji_logger.system_info(f"❌ MULTIMODAL: Processamento falhou")
+            emoji_logger.system_info(f"  • Tipo: {media_type}")
+            emoji_logger.system_info(f"  • Erro: {type(e).__name__}")
+            emoji_logger.system_info(f"  • Mensagem: {str(e)[:100]}")
+            emoji_logger.system_info(f"  • Tempo total: {total_time:.2f}s")
+            emoji_logger.system_info("═" * 50)
+            
+            return {
+                "type": media_type,
+                "error": str(e),
+                "status": "error",
+                "message": f"Erro ao processar {media_type}",
+                "processing_time": total_time
+            }
+    
+    async def search_knowledge_base(
+        self,
+        query: str,
+        filters: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Busca na knowledge base usando KnowledgeService simplificado
+        
+        Args:
+            query: Query de busca
+            filters: Filtros opcionais (ignorado na versão simplificada)
+            
+        Returns:
+            Documentos relevantes
+        """
+        try:
+            # Verificar se knowledge base está habilitada
+            if not self.knowledge_search_enabled:
+                return []
+                
+            emoji_logger.team_knowledge(f"🔍 Buscando: {query[:50]}...")
+            
+            # Usar o novo KnowledgeService simplificado
+            results = await knowledge_service.search_knowledge_base(query, max_results=5)
+            
+            # Converter para formato compatível
+            formatted_results = []
+            for doc in results:
+                formatted_results.append({
+                    "content": doc.get("content", ""),
+                    "title": doc.get("title", ""),
+                    "category": doc.get("category", ""),
+                    "metadata": {
+                        "id": doc.get("id"),
+                        "tags": doc.get("tags", ""),
+                        "created_at": doc.get("created_at", "")
+                    },
+                    "score": 0.8  # Score fixo para versão simplificada
+                })
+            
+            emoji_logger.team_knowledge(f"✅ Encontrados {len(formatted_results)} documentos")
+            return formatted_results
+            
+        except Exception as e:
+            emoji_logger.team_knowledge(f"❌ Erro na busca: {e}")
+            return []
+    
+    def analyze_energy_bill(self, image_data: str, customer_name: str = "Cliente") -> Dict[str, Any]:
+        """
+        Analisa conta de energia via Vision AI - SUBSTITUI BillAnalyzerAgent (881 linhas → função simples)
+        
+        Args:
+            image_data: Imagem em base64
+            customer_name: Nome do cliente
+            
+        Returns:
+            Dados extraídos e análise completa
+        """
+        try:
+            # Prompt inteligente que substitui 881 linhas de código complexo!
+            analysis_prompt = f"""
+            Analise esta conta de energia elétrica e extraia TODOS os dados possíveis.
+
+            EXTRAIR:
+            1. Valor total a pagar (R$) - campo mais importante
+            2. Consumo em kWh
+            3. Nome do titular
+            4. Endereço da instalação
+            5. Número da instalação/UC
+            6. Fornecedor (Celpe, Coelba, Cosern, etc)
+            7. Mês de referência
+            8. Histórico de consumo se visível
+
+            CALCULAR:
+            - Economia mensal com solar (20% do valor total)
+            - Economia anual (economia mensal × 12)
+            - Sistema solar recomendado em kWp (consumo ÷ 150)
+            - Número de painéis necessários (kWp ÷ 0.55)
+            - Investimento estimado (kWp × R$ 4.000)
+            - Payback em anos (investimento ÷ economia anual)
+
+            QUALIFICAR LEAD:
+            - Se valor ≥ R$ 600: "LEAD_QUENTE" 
+            - Se valor ≥ R$ 400: "IDEAL"
+            - Se valor ≥ R$ 200: "QUALIFICADO"
+            - Se valor < R$ 200: "BAIXO"
+
+            RETORNAR JSON ESTRUTURADO com todos os campos calculados.
+            """
+            
+            # Usar Vision AI do Gemini (modelo já tem capacidade multimodal)
+            import base64
+            image_bytes = base64.b64decode(image_data)
+            
+            # Usar Gemini diretamente via genai (não pelo AGNO)
+            import google.generativeai as genai
+            genai.configure(api_key=settings.google_api_key)
+            
+            # Preparar imagem para Gemini
+            from PIL import Image
+            from io import BytesIO
+            img = Image.open(BytesIO(image_bytes))
+            
+            # Usar modelo Gemini Flash para análise rápida
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content([analysis_prompt, img])
+            
+            # Parse da resposta JSON
+            import json
+            import re
+            from datetime import datetime
+            
+            # Extrair texto da resposta
+            response_text = response.text if hasattr(response, 'text') else str(response)
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
+            
+            if json_start >= 0 and json_end > json_start:
+                json_str = response_text[json_start:json_end]
+                try:
+                    result = json.loads(json_str)
+                except:
+                    # Fallback: extrair manualmente via regex
+                    result = self._extract_bill_data_fallback(response_text)
+            else:
+                result = self._extract_bill_data_fallback(response_text)
+            
+            # Normalizar campos e garantir dados mínimos
+            normalized_result = {
+                "success": True,
+                "analysis_method": "vision_ai_prompt",
+                "customer_name": customer_name,
+                "analyzed_at": datetime.now().isoformat(),
+                
+                # Dados extraídos
+                "valor_total": result.get("valor_total") or result.get("bill_value", 0),
+                "consumo_kwh": result.get("consumo_kwh") or result.get("consumption_kwh", 0),
+                "titular": result.get("titular") or result.get("customer_name", ""),
+                "endereco": result.get("endereco") or result.get("address", ""),
+                "instalacao": result.get("instalacao") or result.get("installation_number", ""),
+                "fornecedor": result.get("fornecedor") or result.get("provider", ""),
+                "mes_referencia": result.get("mes_referencia") or result.get("reference_month", ""),
+                
+                # Cálculos financeiros
+                "economia_mensal": result.get("economia_mensal", 0),
+                "economia_anual": result.get("economia_anual", 0),
+                "sistema_kwp": result.get("sistema_kwp", 0),
+                "num_paineis": result.get("num_paineis", 0),
+                "investimento": result.get("investimento", 0),
+                "payback_anos": result.get("payback_anos", 0),
+                
+                # Qualificação
+                "qualificacao": result.get("qualificacao", "BAIXO"),
+                "qualificado": result.get("valor_total", 0) >= 200
+            }
+            
+            emoji_logger.team_knowledge(f"💡 Conta analisada via Vision AI: R$ {normalized_result.get('valor_total', 0)} - {normalized_result.get('qualificacao', 'N/A')}")
+            return normalized_result
+            
+        except Exception as e:
+            logger.error(f"Erro análise conta Vision AI: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "analysis_method": "vision_ai_prompt",
+                "customer_name": customer_name
+            }
+    
+    def _extract_bill_data_fallback(self, text: str) -> Dict[str, Any]:
+        """Extração fallback se JSON parsing falhar - regex simples"""
+        result = {}
+        
+        import re
+        
+        # Valor em R$ - múltiplos padrões
+        for pattern in [r'R\$\s*([\d.,]+)', r'total[:\s]+R?\$?\s*([\d.,]+)', r'pagar[:\s]+R?\$?\s*([\d.,]+)']:
+            value_match = re.search(pattern, text, re.IGNORECASE)
+            if value_match:
+                value_str = value_match.group(1).replace('.', '').replace(',', '.')
+                try:
+                    bill_value = float(value_str)
+                    result['valor_total'] = bill_value
+                    
+                    # Cálculos básicos
+                    result['economia_mensal'] = bill_value * 0.20
+                    result['economia_anual'] = result['economia_mensal'] * 12
+                    
+                    # Qualificação
+                    if bill_value >= 600:
+                        result['qualificacao'] = 'LEAD_QUENTE'
+                    elif bill_value >= 400:
+                        result['qualificacao'] = 'IDEAL'
+                    elif bill_value >= 200:
+                        result['qualificacao'] = 'QUALIFICADO'
+                    else:
+                        result['qualificacao'] = 'BAIXO'
+                    break
+                except:
+                    continue
+        
+        # Consumo kWh
+        kwh_match = re.search(r'(\d+)\s*kWh', text, re.IGNORECASE)
+        if kwh_match:
+            consumption = int(kwh_match.group(1))
+            result['consumo_kwh'] = consumption
+            
+            # Dimensionamento aproximado
+            if consumption > 0:
+                result['sistema_kwp'] = round(consumption / 150, 2)
+                result['num_paineis'] = int(result['sistema_kwp'] / 0.55) + 1
+                result['investimento'] = result['sistema_kwp'] * 4000
+                
+                if result.get('economia_anual', 0) > 0:
+                    result['payback_anos'] = round(result['investimento'] / result['economia_anual'], 1)
+        
+        return result
+    
+    # Funções simples que substituem serviços complexos (456+404=860 linhas → ~50 linhas)
+    
+    def _format_context_simple(
+        self,
+        message_history: List[Dict[str, Any]] = None,
+        multimodal_result: Dict[str, Any] = None,
+        phone: str = None
+    ) -> Dict[str, Any]:
+        """
+        Formatação SIMPLES de contexto - substitui agno_context_agent.py (456 linhas)
+        MANTÉM TODAS as mensagens recuperadas (até 100) para preservar contexto completo
+        """
+        try:
+            if not message_history:
+                return {
+                    'formatted_history': "",
+                    'message_count': 0,
+                    'context_quality': 'empty'
+                }
+            
+            # Pegar TODAS as mensagens recuperadas (mantém as 100 mensagens originais!)
+            recent_messages = message_history  # SEM REDUÇÃO - usa todas as mensagens que foram buscadas
+            
+            # Formato simples: "USER: mensagem" ou "ASSISTANT: mensagem"
+            formatted_lines = []
+            
+            # CORREÇÃO CRÍTICA: Incluir análise multimodal PRIMEIRO no contexto
+            if multimodal_result and not multimodal_result.get('error'):
+                media_type = multimodal_result.get('type', 'unknown')
+                content = multimodal_result.get('content', '')
+                
+                if content:
+                    # Adicionar análise multimodal com destaque
+                    formatted_lines.append("=== ANÁLISE MULTIMODAL RECEBIDA ===")
+                    formatted_lines.append(f"TIPO: {media_type.upper()}")
+                    formatted_lines.append(f"ANÁLISE: {content}")
+                    
+                    # Se for conta de luz, adicionar detalhes
+                    if multimodal_result.get('is_bill'):
+                        formatted_lines.append(f"CONTA DE LUZ DETECTADA - Valor: R$ {multimodal_result.get('bill_amount', 0):.2f}")
+                    
+                    formatted_lines.append("=== FIM DA ANÁLISE ===")
+                    formatted_lines.append("")  # Linha em branco para separação
+            
+            # Adicionar histórico de mensagens
+            for msg in recent_messages:
+                role = msg.get('sender', 'user').upper()
+                content = msg.get('content', '')
+                if content:
+                    formatted_lines.append(f"{role}: {content}")
+            
+            return {
+                'formatted_history': '\n'.join(formatted_lines),
+                'message_count': len(recent_messages),
+                'context_quality': 'excellent' if len(recent_messages) >= 50 else 'good' if len(recent_messages) >= 10 else 'basic',
+                'has_multimodal': bool(multimodal_result and not multimodal_result.get('error'))
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro formatação contexto: {e}")
+            return {
+                'formatted_history': "",
+                'message_count': 0,
+                'context_quality': 'error'
+            }
+    
+    async def _process_document_simple(self, data: bytes, filename: str = "document") -> Dict[str, Any]:
+        """
+        Processamento SIMPLES de documentos via Vision AI - substitui document_processor_enhanced.py (404 linhas)
+        """
+        try:
+            import base64
+            
+            # Converter para base64
+            document_b64 = base64.b64encode(data).decode()
+            
+            # Usar Vision AI diretamente (muito mais simples que OCR/PDF parsing)
+            prompt = """
+            Analise este documento e extraia:
+            1. Tipo de documento
+            2. Conteúdo principal (texto legível)
+            3. Informações importantes (valores, datas, nomes)
+            4. Se for conta de energia: valor total e consumo
+            
+            Retorne JSON estruturado com os dados extraídos.
+            """
+            
+            # Usar Gemini diretamente para documentos também
+            import google.generativeai as genai
+            genai.configure(api_key=settings.google_api_key)
+            
+            # Para PDFs, tentar usar como imagem primeiro
+            from PIL import Image
+            from io import BytesIO
+            
+            try:
+                # Tentar abrir como imagem (para PDFs simples)
+                img = Image.open(BytesIO(data))
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content([prompt, img])
+                response_text = response.text if hasattr(response, 'text') else str(response)
+            except:
+                # Se falhar, usar apenas o texto do prompt
+                # Por agora, retornar erro estruturado
+                return {
+                    "success": False,
+                    "error": "PDF complexo requer processamento avançado",
+                    "document_type": "pdf",
+                    "content": "Não foi possível processar este PDF automaticamente. Por favor, envie uma imagem da conta."
+                }
+            
+            # Parse simples da resposta
+            import json
+            try:
+                json_start = response_text.find('{')
+                json_end = response_text.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    result = json.loads(response_text[json_start:json_end])
+                else:
+                    result = {"text_content": response_text, "document_type": "unknown"}
+            except:
+                result = {"text_content": response_text, "document_type": "text"}
+            
+            result.update({
+                "success": True,
+                "processing_method": "vision_ai_simple",
+                "filename": filename
+            })
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Erro processamento documento: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "processing_method": "vision_ai_simple"
+            }
+    
+    # Métodos auxiliares privados
+    def _calculate_duration(self, messages: List[Dict[str, Any]]) -> float:
+        """Calcula duração da conversa em horas"""
+        if len(messages) < 2:
+            return 0
+        
+        first_msg = datetime.fromisoformat(messages[0]["created_at"])
+        last_msg = datetime.fromisoformat(messages[-1]["created_at"])
+        
+        return (last_msg - first_msg).total_seconds() / 3600
+    
+    def _analyze_engagement(self, messages: List[Dict[str, Any]]) -> str:
+        """Analisa nível de engajamento do lead"""
+        if not messages:
+            return "low"
+        
+        # Calcular métricas de engajamento
+        user_messages = [m for m in messages if m.get("sender") == "user"]
+        avg_response_length = sum(len(m.get("content", "")) for m in user_messages) / max(len(user_messages), 1)
+        response_frequency = len(user_messages) / max(self._calculate_duration(messages), 1)
+        
+        if avg_response_length > 50 and response_frequency > 2:
+            return "high"
+        elif avg_response_length > 20 and response_frequency > 1:
+            return "medium"
+        else:
+            return "low"
+    
+    def _detect_intents(self, messages: List[Dict[str, Any]]) -> List[str]:
+        """Detecta intenções na conversa"""
+        intents = []
+        
+        intent_keywords = {
+            "save_money": ["economizar", "desconto", "reduzir", "conta alta"],
+            "install_solar": ["instalar", "painéis", "usina", "solar"],
+            "get_information": ["como funciona", "informações", "saber mais", "entender"],
+            "schedule_meeting": ["reunião", "agendar", "marcar", "conversar"],
+            "compare_options": ["diferença", "comparar", "melhor", "opções"]
+        }
+        
+        for msg in messages:
+            content = msg.get("content", "").lower()
+            for intent, keywords in intent_keywords.items():
+                if any(kw in content for kw in keywords) and intent not in intents:
+                    intents.append(intent)
+        
+        return intents
+    
+    def _analyze_emotional_trajectory(self, messages: List[Dict[str, Any]]) -> str:
+        """Analisa trajetória emocional da conversa"""
+        if not messages:
+            return "neutral"
+        
+        # Simplificado: análise das últimas mensagens
+        recent_messages = messages[-10:] if len(messages) > 10 else messages
+        
+        positive_count = 0
+        negative_count = 0
+        
+        for msg in recent_messages:
+            content = msg.get("content", "").lower()
+            
+            # Palavras positivas
+            if any(word in content for word in ["ótimo", "excelente", "perfeito", "adorei", "sim"]):
+                positive_count += 1
+            
+            # Palavras negativas
+            if any(word in content for word in ["não", "difícil", "caro", "problema", "dúvida"]):
+                negative_count += 1
+        
+        if positive_count > negative_count:
+            return "positive"
+        elif negative_count > positive_count:
+            return "negative"
+        else:
+            return "neutral"
+    
+    def _extract_key_topics(self, messages: List[Dict[str, Any]]) -> List[str]:
+        """Extrai tópicos principais da conversa"""
+        topics = []
+        
+        topic_keywords = {
+            "pricing": ["preço", "valor", "custo", "investimento"],
+            "savings": ["economia", "desconto", "redução"],
+            "contract": ["contrato", "prazo", "fidelidade"],
+            "installation": ["instalação", "obra", "telhado"],
+            "guarantee": ["garantia", "segurança", "risco"]
+        }
+        
+        for msg in messages:
+            content = msg.get("content", "").lower()
+            for topic, keywords in topic_keywords.items():
+                if any(kw in content for kw in keywords) and topic not in topics:
+                    topics.append(topic)
+        
+        return topics
+    
+    def _detect_qualification_signals(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Detecta sinais de qualificação do lead"""
+        signals = {
+            "bill_value": 0,
+            "has_decision_power": False,
+            "timeline_mentioned": False,
+            "budget_discussed": False,
+            "competitor_mentioned": False
+        }
+        
+        for msg in messages:
+            content = msg.get("content", "").lower()
+            
+            # Detectar valor da conta
+            import re
+            valores = re.findall(r'r\$?\s*(\d+\.?\d*)', content)
+            if valores:
+                signals["bill_value"] = max(signals["bill_value"], 
+                                           max(float(v.replace(".", "")) for v in valores))
+            
+            # Detectar poder de decisão
+            if any(word in content for word in ["eu decido", "sou o responsável", "minha empresa"]):
+                signals["has_decision_power"] = True
+            
+            # Timeline
+            if any(word in content for word in ["este mês", "urgente", "logo", "quando"]):
+                signals["timeline_mentioned"] = True
+            
+            # Budget
+            if any(word in content for word in ["orçamento", "investimento", "posso pagar"]):
+                signals["budget_discussed"] = True
+            
+            # Concorrência
+            if any(word in content for word in ["origo", "setta", "outro fornecedor"]):
+                signals["competitor_mentioned"] = True
+        
+        return signals
+    
+    def _extract_objections(self, messages: List[Dict[str, Any]]) -> List[str]:
+        """Extrai objeções mencionadas"""
+        objections = []
+        
+        objection_patterns = {
+            "price": ["muito caro", "não tenho dinheiro", "fora do orçamento"],
+            "trust": ["não confio", "é golpe", "enganação"],
+            "timing": ["não é o momento", "depois", "ano que vem"],
+            "need": ["não preciso", "não vale a pena", "satisfeito"],
+            "competitor": ["já tenho", "outro fornecedor", "contrato vigente"]
+        }
+        
+        for msg in messages:
+            content = msg.get("content", "").lower()
+            for objection_type, patterns in objection_patterns.items():
+                if any(p in content for p in patterns) and objection_type not in objections:
+                    objections.append(objection_type)
+        
+        return objections
+    
+    def _determine_decision_stage(self, messages: List[Dict[str, Any]]) -> str:
+        """Determina estágio de decisão do lead"""
+        if len(messages) < 5:
+            return "awareness"
+        
+        # Análise simplificada baseada em palavras-chave
+        recent_content = " ".join([m.get("content", "") for m in messages[-10:]])
+        
+        if any(word in recent_content.lower() for word in ["fechado", "vamos fazer", "aceito"]):
+            return "decision"
+        elif any(word in recent_content.lower() for word in ["quanto", "como funciona", "garantias"]):
+            return "consideration"
+        elif any(word in recent_content.lower() for word in ["interessante", "me conta mais"]):
+            return "interest"
+        else:
+            return "awareness"
+    
+    def _assess_urgency(self, messages: List[Dict[str, Any]], current_message: str) -> str:
+        """Avalia nível de urgência"""
+        urgency_keywords = {
+            "high": ["urgente", "agora", "hoje", "imediato"],
+            "medium": ["esta semana", "breve", "logo"],
+            "low": ["futuramente", "talvez", "vou pensar"]
+        }
+        
+        combined_text = current_message.lower() + " " + \
+                       " ".join([m.get("content", "") for m in messages[-5:]])
+        
+        for level, keywords in urgency_keywords.items():
+            if any(kw in combined_text for kw in keywords):
+                return level
+        
+        return "medium"
+    
+    def _determine_primary_context(self, analysis: Dict[str, Any]) -> str:
+        """Determina contexto principal da conversa"""
+        # Lógica de priorização baseada na análise
+        
+        if analysis.get("decision_stage") == "decision" and \
+           analysis.get("qualification_signals", {}).get("bill_value", 0) > 4000:
+            return ConversationContext.SCHEDULING_READY.value
+        
+        if len(analysis.get("objections_raised", [])) > 1:
+            return ConversationContext.OBJECTION_HANDLING.value
+        
+        if analysis.get("qualification_signals", {}).get("bill_value", 0) > 6000:
+            return ConversationContext.HIGH_VALUE_LEAD.value
+        
+        if analysis.get("lead_engagement_level") == "high" and \
+           len(analysis.get("detected_intents", [])) > 2:
+            return ConversationContext.QUALIFICATION_NEEDED.value
+        
+        if "technical" in analysis.get("key_topics", []):
+            return ConversationContext.TECHNICAL_QUESTIONS.value
+        
+        if analysis.get("conversation_duration", 0) > 24:
+            return ConversationContext.FOLLOW_UP_REQUIRED.value
+        
+        return ConversationContext.INITIAL_CONTACT.value
+    
+    def _recommend_action(self, analysis: Dict[str, Any]) -> str:
+        """Recomenda ação baseada na análise"""
+        context = analysis.get("primary_context")
+        
+        action_map = {
+            ConversationContext.SCHEDULING_READY.value: "Agendar reunião com o consultor",
+            ConversationContext.OBJECTION_HANDLING.value: "Tratar objeções com empatia e dados",
+            ConversationContext.HIGH_VALUE_LEAD.value: "Priorizar atendimento personalizado",
+            ConversationContext.QUALIFICATION_NEEDED.value: "Qualificar lead com perguntas-chave",
+            ConversationContext.TECHNICAL_QUESTIONS.value: "Fornecer informações técnicas detalhadas",
+            ConversationContext.FOLLOW_UP_REQUIRED.value: "Reengajar com oferta especial",
+            ConversationContext.INITIAL_CONTACT.value: "Iniciar rapport e descobrir necessidades"
+        }
+        
+        return action_map.get(context, "Continuar conversa naturalmente")
+    
+    async def initialize(self):
+        """Inicializa recursos do agente com fallback robusto"""
+        try:
+            # Carregar knowledge base do SUPABASE (não de arquivos locais!)
+            await self._load_knowledge_from_supabase()
+            
+            # Inicializar SDR Team se necessário (com fallback)
+            try:
+                if not self.sdr_team:
+                    from app.teams.sdr_team import create_sdr_team
+                    self.sdr_team = create_sdr_team()
+                    await self.sdr_team.initialize()
+                    emoji_logger.system_ready("SDR Team inicializado")
+            except Exception as team_error:
+                emoji_logger.system_warning(f"SDR Team não inicializado: {str(team_error)[:50]}")
+                self.sdr_team = None
+                # Continuar sem SDR Team
+            
+            self.is_initialized = True
+            emoji_logger.system_ready("AGENTIC SDR", startup_time=0.5)
+            
+        except Exception as e:
+            emoji_logger.system_error("AGENTIC SDR", f"Erro crítico na inicialização: {e}")
+            # Marcar como inicializado mesmo com erro para permitir funcionamento básico
+            self.is_initialized = True
+    
+    async def _load_knowledge_from_supabase(self):
+        """Carrega knowledge base diretamente do Supabase"""
+        try:
+            if not self.knowledge:
+                emoji_logger.system_warning("AgentKnowledge não disponível - pulando carregamento")
+                return
+            
+            emoji_logger.system_info("Carregando knowledge base do Supabase...")
+            
+            # Buscar documentos da tabela knowledge_base (usando import global)
+            
+            # Query para buscar todos os documentos ativos
+            result = supabase_client.client.table("knowledge_base").select("*").execute()
+            
+            if result.data and len(result.data) > 0:
+                # Processar cada documento
+                docs_loaded = 0
+                for doc in result.data:
+                    try:
+                        # Extrair campos do documento
+                        doc_id = doc.get("id")
+                        title = doc.get("title", "")
+                        content = doc.get("content", "")
+                        category = doc.get("category", "")
+                        tags = doc.get("tags", [])
+                        
+                        # Verificar se tem conteúdo
+                        if not content:
+                            continue
+                        
+                        # Criar texto formatado para o knowledge base
+                        formatted_text = f"""
+                        Título: {title}
+                        Categoria: {category}
+                        Tags: {', '.join(tags) if tags else 'N/A'}
+                        
+                        {content}
+                        """
+                        
+                        # Adicionar ao knowledge base usando método correto
+                        if hasattr(self.knowledge, 'load_text'):
+                            self.knowledge.load_text(
+                                text=formatted_text,
+                                metadata={
+                                    "id": doc_id,
+                                    "title": title,
+                                    "category": category,
+                                    "tags": tags,
+                                    "source": "supabase"
+                                }
+                            )
+                            docs_loaded += 1
+                        elif hasattr(self.knowledge, 'add'):
+                            self.knowledge.add(
+                                text=formatted_text,
+                                metadata={
+                                    "id": doc_id,
+                                    "title": title,
+                                    "category": category,
+                                    "tags": tags,
+                                    "source": "supabase"
+                                }
+                            )
+                            docs_loaded += 1
+                            
+                    except Exception as doc_error:
+                        emoji_logger.system_warning(f"Erro ao carregar doc {doc.get('id')}: {str(doc_error)[:50]}")
+                        continue
+                
+                emoji_logger.system_ready(f"Knowledge base carregada do Supabase", 
+                                        documents_loaded=docs_loaded,
+                                        total_documents=len(result.data))
+            else:
+                emoji_logger.system_warning("Nenhum documento encontrado na knowledge_base do Supabase")
+                
+        except Exception as e:
+            emoji_logger.system_error("Knowledge Base Loader", f"Erro ao carregar do Supabase: {str(e)[:100]}")
+            # Não lançar erro - continuar sem knowledge base
+    
+    def _generate_simple_fallback_response(self, message: str) -> str:
+        """Gera resposta simples de fallback quando agent.arun falha ou dá timeout"""
+        
+        emoji_logger.system_info("🔄 Gerando resposta de fallback...")
+        
+        # Respostas contextuais baseadas em palavras-chave
+        message_lower = message.lower()
+        
+        if any(word in message_lower for word in ['oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite']):
+            return "Oi! Vi sua mensagem sobre energia solar. Você gostaria de saber quanto pode economizar na sua conta de luz?"
+        
+        elif any(word in message_lower for word in ['quanto', 'valor', 'preço', 'preco', 'custa']):
+            return "Para calcular sua economia, preciso saber: qual o valor médio da sua conta de luz?"
+        
+        elif any(word in message_lower for word in ['economia', 'economizar', 'desconto']):
+            return "Com energia solar você pode economizar até 95% na conta de luz! Qual o valor da sua conta atual?"
+        
+        elif any(word in message_lower for word in ['sim', 'quero', 'tenho interesse']):
+            return "Ótimo! Para fazer uma proposta personalizada, me diz: quanto você paga de luz por mês?"
+        
+        elif any(word in message_lower for word in ['não', 'nao', 'depois', 'agora não']):
+            return "Sem problemas! Quando quiser saber mais sobre energia solar, estarei aqui. Até mais!"
+        
+        else:
+            # Resposta genérica
+            return "Entendi! Para te ajudar melhor com energia solar, qual o valor da sua conta de luz?"
+    
+    def _extract_name(self, message: str) -> Optional[str]:
+        """Extrai nome do lead da mensagem usando regex simples"""
+        patterns = [
+            r"meu nome é ([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)",
+            r"me chamo ([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)",
+            r"sou o?a? ([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)",
+            r"([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*), prazer"
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, message, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        
+        return None
+    
+    def _extract_email(self, message: str) -> Optional[str]:
+        """Extrai email do lead usando regex"""
+        pattern = r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
+        match = re.search(pattern, message)
+        
+        if match:
+            return match.group(0).lower()
+        
+        return None
+    
+    def _extract_document(self, message: str) -> Optional[str]:
+        """Extrai CPF ou CNPJ da mensagem"""
+        # Remove pontuação para facilitar
+        clean_msg = re.sub(r'[.\-/]', '', message)
+        
+        # CPF: 11 dígitos
+        cpf_pattern = r'\b\d{11}\b'
+        cpf_match = re.search(cpf_pattern, clean_msg)
+        if cpf_match:
+            cpf = cpf_match.group(0)
+            # Formata CPF: XXX.XXX.XXX-XX
+            return f"{cpf[:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:]}"
+        
+        # CNPJ: 14 dígitos
+        cnpj_pattern = r'\b\d{14}\b'
+        cnpj_match = re.search(cnpj_pattern, clean_msg)
+        if cnpj_match:
+            cnpj = cnpj_match.group(0)
+            # Formata CNPJ: XX.XXX.XXX/XXXX-XX
+            return f"{cnpj[:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:]}"
+        
+        return None
+    
+    def _extract_bill_value(self, message: str) -> Optional[float]:
+        """Extrai valor da conta de luz da mensagem"""
+        import re
+        
+        # Padrões para detectar valores em reais
+        # Ex: R$ 4.000, R$4000, 4000 reais, 4.000,00
+        patterns = [
+            r'r\$?\s*(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)',  # R$ 4.000,00
+            r'(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)\s*reais',  # 4.000 reais
+            r'conta.*?(\d{1,3}(?:\.\d{3})*)',  # conta de 4.000
+            r'valor.*?(\d{1,3}(?:\.\d{3})*)',  # valor 4.000
+        ]
+        
+        message_lower = message.lower()
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, message_lower, re.IGNORECASE)
+            if matches:
+                for match in matches:
+                    try:
+                        # Remove pontos de milhar e substitui vírgula por ponto
+                        value_str = match.replace('.', '').replace(',', '.')
+                        value = float(value_str)
+                        
+                        # Se o valor parece ser da conta de luz (entre 100 e 50000)
+                        if 100 <= value <= 50000:
+                            return value
+                    except ValueError:
+                        continue
+        
+        return None
+    
+    def _calculate_qualification_score(self, lead_data: Dict) -> int:
+        """Calcula score de qualificação baseado nos dados do lead"""
+        score = 0
+        
+        # Score baseado no valor da conta (máximo 50 pontos)
+        bill_value = lead_data.get('bill_value', 0) or 0
+        if bill_value >= 8000:
+            score += 50  # Conta muito alta
+        elif bill_value >= 6000:
+            score += 40  # Conta alta
+        elif bill_value >= 4000:
+            score += 30  # Conta qualificada
+        elif bill_value >= 2000:
+            score += 20  # Conta média
+        elif bill_value >= 500:
+            score += 10  # Conta baixa mas válida
+        
+        # Score baseado em tomada de decisão (20 pontos)
+        if lead_data.get('is_decision_maker'):
+            score += 20
+        
+        # Score baseado em interesse (15 pontos)
+        if lead_data.get('has_interest'):
+            score += 15
+        
+        # Score baseado em não ter sistema solar (10 pontos)
+        if not lead_data.get('has_solar_system'):
+            score += 10
+        
+        # Score baseado em não ter contrato ativo (5 pontos)  
+        if not lead_data.get('has_active_contract'):
+            score += 5
+        
+        # Garantir que o score não ultrapasse 100
+        return min(score, 100)
+    
+    def _identify_stage(self, message: str, lead_data: Dict) -> str:
+        """Identifica estágio atual baseado na conversa e dados do lead"""
+        
+        message_lower = message.lower()
+        
+        # Verificar se está qualificado
+        if lead_data:
+            # Corrigir comparação com None - garantir que bill_value é um número
+            bill_value = lead_data.get('bill_value')
+            if bill_value is None:
+                bill_value = 0
+            else:
+                # Converter para float se for string
+                try:
+                    bill_value = float(bill_value) if bill_value else 0
+                except (ValueError, TypeError):
+                    bill_value = 0
+            
+            qualificado = all([
+                bill_value > 4000,
+                lead_data.get('is_decision_maker') == True,
+                lead_data.get('has_solar_system') == False or lead_data.get('wants_new_solar_system') == True,
+                lead_data.get('has_active_contract') == False
+            ])
+            
+            if qualificado:
+                return "QUALIFICADO"
+        
+        # Identificar por palavras-chave
+        if any(word in message_lower for word in ["agendar", "reunião", "marcar", "disponibilidade", "horário"]):
+            return "REUNIAO_AGENDADA"
+        
+        elif any(word in message_lower for word in ["quanto custa", "valor", "preço", "investimento", "orçamento"]):
+            return "EM_NEGOCIACAO"
+        
+        elif any(phrase in message_lower for phrase in ["não tenho interesse", "não quero", "obrigado mas", "desisto"]):
+            return "NAO_INTERESSADO"
+        
+        elif any(word in message_lower for word in ["conta de luz", "energia", "consumo", "kwh"]):
+            return "EM_QUALIFICACAO"
+        
+        # Se não identificou, mantém o atual ou usa default
+        return lead_data.get('current_stage', 'EM_QUALIFICACAO') if lead_data else "INITIAL_CONTACT"
+    
+    async def process_message(
+        self,
+        phone: str,
+        message: str,
+        lead_data: Optional[Dict[str, Any]] = None,
+        conversation_id: Optional[str] = None,
+        media: Optional[Dict[str, Any]] = None,
+        message_id: Optional[str] = None,
+        current_emotional_state: Optional[str] = None
+    ) -> str:
+        """
+        Processa mensagem com análise contextual inteligente
+        
+        Args:
+            phone: Número do telefone
+            message: Mensagem recebida
+            lead_data: Dados do lead
+            conversation_id: ID da conversa
+            media: Mídia anexada
+            
+        Returns:
+            Resposta do AGENTIC SDR
+        """
+        # Inicializar response para evitar erro de variável não definida
+        response = None
+        
+        # DEFENSIVE PROGRAMMING: Inicializar new_emotional_state com valor padrão seguro
+        new_emotional_state = current_emotional_state or "ENTUSIASMADA"
+        
+        try:
+            emoji_logger.agentic_thinking(f"Processando mensagem de {phone}: {message[:50]}...")
+            
+            if not self.is_initialized:
+                await self.initialize()
+            
+            # EXTRAÇÃO DE DADOS E ATUALIZAÇÃO DE ESTÁGIO
+            # Extrair informações básicas da mensagem
+            nome_extraido = self._extract_name(message)
+            email_extraido = self._extract_email(message)
+            documento_extraido = self._extract_document(message)
+            bill_value_extraido = self._extract_bill_value(message)
+            
+            # Identificar novo estágio
+            novo_stage = self._identify_stage(message, lead_data or {})
+            
+            # Preparar dados para atualização
+            update_data = {}
+            if nome_extraido and (not lead_data or not lead_data.get('name')):
+                update_data['name'] = nome_extraido
+                emoji_logger.system_info(f"Nome extraído: {nome_extraido}")
+            
+            if email_extraido and (not lead_data or not lead_data.get('email')):
+                update_data['email'] = email_extraido
+                emoji_logger.system_info(f"Email extraído: {email_extraido}")
+            
+            if documento_extraido and (not lead_data or not lead_data.get('document')):
+                update_data['document'] = documento_extraido
+                emoji_logger.system_info(f"Documento extraído: {documento_extraido}")
+            
+            if bill_value_extraido and (not lead_data or not lead_data.get('bill_value')):
+                update_data['bill_value'] = bill_value_extraido
+                emoji_logger.system_info(f"💰 Valor da conta extraído: R$ {bill_value_extraido}")
+            
+            if lead_data and novo_stage != lead_data.get('current_stage'):
+                update_data['current_stage'] = novo_stage
+                emoji_logger.system_info(f"Novo estágio identificado: {novo_stage}")
+                
+                # CORREÇÃO ATÔMICA: Se o lead foi qualificado, calcular e salvar score junto
+                if novo_stage == "QUALIFICADO" and not lead_data.get('qualification_status'):
+                    # Calcular score baseado nos critérios
+                    qualification_score = self._calculate_qualification_score(lead_data)
+                    
+                    update_data['qualification_status'] = 'QUALIFIED'
+                    update_data['qualification_score'] = qualification_score
+                    emoji_logger.system_success(f"🎯 Lead qualificado com score {qualification_score}")
+                    
+                    # Salvar também na tabela de qualificações
+                    try:
+                        await supabase_client.create_lead_qualification({
+                            'lead_id': lead_data['id'],
+                            'qualification_status': 'QUALIFIED',
+                            'score': qualification_score,
+                            'criteria': {
+                                'bill_value': lead_data.get('bill_value', 0),
+                                'is_decision_maker': lead_data.get('is_decision_maker', True),
+                                'has_interest': True,
+                                'stage_identified': novo_stage
+                            },
+                            'notes': 'Lead qualificado automaticamente pelo AgenticSDR'
+                        })
+                        emoji_logger.system_success("✅ Qualificação salva na tabela leads_qualifications")
+                    except Exception as qual_error:
+                        emoji_logger.system_error("AGENTIC SDR", f"Erro ao salvar qualificação: {qual_error}")
+            
+            # Atualizar no banco se houver mudanças
+            if update_data and lead_data and lead_data.get('id'):
+                try:
+                    await supabase_client.update_lead(lead_data['id'], update_data)
+                    emoji_logger.system_success(f"✅ Lead atualizado no Supabase: {update_data}")
+                    
+                    # Atualizar lead_data local para uso posterior
+                    lead_data.update(update_data)
+                except Exception as update_error:
+                    emoji_logger.system_warning(f"Erro ao atualizar lead: {str(update_error)[:50]}")
+            
+            # 1. Tentar análise contextual (com fallback)
+            try:
+                # Verificar se a função está disponível e é callable
+                if hasattr(self, 'analyze_conversation_context') and callable(self.analyze_conversation_context):
+                    context_analysis = await self.analyze_conversation_context(phone, message)
+                else:
+                    raise AttributeError("analyze_conversation_context não está disponível")
+            except Exception as ctx_error:
+                emoji_logger.system_warning(f"Análise contextual falhou: {str(ctx_error)}")
+                # Fallback para contexto básico
+                context_analysis = {
+                    "primary_context": ConversationContext.INITIAL_CONTACT.value,
+                    "lead_engagement_level": "medium",
+                    "decision_stage": "awareness",
+                    "recommended_action": "Continuar conversa naturalmente"
+                }
+            
+            # 2. Detectar gatilhos emocionais e obter histórico (com fallback)
+            messages_history = []
+            try:
+                # VALIDAÇÃO CRÍTICA: Garantir que conversation_id é válido
+                if not conversation_id:
+                    emoji_logger.system_error("HISTÓRICO", f"❌ conversation_id é None/vazio! Lead: {lead_data}")
+                    # Tentar buscar por phone como fallback
+                    if phone:
+                        emoji_logger.system_info(f"🔄 Tentando buscar histórico por phone: {phone}")
+                        messages_history = await self.get_last_100_messages(phone)
+                    else:
+                        emoji_logger.system_error("HISTÓRICO", "❌ Nem conversation_id nem phone disponíveis!")
+                        messages_history = []
+                else:
+                    # Buscar histórico de mensagens (será usado para contexto e análise emocional)
+                    messages_history = await self.get_last_100_messages(conversation_id)
+                
+                emoji_logger.system_info(f"✅ HISTÓRICO FINAL: {len(messages_history)} mensagens carregadas")
+                emotional_triggers = await self.detect_emotional_triggers(messages_history)
+            except Exception as emo_error:
+                emoji_logger.system_warning(f"Análise emocional falhou: {str(emo_error)[:50]}")
+                emotional_triggers = {"dominant_emotion": "neutral", "enabled": False}
+            
+            # 3. Processar multimodal se necessário
+            multimodal_result = None
+            if media:
+                # Mapear mimetype para type (O SIMPLES FUNCIONA!)
+                media_type = self._get_media_type_from_mimetype(media.get("mimetype", ""))
+                multimodal_result = await self.process_multimodal_content(
+                    media_type,
+                    media.get("data", ""),
+                    media.get("caption")
+                )
+                
+                # Adicionar ao contexto
+                context_analysis["has_media"] = True
+                context_analysis["media_analysis"] = multimodal_result
+            
+            # 4. Decidir inteligentemente sobre SDR Team (com fallback)
+            try:
+                should_call, recommended_agent, reasoning = await self.should_call_sdr_team(
+                    context_analysis,
+                    message
+                )
+            except Exception as decision_error:
+                emoji_logger.system_warning(f"Decisão SDR Team falhou: {str(decision_error)[:50]}")
+                should_call = False
+                recommended_agent = None
+                reasoning = "Processamento direto devido a erro"
+            
+            # 5. Se precisar do SDR Team E contexto justificar
+            if should_call and recommended_agent and self.sdr_team:
+                try:
+                    emoji_logger.team_delegate(recommended_agent, reasoning)
+                    
+                    # Preparar contexto enriquecido para o Team
+                    enriched_context = {
+                        "phone": phone,
+                        "message": message,
+                        "lead_data": lead_data,
+                        "conversation_id": conversation_id,
+                        "context_analysis": context_analysis,
+                        "emotional_triggers": emotional_triggers,
+                        "recommended_agent": recommended_agent,
+                        "reasoning": reasoning,
+                        "multimodal_result": multimodal_result
+                    }
+                    
+                    # Chamar SDR Team com contexto completo
+                    team_response = await self.sdr_team.process_message_with_context(
+                        enriched_context
+                    )
+                    
+                    # AGENTIC SDR ainda personaliza a resposta final
+                    response = await self._personalize_team_response(
+                        team_response,
+                        emotional_triggers,
+                        new_emotional_state
+                    )
+                except Exception as team_error:
+                    emoji_logger.system_warning(f"SDR Team falhou: {str(team_error)[:50]}")
+                    # Fallback para resposta direta
+                    response = None
+                
+            # Se não tem resposta do Team ou não chamou Team
+            if not response:
+                # 6. AGENTIC SDR resolve sozinha (90% dos casos)
+                emoji_logger.agentic_thinking("Processando mensagem diretamente")
+                
+                try:
+                    # Formatar contexto com função SIMPLES (substitui agno_context_agent.py)
+                    context_result = self._format_context_simple(
+                        message_history=messages_history or [],
+                        multimodal_result=multimodal_result,
+                        phone=phone
+                    )
+                    
+                    # AGNO Framework já formatou multimodal + histórico no formatted_history
+                    formatted_history = context_result.get('formatted_history', '')
+                    
+                    # DEBUG: Verificar se multimodal foi incluído no contexto
+                    if context_result.get('has_multimodal'):
+                        emoji_logger.system_info("✅ Análise multimodal incluída no contexto formatado")
+                        emoji_logger.system_debug(f"Primeiras 500 chars do contexto: {formatted_history[:500]}...")
+                    
+                    # Preparar prompt com contexto completo AGNO-enhanced
+                    contextual_prompt = f"""
+                    CONTEXTO DO LEAD:
+                    - Nome: {lead_data.get('name', 'Não informado') if lead_data else 'Não informado'}
+                    - Telefone: {phone}
+                    - Estágio: {lead_data.get('current_stage', 'INITIAL_CONTACT') if lead_data else 'INITIAL_CONTACT'}
+                    - Status: {lead_data.get('qualification_status', 'PENDING') if lead_data else 'PENDING'}
+                    
+                    {formatted_history}
+                    
+                    MENSAGEM ATUAL DO CLIENTE: {message}
+                    """
+                    
+                    # Se tem resultado multimodal, adicionar informações EXPLICITAMENTE
+                    if multimodal_result and not multimodal_result.get('error'):
+                        media_type = multimodal_result.get('type')
+                        
+                        if media_type == 'audio' and multimodal_result.get('transcription'):
+                            contextual_prompt += f"""
+                    
+                    🎤 TRANSCRIÇÃO DO ÁUDIO RECEBIDO:
+                    "{multimodal_result.get('transcription')}"
+                    (Duração: {multimodal_result.get('duration', 0)}s)
+                    
+                    IMPORTANTE: Use a transcrição acima como o conteúdo real da mensagem do cliente, não a mensagem genérica.
+                    """
+                        
+                        elif media_type in ['image', 'bill_image']:  # CORREÇÃO: Aceitar bill_image
+                            contextual_prompt += f"""
+                    
+                    📸 IMAGEM RECEBIDA - ANÁLISE:
+                    {multimodal_result.get('content', 'Análise não disponível')}
+                    
+                    """
+                            # CORREÇÃO: Verificar tanto is_bill quanto type=='bill_image'
+                            if multimodal_result.get('is_bill') or multimodal_result.get('type') == 'bill_image':
+                                contextual_prompt += f"""
+                    💡 CONTA DE LUZ DETECTADA:
+                    - Valor mensal: R$ {multimodal_result.get('bill_amount', 0):.2f}
+                    - Consumo: {multimodal_result.get('consumption', 'N/A')} kWh
+                    - Concessionária: {multimodal_result.get('provider', 'N/A')}
+                    """
+                        
+                        elif media_type == 'pdf':
+                            contextual_prompt += f"""
+                    
+                    📄 DOCUMENTO PDF RECEBIDO:
+                    Arquivo: {multimodal_result.get('filename', 'documento.pdf')}
+                    
+                    Conteúdo extraído:
+                    {multimodal_result.get('content', 'Conteúdo não disponível')[:1000]}
+                    """
+                            if len(multimodal_result.get('content', '')) > 1000:
+                                contextual_prompt += "\n[... documento truncado para contexto]"
+                    
+                    contextual_prompt += f"""
+                    
+                    Análise Contextual:
+                    - Contexto Principal: {context_analysis.get('primary_context')}
+                    - Engajamento: {context_analysis.get('lead_engagement_level')}
+                    - Estágio: {context_analysis.get('decision_stage')}
+                    - Ação Recomendada: {context_analysis.get('recommended_action')}
+                    
+                    Estado Emocional do Lead:
+                    - Emoção Dominante: {emotional_triggers.get('dominant_emotion')}
+                    - Urgência: {context_analysis.get('urgency_level')}
+                    
+                    IMPORTANTE: Se uma análise de imagem foi fornecida acima, USE ESSAS INFORMAÇÕES NA SUA RESPOSTA!
+                    Por exemplo, se detectamos uma conta de luz com valor, MENCIONE O VALOR DETECTADO.
+                    
+                    Responda de forma natural, empática e personalizada, levando em conta todo o contexto e histórico da conversa.
+                    """
+                    
+                    # Usar reasoning APENAS para casos complexos
+                    # Determinar se a mensagem atual é complexa
+                    is_complex = self._is_complex_message(message)
+                    
+                    # Debug: Log do prompt sendo enviado
+                    emoji_logger.system_info(f"📝 Prompt para o agente (primeiros 500 chars): {contextual_prompt[:500]}...")
+                    emoji_logger.system_info(f"📏 Tamanho do prompt: {len(contextual_prompt)} caracteres")
+                    
+                    # Debug: Verificar se multimodal foi incluído
+                    if multimodal_result and 'content' in multimodal_result:
+                        emoji_logger.system_info(f"✅ Multimodal incluído no prompt: {multimodal_result.get('content', '')[:200]}...")
+                    else:
+                        emoji_logger.system_info("❌ Nenhum resultado multimodal incluído no prompt")
+                    
+                    # Debug adicional: verificar se multimodal_result foi incluído
+                    if multimodal_result and not multimodal_result.get('error'):
+                        emoji_logger.system_info(f"🖼️ Multimodal incluído no prompt: tipo={multimodal_result.get('type')}, tem conteúdo={bool(multimodal_result.get('content'))}")
+                    
+                    # Timeout para evitar travamento
+                    AGENT_TIMEOUT = 30  # segundos
+                    
+                    if self.reasoning_enabled and is_complex:
+                        emoji_logger.agentic_thinking(f"Mensagem complexa detectada, ativando reasoning mode")
+                        # Usar reasoning model para perguntas complexas
+                        try:
+                            emoji_logger.system_info(f"🚀 Chamando agent.arun com timeout de {AGENT_TIMEOUT}s (modo complexo)...")
+                            if hasattr(self, 'reasoning_model'):
+                                result = await asyncio.wait_for(
+                                    self.agent.arun(contextual_prompt),
+                                    timeout=AGENT_TIMEOUT
+                                )
+                            else:
+                                result = await asyncio.wait_for(
+                                    self.agent.arun(contextual_prompt),
+                                    timeout=AGENT_TIMEOUT
+                                )
+                            emoji_logger.system_info("✅ agent.arun completou com sucesso (modo complexo)")
+                        except asyncio.TimeoutError:
+                            emoji_logger.system_error("Agent Timeout", f"❌ Timeout em agent.arun após {AGENT_TIMEOUT}s (modo complexo)")
+                            result = None
+                        except Exception as e:
+                            emoji_logger.system_error("Agent Error", f"❌ Erro em agent.arun (modo complexo): {str(e)}")
+                            result = None
+                    else:
+                        # Mensagem simples - resposta direta sem reasoning
+                        emoji_logger.agentic_thinking(f"Mensagem simples, resposta direta")
+                        
+                        # Debug: Log antes de chamar o agente
+                        emoji_logger.system_info("🚀 Preparando para chamar agent.arun...")
+                        emoji_logger.system_info(f"📝 Agent tem instructions? {bool(self.agent.instructions)}")
+                        emoji_logger.system_info(f"📝 Agent tem memory? {bool(self.agent.memory)}")
+                        emoji_logger.system_info(f"📝 Agent tem model? {bool(self.agent.model)}")
+                        
+                        try:
+                            emoji_logger.system_info(f"🚀 Chamando agent.arun com timeout de {AGENT_TIMEOUT}s...")
+                            
+                            # PROTEÇÃO EXTRA: Verificar se agent está pronto
+                            if not self.agent or not hasattr(self.agent, 'arun'):
+                                emoji_logger.system_error("Agent State", "❌ Agent não está pronto ou não tem método arun")
+                                result = self._generate_simple_fallback_response(message)
+                            else:
+                                # Criar task para poder cancelar se necessário
+                                agent_task = asyncio.create_task(self.agent.arun(contextual_prompt))
+                                
+                                try:
+                                    result = await asyncio.wait_for(agent_task, timeout=AGENT_TIMEOUT)
+                                    emoji_logger.system_info("✅ agent.arun completou com sucesso")
+                                except asyncio.TimeoutError:
+                                    # Cancelar task se ainda estiver rodando
+                                    agent_task.cancel()
+                                    try:
+                                        await agent_task
+                                    except asyncio.CancelledError:
+                                        pass
+                                    raise
+                        except asyncio.TimeoutError:
+                            emoji_logger.system_error("Agent Timeout", f"❌ Timeout em agent.arun após {AGENT_TIMEOUT}s")
+                            # Tentar gerar resposta de fallback
+                            try:
+                                emoji_logger.system_info("🔄 Tentando gerar resposta de fallback...")
+                                result = self._generate_simple_fallback_response(message)
+                            except Exception as fallback_error:
+                                emoji_logger.system_error("Fallback Error", f"❌ Falha no fallback: {str(fallback_error)}")
+                                result = None
+                        except Exception as arun_error:
+                            emoji_logger.system_error("Agent Error", f"❌ Erro em agent.arun: {str(arun_error)}")
+                            import traceback
+                            emoji_logger.system_error("Stack Trace", f"Stack trace: {traceback.format_exc()}")
+                            result = None
+                    
+                    # Debug: Log do resultado recebido
+                    emoji_logger.system_info(f"🔍 Tipo do result: {type(result)}")
+                    emoji_logger.system_info(f"🔍 result tem content? {hasattr(result, 'content')}")
+                    if hasattr(result, '__dict__'):
+                        emoji_logger.system_info(f"🔍 Atributos do result: {list(result.__dict__.keys())}")
+                    else:
+                        emoji_logger.system_info(f"🔍 result como string: {str(result)[:200]}...")
+                    
+                    # Debug adicional para entender o resultado
+                    if result:
+                        emoji_logger.system_info(f"📋 Result não é None, tipo: {type(result).__name__}")
+                    else:
+                        emoji_logger.system_warning("⚠️ Result é None ou vazio!")
+                    
+                    # Extrair conteúdo da resposta
+                    if hasattr(result, 'content') and result.content is not None:
+                        raw_response = result.content
+                    elif hasattr(result, 'text') and result.text is not None:
+                        raw_response = result.text
+                    elif hasattr(result, 'message') and result.message is not None:
+                        raw_response = result.message
+                    elif isinstance(result, dict):
+                        raw_response = result.get('content') or result.get('text') or result.get('message') or str(result)
+                    else:
                         raw_response = str(result)
                     
                     # Debug: Log do conteúdo extraído
