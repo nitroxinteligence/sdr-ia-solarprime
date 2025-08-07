@@ -30,6 +30,55 @@ message_splitter = None
 # Instância do detector AGNO para validação de mídia
 agno_detector = AGNOMediaDetector()
 
+def sanitize_final_response(text: str) -> str:
+    """
+    Sanitiza agressivamente o texto final para garantir conformidade total 
+    com as regras de formatação do WhatsApp, removendo todo o markdown e emojis.
+    
+    Args:
+        text: Texto a ser sanitizado
+        
+    Returns:
+        Texto limpo sem formatação incorreta
+    """
+    if not isinstance(text, str):
+        return ""
+
+    # 1. Remover emojis (padrão Unicode abrangente)
+    emoji_pattern = re.compile("["
+                               u"\U0001f600-\U0001f64f"  # emoticons
+                               u"\U0001f300-\U0001f5ff"  # symbols & pictographs
+                               u"\U0001f680-\U0001f6ff"  # transport & map symbols
+                               u"\U0001f1e0-\U0001f1ff"  # flags (ios)
+                               u"\u2600-\u26ff"          # miscellaneous symbols
+                               u"\u2700-\u27bf"          # dingbats
+                               u"\u2300-\u23ff"          # misc technical
+                               u"\ufe0f"                # variation selector
+                               u"\u200d"                # zero width joiner
+                               "]+", flags=re.UNICODE)
+    text = emoji_pattern.sub(r'', text)
+
+    # 2. Remover todo o markdown (negrito duplo, itálico, etc.)
+    # Remove **, *, _, __, ~, `, etc.
+    text = re.sub(r'\*{2,}', '', text)  # Remove ** (markdown duplo)
+    text = re.sub(r'[_~`]', '', text)   # Remove outros markdowns
+
+    # 3. Remover enumerações e juntar linhas
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # Remove padrões como "1. ", "- ", "* " no início da linha
+        cleaned_line = re.sub(r'^\s*\d+\.\s*|^\s*[-*]\s*', '', line.strip())
+        if cleaned_line:
+            cleaned_lines.append(cleaned_line)
+    
+    text = ' '.join(cleaned_lines)
+
+    # 4. Remover espaços duplos e limpar
+    text = ' '.join(text.split())
+
+    return text.strip()
+
 def extract_final_response(full_response: str) -> str:
     """
     Extrai apenas a resposta final das tags <RESPOSTA_FINAL>
@@ -845,6 +894,9 @@ async def process_message_with_agent(
         # Obter estado emocional atual da conversa
         current_emotional_state = await supabase_client.get_conversation_emotional_state(conversation["id"])
         
+        # Variável para capturar erro do agente
+        agent_error = None
+        
         try:
             response = await agentic.process_message(
                 phone=phone,
@@ -872,16 +924,15 @@ async def process_message_with_agent(
             response_text = extract_final_response(response_text)
             # ======================================
             
-            # ===== SANITIZAÇÃO DE QUEBRAS DE LINHA =====
-            # Garante que não haverá quebras de linha, substituindo-as por espaços
-            response_text = response_text.replace('\n', ' ').replace('\r', ' ').strip()
-            # Remove espaços múltiplos que podem ter sido criados
-            response_text = ' '.join(response_text.split())
-            # ============================================
+            # ===== SANITIZAÇÃO AGRESSIVA (CAMADA 2 CRÍTICA) =====
+            # Remove emojis, markdown duplo, enumerações e formata para WhatsApp
+            response_text = sanitize_final_response(response_text)
+            # ==================================================
             
             emoji_logger.webhook_process(f"Resposta recebida do AGENTIC SDR: {response_text[:100] if response_text else 'NENHUMA'}...")
             
-        except Exception as agent_error:
+        except Exception as e:
+            agent_error = e  # Captura o erro para uso posterior
             emoji_logger.system_error("AGENTIC SDR", f"Erro ao processar: {agent_error}")
             
             # RETRY INTELIGENTE: Tentar novamente com nova instância
@@ -932,12 +983,10 @@ async def process_message_with_agent(
             response_text = extract_final_response(response_text)
             # ======================================
             
-            # ===== SANITIZAÇÃO DE QUEBRAS DE LINHA =====
-            # Garante que não haverá quebras de linha, substituindo-as por espaços
-            response_text = response_text.replace('\n', ' ').replace('\r', ' ').strip()
-            # Remove espaços múltiplos que podem ter sido criados
-            response_text = ' '.join(response_text.split())
-            # ============================================
+            # ===== SANITIZAÇÃO AGRESSIVA (CAMADA 2 CRÍTICA) =====
+            # Remove emojis, markdown duplo, enumerações e formata para WhatsApp
+            response_text = sanitize_final_response(response_text)
+            # ==================================================
                 
             emoji_logger.webhook_process(f"Enviando resposta para {phone}")
             
@@ -1024,16 +1073,17 @@ async def process_message_with_agent(
             if media_data and settings.delay_after_media > 0:
                 await asyncio.sleep(settings.delay_after_media)
             
-            # Salva resposta no banco
+            # Salva resposta no banco (usando texto sanitizado)
             await supabase_client.save_message({
                 "conversation_id": conversation["id"],
-                "content": response,
+                "content": response_text,  # CORREÇÃO: Usar texto sanitizado em vez do response bruto
                 "role": "assistant",  # Campo obrigatório
                 "sender": "assistant",
                 "media_data": {  # Usar media_data em vez de metadata
                     "agent": "agentic_sdr",
                     "context_analyzed": True,
-                    "messages_analyzed": 100
+                    "messages_analyzed": 100,
+                    "sanitized": True  # Marcador de que o texto foi sanitizado
                 }
             })
             
@@ -1051,19 +1101,22 @@ async def process_message_with_agent(
             emoji_logger.system_warning(f"Nenhuma resposta gerada para {phone} após todas as tentativas")
             
             # Resposta contextual inteligente baseada no erro
-            if last_error and evolution_client:
+            if agent_error and evolution_client:
                 contextual_response = None
                 
-                if "timeout" in str(last_error).lower():
+                if "timeout" in str(agent_error).lower():
                     contextual_response = "Oi! Vi sua mensagem... só um minutinho que te respondo"
-                elif "rate" in str(last_error).lower() or "limit" in str(last_error).lower():
+                elif "rate" in str(agent_error).lower() or "limit" in str(agent_error).lower():
                     contextual_response = "Nossa, muita gente interessada em energia solar agora! Me dá uns minutinhos que já te respondo"
-                elif "connection" in str(last_error).lower():
+                elif "connection" in str(agent_error).lower():
                     contextual_response = "Eu não entendi rs. Pode explicar sua pergunta?"
                 
                 # Envia resposta contextual se disponível
                 if contextual_response:
                     try:
+                        # Sanitizar resposta contextual por segurança
+                        contextual_response = sanitize_final_response(contextual_response)
+                        
                         # CORREÇÃO: Usar método correto do evolution_client
                         await evolution_client.send_text_message(
                             phone,
@@ -1106,12 +1159,10 @@ async def process_message_with_agent(
                 response_text = extract_final_response(response_text)
                 # ======================================
                 
-                # ===== SANITIZAÇÃO DE QUEBRAS DE LINHA =====
-                # Garante que não haverá quebras de linha, substituindo-as por espaços
-                response_text = response_text.replace('\n', ' ').replace('\r', ' ').strip()
-                # Remove espaços múltiplos que podem ter sido criados
-                response_text = ' '.join(response_text.split())
-                # ============================================
+                # ===== SANITIZAÇÃO AGRESSIVA (CAMADA 2 CRÍTICA) =====
+                # Remove emojis, markdown duplo, enumerações e formata para WhatsApp
+                response_text = sanitize_final_response(response_text)
+                # ==================================================
                     
                 if response_text:
                     # CORREÇÃO: Usar método correto do evolution_client

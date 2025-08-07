@@ -255,8 +255,8 @@ class KommoAutoSyncService:
         # Tag base para todos os leads do WhatsApp
         tags.extend(self.auto_tags["new_lead"])
         
-        # Tag de temperatura baseada no score
-        qualification_score = lead.get("qualification_score") or 0
+        # Tag de temperatura baseada no score (CORREÇÃO: uso seguro para evitar NoneType error)
+        qualification_score = safe_int_conversion(lead.get("qualification_score"), 0)
         if qualification_score >= 70:
             tags.extend(self.auto_tags["hot"])  # lead-quente
         elif qualification_score >= 40:
@@ -430,6 +430,12 @@ class KommoAutoSyncService:
     async def _create_deal_for_qualified_lead(self, lead: Dict[str, Any]):
         """Cria deal para lead qualificado"""
         try:
+            # VALIDAÇÃO: Verificar se o lead tem score válido antes de prosseguir
+            score = lead.get('qualification_score')
+            if score is None:
+                logger.warning(f"🚨 Lead {lead.get('id')} está qualificado mas não tem score. Pulando criação do deal por agora.")
+                return  # Sai da função se o score não existir
+            
             kommo_id = lead.get("kommo_lead_id")
             if not kommo_id:
                 # Primeiro sincronizar o lead
@@ -452,8 +458,8 @@ class KommoAutoSyncService:
                     # Adicionar tags de qualificado
                     qualified_tags = ["qualificado-ia"]
                     
-                    # Adicionar tag de temperatura baseada no score
-                    score = lead.get('qualification_score', 0)
+                    # Adicionar tag de temperatura baseada no score (CORREÇÃO: uso seguro)
+                    score = safe_int_conversion(lead.get('qualification_score'), 0)
                     if score >= 70:
                         qualified_tags.append("lead-quente")
                     elif score >= 40:

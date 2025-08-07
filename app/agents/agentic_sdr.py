@@ -2454,6 +2454,42 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         
         return None
     
+    def _calculate_qualification_score(self, lead_data: Dict) -> int:
+        """Calcula score de qualificação baseado nos dados do lead"""
+        score = 0
+        
+        # Score baseado no valor da conta (máximo 50 pontos)
+        bill_value = lead_data.get('bill_value', 0) or 0
+        if bill_value >= 8000:
+            score += 50  # Conta muito alta
+        elif bill_value >= 6000:
+            score += 40  # Conta alta
+        elif bill_value >= 4000:
+            score += 30  # Conta qualificada
+        elif bill_value >= 2000:
+            score += 20  # Conta média
+        elif bill_value >= 500:
+            score += 10  # Conta baixa mas válida
+        
+        # Score baseado em tomada de decisão (20 pontos)
+        if lead_data.get('is_decision_maker'):
+            score += 20
+        
+        # Score baseado em interesse (15 pontos)
+        if lead_data.get('has_interest'):
+            score += 15
+        
+        # Score baseado em não ter sistema solar (10 pontos)
+        if not lead_data.get('has_solar_system'):
+            score += 10
+        
+        # Score baseado em não ter contrato ativo (5 pontos)  
+        if not lead_data.get('has_active_contract'):
+            score += 5
+        
+        # Garantir que o score não ultrapasse 100
+        return min(score, 100)
+    
     def _identify_stage(self, message: str, lead_data: Dict) -> str:
         """Identifica estágio atual baseado na conversa e dados do lead"""
         
@@ -2564,6 +2600,33 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             if lead_data and novo_stage != lead_data.get('current_stage'):
                 update_data['current_stage'] = novo_stage
                 emoji_logger.system_info(f"Novo estágio identificado: {novo_stage}")
+                
+                # CORREÇÃO ATÔMICA: Se o lead foi qualificado, calcular e salvar score junto
+                if novo_stage == "QUALIFICADO" and not lead_data.get('qualification_status'):
+                    # Calcular score baseado nos critérios
+                    qualification_score = self._calculate_qualification_score(lead_data)
+                    
+                    update_data['qualification_status'] = 'QUALIFIED'
+                    update_data['qualification_score'] = qualification_score
+                    emoji_logger.system_success(f"🎯 Lead qualificado com score {qualification_score}")
+                    
+                    # Salvar também na tabela de qualificações
+                    try:
+                        await supabase_client.create_lead_qualification({
+                            'lead_id': lead_data['id'],
+                            'qualification_status': 'QUALIFIED',
+                            'score': qualification_score,
+                            'criteria': {
+                                'bill_value': lead_data.get('bill_value', 0),
+                                'is_decision_maker': lead_data.get('is_decision_maker', True),
+                                'has_interest': True,
+                                'stage_identified': novo_stage
+                            },
+                            'notes': 'Lead qualificado automaticamente pelo AgenticSDR'
+                        })
+                        emoji_logger.system_success("✅ Qualificação salva na tabela leads_qualifications")
+                    except Exception as qual_error:
+                        emoji_logger.system_error(f"Erro ao salvar qualificação: {qual_error}")
             
             # Atualizar no banco se houver mudanças
             if update_data and lead_data and lead_data.get('id'):
