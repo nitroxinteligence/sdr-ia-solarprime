@@ -255,7 +255,20 @@ class IntelligentModelFallback:
                 # Executar run() síncrono em thread para não bloquear
                 response = await asyncio.to_thread(temp_agent.run, message, **kwargs)
             
-            return response
+            # CORREÇÃO: Extrair conteúdo do RunResponse se necessário
+            if hasattr(response, 'content') and response.content is not None:
+                return response.content
+            elif hasattr(response, 'text') and response.text is not None:
+                return response.text
+            elif hasattr(response, 'message') and response.message is not None:
+                return response.message
+            elif isinstance(response, str):
+                return response
+            else:
+                # Se for dict ou outro tipo, tentar extrair conteúdo
+                if isinstance(response, dict):
+                    return response.get('content') or response.get('text') or response.get('message') or str(response)
+                return str(response)
             
         raise Exception("Modelo primário Gemini não disponível")
     
@@ -301,7 +314,20 @@ class IntelligentModelFallback:
                 if attempt > 0:
                     emoji_logger.system_ready(f"✅ Gemini recuperado após {attempt + 1} tentativa(s)")
                 
-                return response
+                # CORREÇÃO: Extrair conteúdo do RunResponse se necessário
+                if hasattr(response, 'content') and response.content is not None:
+                    return response.content
+                elif hasattr(response, 'text') and response.text is not None:
+                    return response.text
+                elif hasattr(response, 'message') and response.message is not None:
+                    return response.message
+                elif isinstance(response, str):
+                    return response
+                else:
+                    # Se for dict ou outro tipo, tentar extrair conteúdo
+                    if isinstance(response, dict):
+                        return response.get('content') or response.get('text') or response.get('message') or str(response)
+                    return str(response)
                 
             except Exception as e:
                 last_error = e
@@ -3157,15 +3183,16 @@ Retorne em formato estruturado:
                                     emoji_logger.system_info(f"✅ Conteúdo extraído de messages[{i}]: tipo={type(raw_response).__name__}, tamanho={len(str(raw_response)) if raw_response else 0}")
                                     if raw_response and str(raw_response).strip():  # Garantir que não está vazio
                                         break
-                    # 3. Outros atributos
-                    elif hasattr(result, 'text') and result.text:
-                        raw_response = result.text
-                    elif hasattr(result, 'message') and result.message:
-                        raw_response = result.message
-                    elif isinstance(result, dict):
-                        raw_response = result.get('content') or result.get('text') or str(result)
-                    else:
-                        raw_response = str(result)
+                    # 3. Outros atributos - APENAS se ainda não extraímos nada
+                    if not raw_response or raw_response == "":
+                        if hasattr(result, 'text') and result.text:
+                            raw_response = result.text
+                        elif hasattr(result, 'message') and result.message:
+                            raw_response = result.message
+                        elif isinstance(result, dict):
+                            raw_response = result.get('content') or result.get('text') or str(result)
+                        else:
+                            raw_response = str(result)
                     
                     # Debug: Log do conteúdo extraído
                     emoji_logger.system_info(f"📄 raw_response tipo: {type(raw_response).__name__ if raw_response else 'None'}")
