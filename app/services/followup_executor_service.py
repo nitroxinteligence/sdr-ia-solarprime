@@ -5,7 +5,7 @@ Executa follow-ups e lembretes agendados no banco de dados
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 import json
 
@@ -104,7 +104,7 @@ class FollowUpExecutorService:
         Busca follow-ups com scheduled_at <= agora e status = pending
         """
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             
             # Buscar follow-ups pendentes
             result = self.db.client.table('follow_ups').select("*").eq(
@@ -129,7 +129,7 @@ class FollowUpExecutorService:
         Processa lembretes de reunião da tabela follow_ups
         """
         try:
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             
             # Verificar se Google Calendar está habilitado
             if settings.disable_google_calendar:
@@ -250,7 +250,7 @@ class FollowUpExecutorService:
                         # Usuário respondeu, cancelar este follow-up
                         self.db.client.table('follow_ups').update({
                             'status': 'cancelled',
-                            'executed_at': datetime.now().isoformat(),
+                            'executed_at': datetime.now(timezone.utc).isoformat(),
                             'response': json.dumps({'reason': 'user_responded_before_followup'})
                         }).eq('id', followup['id']).execute()
                         
@@ -277,7 +277,7 @@ class FollowUpExecutorService:
                     # Marcar como executado
                     self.db.client.table('follow_ups').update({
                         'status': 'executed',
-                        'executed_at': datetime.now().isoformat(),
+                        'executed_at': datetime.now(timezone.utc).isoformat(),
                         'response': json.dumps({'evolution_result': result})
                     }).eq('id', followup['id']).execute()
                     
@@ -317,7 +317,7 @@ class FollowUpExecutorService:
             
             # Extrair informações do evento
             start_str = google_event.get('start', {}).get('dateTime', '')
-            start_time = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+            start_time = self._parse_datetime(start_str)
             
             # Local da reunião (online ou presencial)
             location = google_event.get('location', 'Online')
@@ -370,12 +370,12 @@ class FollowUpExecutorService:
             if hours_before == 24:
                 self.db.client.table('leads_qualifications').update({
                     'reminder_24h_sent': True,
-                    'reminder_24h_sent_at': datetime.now().isoformat()
+                    'reminder_24h_sent_at': datetime.now(timezone.utc).isoformat()
                 }).eq('id', qualification_id).execute()
             elif hours_before == 2:
                 self.db.client.table('leads_qualifications').update({
                     'reminder_2h_sent': True,
-                    'reminder_2h_sent_at': datetime.now().isoformat()
+                    'reminder_2h_sent_at': datetime.now(timezone.utc).isoformat()
                 }).eq('id', qualification_id).execute()
             
             # SANITIZAÇÃO FINAL - Remove qualquer tag remanescente
@@ -427,9 +427,10 @@ class FollowUpExecutorService:
             savings_value = bill_value * 0.3  # 30% de economia
             
             # Calcular dias desde criação
-            created_at = lead.get('created_at', datetime.now().isoformat())
+            created_at = lead.get('created_at', datetime.now(timezone.utc).isoformat())
             if created_at:
-                days_since = (datetime.now() - datetime.fromisoformat(created_at)).days
+                created_dt = self._parse_datetime(created_at)
+                days_since = (datetime.now(timezone.utc) - created_dt).days
             else:
                 days_since = 0
             
@@ -527,7 +528,7 @@ class FollowUpExecutorService:
                 'priority': priority,
                 'message': message,
                 'attempt': attempt,
-                'created_at': datetime.now().isoformat()
+                'created_at': datetime.now(timezone.utc).isoformat()
             }
             
             self.db.client.table('follow_ups').insert(followup_data).execute()
@@ -541,7 +542,7 @@ class FollowUpExecutorService:
         try:
             self.db.client.table('follow_ups').update({
                 'status': 'failed',
-                'failed_at': datetime.now().isoformat(),
+                'failed_at': datetime.now(timezone.utc).isoformat(),
                 'error_reason': reason
             }).eq('id', followup_id).execute()
             
@@ -568,8 +569,8 @@ class FollowUpExecutorService:
                 logger.warning(f"Follow-up {followup['id']} sem metadados necessários para validação")
                 return True  # Se não temos dados, enviar o follow-up mesmo assim
             
-            # Converter timestamp para datetime
-            agent_response_time = datetime.fromisoformat(agent_response_timestamp)
+            # Converter timestamp para datetime (garantir timezone-aware)
+            agent_response_time = self._parse_datetime(agent_response_timestamp)
             
             # Buscar última mensagem do usuário na conversa (sender='user')
             result = self.db.client.table('messages').select(
@@ -588,7 +589,7 @@ class FollowUpExecutorService:
                 return True
             
             last_user_message = result.data[0]
-            last_user_message_time = datetime.fromisoformat(last_user_message['created_at'])
+            last_user_message_time = self._parse_datetime(last_user_message['created_at'])
             
             # Verificar se usuário respondeu APÓS a resposta do agente que gerou este follow-up
             if last_user_message_time > agent_response_time:
@@ -602,6 +603,25 @@ class FollowUpExecutorService:
         except Exception as e:
             logger.error(f"❌ Erro ao validar inatividade do follow-up: {e}")
             return True  # Em caso de erro, enviar o follow-up mesmo assim
+    
+    def _parse_datetime(self, datetime_str: str) -> datetime:
+        """
+        Converte string para datetime garantindo timezone awareness
+        Lida com diferentes formatos que podem vir do banco
+        """
+        try:
+            # Tentar parse com fromisoformat
+            dt = datetime.fromisoformat(datetime_str.replace('Z', '+00:00'))
+            
+            # Se o datetime é naive (sem timezone), assumir UTC
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            
+            return dt
+        except Exception as e:
+            logger.warning(f"Erro ao fazer parse de datetime '{datetime_str}': {e}")
+            # Fallback: retornar datetime atual em UTC
+            return datetime.now(timezone.utc)
     
     async def _generate_intelligent_message(self, followup_type: str, lead: Dict, followup: Dict) -> Optional[str]:
         """
