@@ -112,7 +112,16 @@ def extract_final_response(full_response: str) -> str:
             ]
             
             response_lower = final_response.lower()
-            contains_forbidden = any(term in response_lower for term in forbidden_terms)
+            
+            # CORREÇÃO: Usar regex para detectar palavras completas, não substrings
+            import re
+            contains_forbidden = False
+            for term in forbidden_terms:
+                # \b marca limites de palavra para evitar falsos positivos
+                pattern = r'\b' + re.escape(term) + r'\b'
+                if re.search(pattern, response_lower):
+                    contains_forbidden = True
+                    break
             
             if contains_forbidden:
                 emoji_logger.system_warning("🚨 ALERTA: Resposta contém solicitação de dados proibidos!")

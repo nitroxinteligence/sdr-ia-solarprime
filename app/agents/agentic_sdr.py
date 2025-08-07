@@ -2791,7 +2791,7 @@ Retorne em formato estruturado:
                     # DEBUG: Verificar se multimodal foi incluído no contexto
                     if context_result.get('has_multimodal'):
                         emoji_logger.system_info("✅ Análise multimodal incluída no contexto formatado")
-                        emoji_logger.debug(f"Primeiras 500 chars do contexto: {formatted_history[:500]}...")
+                        emoji_logger.system_debug(f"Primeiras 500 chars do contexto: {formatted_history[:500]}...")
                     
                     # Preparar prompt com contexto completo AGNO-enhanced
                     contextual_prompt = f"""
@@ -2997,7 +2997,16 @@ Retorne em formato estruturado:
                     ]
                     
                     response_lower = response.lower()
-                    contains_forbidden = any(term in response_lower for term in forbidden_terms)
+                    
+                    # CORREÇÃO: Usar regex para detectar palavras completas, não substrings
+                    import re
+                    contains_forbidden = False
+                    for term in forbidden_terms:
+                        # \b marca limites de palavra para evitar falsos positivos
+                        pattern = r'\b' + re.escape(term) + r'\b'
+                        if re.search(pattern, response_lower):
+                            contains_forbidden = True
+                            break
                     
                     if contains_forbidden:
                         emoji_logger.system_warning("🚨 ALERTA: Resposta contém solicitação de dados proibidos!")
