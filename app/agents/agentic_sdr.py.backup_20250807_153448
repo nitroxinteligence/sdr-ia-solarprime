@@ -763,14 +763,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             Lista com últimas 100 mensagens
         """
         
-        # LOG CRÍTICO: Rastrear todas as chamadas
-        emoji_logger.system_info(f"🔍 HISTÓRICO: Buscando mensagens para identifier={identifier}")
-        
-        # Validação de entrada
-        if not identifier:
-            emoji_logger.system_error("HISTÓRICO", "❌ Identifier vazio ou None!")
-            return []
-        
         try:
             # VALIDAÇÃO: Verificar se identifier é válido
             if not identifier:
@@ -808,17 +800,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             messages = response.data if response.data else []
             
             # Log detalhado para debug
-            emoji_logger.system_info(f"📊 QUERY EXECUTADA:")
-            emoji_logger.system_info(f"  • Conversation ID: {conversation_id}")
-            emoji_logger.system_info(f"  • Mensagens encontradas: {len(messages)}")
-            emoji_logger.system_info(f"  • Limite solicitado: 100")
-            
-            # Log das primeiras e últimas mensagens para debug
-            if messages:
-                first_msg = messages[0]
-                last_msg = messages[-1]
-                emoji_logger.system_info(f"  • Primeira msg: {first_msg.get('created_at', 'N/A')} - {first_msg.get('sender', 'N/A')}")
-                emoji_logger.system_info(f"  • Última msg: {last_msg.get('created_at', 'N/A')} - {last_msg.get('sender', 'N/A')}")
+            emoji_logger.system_info(f"Query executada, {len(messages)} mensagens encontradas (limite solicitado: 100)")
             
             # Se encontrou menos de 100 mensagens, informar
             if len(messages) < 100:
@@ -2745,21 +2727,9 @@ Retorne em formato estruturado:
             # 2. Detectar gatilhos emocionais e obter histórico (com fallback)
             messages_history = []
             try:
-                # VALIDAÇÃO CRÍTICA: Garantir que conversation_id é válido
-                if not conversation_id:
-                    emoji_logger.system_error("HISTÓRICO", f"❌ conversation_id é None/vazio! Lead: {lead_data}")
-                    # Tentar buscar por phone como fallback
-                    if phone:
-                        emoji_logger.system_info(f"🔄 Tentando buscar histórico por phone: {phone}")
-                        messages_history = await self.get_last_100_messages(phone)
-                    else:
-                        emoji_logger.system_error("HISTÓRICO", "❌ Nem conversation_id nem phone disponíveis!")
-                        messages_history = []
-                else:
-                    # Buscar histórico de mensagens (será usado para contexto e análise emocional)
-                    messages_history = await self.get_last_100_messages(conversation_id)
-                
-                emoji_logger.system_info(f"✅ HISTÓRICO FINAL: {len(messages_history)} mensagens carregadas")
+                # Buscar histórico de mensagens (será usado para contexto e análise emocional)
+                messages_history = await self.get_last_100_messages(conversation_id) if conversation_id else []
+                emoji_logger.system_info(f"Histórico carregado: {len(messages_history)} mensagens")
                 emotional_triggers = await self.detect_emotional_triggers(messages_history)
             except Exception as emo_error:
                 emoji_logger.system_warning(f"Análise emocional falhou: {str(emo_error)[:50]}")

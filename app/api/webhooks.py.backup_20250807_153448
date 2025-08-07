@@ -971,20 +971,6 @@ async def process_message_with_agent(
                 "file_size": sticker_msg.get("fileLength", 0)
             }
         
-        # VALIDAÇÃO CRÍTICA: Garantir conversation_id antes de processar
-        if not conversation or not conversation.get("id"):
-            emoji_logger.system_error("WEBHOOK", f"❌ Conversation inválida! Lead: {lead}, Phone: {phone}")
-            # Tentar criar nova conversa como fallback
-            try:
-                conversation = await supabase_client.create_conversation(phone, lead["id"] if lead else None)
-                emoji_logger.system_info(f"✅ Nova conversa criada: {conversation.get('id', 'N/A')}")
-            except Exception as conv_error:
-                emoji_logger.system_error("WEBHOOK", f"❌ Falha ao criar conversa: {conv_error}")
-                return
-        
-        # Log do conversation_id que será usado
-        emoji_logger.system_info(f"🔍 WEBHOOK: Usando conversation_id={conversation.get('id', 'N/A')} para phone={phone}")
-        
         # Processa mensagem com análise contextual inteligente
         emoji_logger.webhook_process(f"Chamando AGENTIC SDR para processar: {message_content[:50]}...")
         

@@ -16,7 +16,7 @@ A análise do arquivo `logs-console.md` revela o seguinte fluxo problemático:
 
 1.  **Início Correto:** A conversa começa bem. O agente se apresenta (Estágio 0), pergunta o nome do lead ("Mateus"), recebe a resposta e avança corretamente para a apresentação das soluções (Estágio 1).
 2.  **Ponto da Falha:** O problema ocorre consistentemente após o lead enviar uma imagem (a conta de luz). Na mensagem seguinte, o agente ignora todo o histórico e responde com a saudação inicial novamente: *"Oii! Boa tarde! Meu nome é Helen Vieira..."*.
-3.  **Confirmação do Erro:** O log `Histórico carregado: 1 mensagens` aparece repetidamente, mesmo quando a conversa já tem várias trocas de mensagens. Isso indica que o agente está processando cada nova mensagem com um contexto incompleto, vendo apenas a mensagem mais recente.
+3.  **Confirmação do Erro:** O log `Histórico carregado: 1 mensagens` ou um número baixo de mensagens aparece repetidamente, mesmo quando a conversa já tem várias trocas. Isso indica que o agente está processando cada nova mensagem com um contexto incompleto, vendo apenas a mensagem mais recente ou um histórico desatualizado.
 
 ## 3. Diagnóstico da Causa Raiz
 
@@ -30,7 +30,7 @@ A causa fundamental dos problemas **não é o prompt**, mas sim uma **falha na g
 
 1.  Na primeira mensagem do lead, o histórico é buscado no Supabase e armazenado no cache.
 2.  Nas interações seguintes, ao invés de buscar o histórico atualizado no banco, o agente recebe a versão antiga e incompleta que está no cache.
-3.  Com um contexto parcial (geralmente apenas a última mensagem), o agente não consegue identificar o estágio correto da conversa.
+3.  Com um contexto parcial, o agente não consegue identificar o estágio correto da conversa.
 4.  Seguindo as regras estritas do `prompt-agente.md`, que exige o início pelo Estágio 0 se o contexto não for claro, o agente reinicia o fluxo, causando as repetições observadas.
 
 ## 4. Problemas Identificados
