@@ -89,6 +89,9 @@ def extract_final_response(full_response: str) -> str:
     Returns:
         Apenas o conteúdo dentro das tags RESPOSTA_FINAL
     """
+    # Log adicional para debug
+    emoji_logger.system_info(f"🔎 extract_final_response recebeu: tipo={type(full_response)}, tamanho={len(full_response) if full_response else 0}, primeiros 200 chars: {full_response[:200] if full_response else 'VAZIO'}")
+    
     try:
         # Busca o conteúdo entre as tags <RESPOSTA_FINAL> e </RESPOSTA_FINAL>
         pattern = r'<RESPOSTA_FINAL>(.*?)</RESPOSTA_FINAL>'

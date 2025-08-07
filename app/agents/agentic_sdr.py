@@ -109,7 +109,14 @@ class IntelligentModelFallback:
         self.max_retry_attempts = getattr(settings, 'gemini_retry_attempts', 2)  # 2 tentativas de retry
         self.retry_delay = getattr(settings, 'gemini_retry_delay', 5.0)  # 5 segundos entre tentativas
         
+        # Armazenar instructions do agente principal
+        self._agent_instructions = None
+        
         self._initialize_models()
+    
+    def set_agent_instructions(self, instructions):
+        """Define as instructions do agente principal para usar nos temp_agents"""
+        self._agent_instructions = instructions
     
     @property
     def id(self):
@@ -231,10 +238,14 @@ class IntelligentModelFallback:
             from agno.agent import Agent
             import asyncio
             
+            # Usar instructions do agente principal se disponível, senão usar padrão
+            instructions = self._agent_instructions or kwargs.pop('instructions', 'Você é Helen, uma vendedora especializada em energia solar da SolarPrime. Responda de forma natural, empática e focada em ajudar o cliente.')
+            
             temp_agent = Agent(
                 model=self.primary_model,
                 markdown=True,
-                show_tool_calls=False
+                show_tool_calls=False,
+                instructions=instructions
             )
             
             # Verificar se tem arun (async) ou usar run em thread
@@ -271,10 +282,14 @@ class IntelligentModelFallback:
                 emoji_logger.system_info(f"🔄 Retry Gemini - Tentativa {attempt + 1}/{self.max_retry_attempts}")
                 
                 # O Gemini no AGNO precisa ser usado através de um Agent
+                # Usar instructions do agente principal se disponível, senão usar padrão
+                instructions = self._agent_instructions or kwargs.pop('instructions', 'Você é Helen, uma vendedora especializada em energia solar da SolarPrime. Responda de forma natural, empática e focada em ajudar o cliente.')
+                
                 temp_agent = Agent(
                     model=self.primary_model,
                     markdown=True,
-                    show_tool_calls=False
+                    show_tool_calls=False,
+                    instructions=instructions
                 )
                 
                 # Usar arun se disponível, senão run em thread
@@ -474,7 +489,28 @@ class AgenticSDR:
         except Exception as e:
             emoji_logger.system_info(f"Memory fallback local: {str(e)[:40]}...")
             # Memory local sem persistência como fallback
+            # Criar um dicionário simples como memória local em vez de None
+            from agno.memory import MemoryDb
+            
+            class SimpleMemoryDb(MemoryDb):
+                """Memória local simples para evitar warnings"""
+                def __init__(self):
+                    self.storage = {}
+                
+                def create(self, **kwargs):
+                    pass
+                
+                def search(self, **kwargs):
+                    return []
+                
+                def update(self, **kwargs):
+                    pass
+                
+                def delete(self, **kwargs):
+                    pass
+            
             self.memory = AgentMemory(
+                db=SimpleMemoryDb(),  # Memória local simples
                 create_user_memories=True,
                 create_session_summary=True
             )
@@ -630,6 +666,10 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 "period_of_day": get_period_of_day(settings.timezone)  # Manhã, Tarde ou Noite
             }
         )
+        
+        # Configurar as instructions no modelo wrapper para uso em temp_agents
+        if hasattr(self.intelligent_model, 'set_agent_instructions'):
+            self.intelligent_model.set_agent_instructions(enhanced_prompt)
     
     def _is_complex_message(self, message: str) -> bool:
         """
@@ -2739,13 +2779,14 @@ Retorne em formato estruturado:
                 
                 try:
                     # Formatar contexto com função SIMPLES (substitui agno_context_agent.py)
-                    formatted_history = self._format_context_simple(
+                    context_result = self._format_context_simple(
                         message_history=messages_history or [],
                         multimodal_result=multimodal_result,
                         phone=phone
                     )
                     
                     # AGNO Framework já formatou multimodal + histórico no formatted_history
+                    formatted_history = context_result.get('formatted_history', '')
                     
                     # Preparar prompt com contexto completo AGNO-enhanced
                     contextual_prompt = f"""
@@ -2821,8 +2862,18 @@ Retorne em formato estruturado:
                     is_complex = self._is_complex_message(message)
                     
                     # Debug: Log do prompt sendo enviado
-                    emoji_logger.system_debug(f"📝 Prompt para o agente (primeiros 500 chars): {contextual_prompt[:500]}...")
-                    emoji_logger.system_debug(f"📏 Tamanho do prompt: {len(contextual_prompt)} caracteres")
+                    emoji_logger.system_info(f"📝 Prompt para o agente (primeiros 500 chars): {contextual_prompt[:500]}...")
+                    emoji_logger.system_info(f"📏 Tamanho do prompt: {len(contextual_prompt)} caracteres")
+                    
+                    # Debug: Verificar se multimodal foi incluído
+                    if multimodal_result and 'content' in multimodal_result:
+                        emoji_logger.system_info(f"✅ Multimodal incluído no prompt: {multimodal_result.get('content', '')[:200]}...")
+                    else:
+                        emoji_logger.system_info("❌ Nenhum resultado multimodal incluído no prompt")
+                    
+                    # Debug adicional: verificar se multimodal_result foi incluído
+                    if multimodal_result and not multimodal_result.get('error'):
+                        emoji_logger.system_info(f"🖼️ Multimodal incluído no prompt: tipo={multimodal_result.get('type')}, tem conteúdo={bool(multimodal_result.get('content'))}")
                     
                     if self.reasoning_enabled and is_complex:
                         emoji_logger.agentic_thinking(f"Mensagem complexa detectada, ativando reasoning mode")
@@ -2834,13 +2885,33 @@ Retorne em formato estruturado:
                     else:
                         # Mensagem simples - resposta direta sem reasoning
                         emoji_logger.agentic_thinking(f"Mensagem simples, resposta direta")
-                        result = await self.agent.arun(contextual_prompt)  # ✅ CORRIGIDO: Usar agent com prompt obrigatório
+                        
+                        # Debug: Log antes de chamar o agente
+                        emoji_logger.system_info("🚀 Chamando agent.arun...")
+                        emoji_logger.system_info(f"📝 Agent tem instructions? {bool(self.agent.instructions)}")
+                        emoji_logger.system_info(f"📝 Agent tem memory? {bool(self.agent.memory)}")
+                        emoji_logger.system_info(f"📝 Agent tem model? {bool(self.agent.model)}")
+                        
+                        try:
+                            result = await self.agent.arun(contextual_prompt)  # ✅ CORRIGIDO: Usar agent com prompt obrigatório
+                            emoji_logger.system_info("✅ agent.arun completou sem erro")
+                        except Exception as arun_error:
+                            emoji_logger.system_error(f"❌ Erro em agent.arun: {str(arun_error)}")
+                            result = None
                     
                     # Debug: Log do resultado recebido
-                    emoji_logger.system_debug(f"🔍 Tipo do result: {type(result)}")
-                    emoji_logger.system_debug(f"🔍 result tem content? {hasattr(result, 'content')}")
+                    emoji_logger.system_info(f"🔍 Tipo do result: {type(result)}")
+                    emoji_logger.system_info(f"🔍 result tem content? {hasattr(result, 'content')}")
                     if hasattr(result, '__dict__'):
-                        emoji_logger.system_debug(f"🔍 Atributos do result: {list(result.__dict__.keys())}")
+                        emoji_logger.system_info(f"🔍 Atributos do result: {list(result.__dict__.keys())}")
+                    else:
+                        emoji_logger.system_info(f"🔍 result como string: {str(result)[:200]}...")
+                    
+                    # Debug adicional para entender o resultado
+                    if result:
+                        emoji_logger.system_info(f"📋 Result não é None, tipo: {type(result).__name__}")
+                    else:
+                        emoji_logger.system_warning("⚠️ Result é None ou vazio!")
                     
                     # Extrair conteúdo da resposta
                     if hasattr(result, 'content') and result.content is not None:
@@ -2855,18 +2926,51 @@ Retorne em formato estruturado:
                         raw_response = str(result)
                     
                     # Debug: Log do conteúdo extraído
-                    emoji_logger.system_debug(f"📄 raw_response (primeiros 200 chars): {raw_response[:200]}...")
-                    emoji_logger.system_debug(f"📏 Tamanho raw_response: {len(raw_response)} caracteres")
+                    emoji_logger.system_info(f"📄 raw_response (primeiros 200 chars): {raw_response[:200] if raw_response else 'VAZIO'}...")
+                    emoji_logger.system_info(f"📏 Tamanho raw_response: {len(raw_response) if raw_response else 0} caracteres")
+                    
+                    # Verificar se resposta está vazia antes de processar
+                    if not raw_response or str(raw_response).strip() == "":
+                        emoji_logger.system_warning("⚠️ raw_response está vazio ANTES da verificação!")
                     
                     # ✅ CORREÇÃO: Verificar se a resposta está vazia antes de processar
                     if not raw_response or raw_response.strip() == "":
                         emoji_logger.system_warning("⚠️ Agent retornou resposta vazia! Usando fallback...")
-                        # Fallback com base no estágio atual
-                        current_stage = lead_data.get('current_stage', 'INITIAL_CONTACT') if lead_data else 'INITIAL_CONTACT'
-                        if current_stage == 'INITIAL_CONTACT':
-                            raw_response = "Oi! Tudo bem? Sou a Helen da SolarPrime! Antes de começarmos, como posso te chamar?"
+                        
+                        # Debug: Entender por que está vazio
+                        if multimodal_result and 'content' in multimodal_result and not multimodal_result.get('error'):
+                            emoji_logger.system_info("🔍 Tinha análise multimodal mas agente retornou vazio")
+                            emoji_logger.system_info(f"🔍 Análise multimodal: {multimodal_result.get('content', '')[:100]}...")
+                            
+                            # Fallback especializado para quando há análise multimodal
+                            if multimodal_result.get('is_bill'):
+                                # É uma conta de luz
+                                bill_amount = multimodal_result.get('bill_amount', 0)
+                                if bill_amount > 0:
+                                    raw_response = f"Perfeito! Vi aqui sua conta de luz no valor de R$ {bill_amount:.2f}. Com esse valor, consigo fazer uma análise bem precisa de quanto você pode economizar com energia solar! Esse valor está pesando no orçamento?"
+                                else:
+                                    raw_response = "Ótimo! Recebi a foto da sua conta de luz. Para fazer uma análise precisa da economia, você pode me dizer qual o valor médio que está pagando?"
+                            elif multimodal_result.get('type') == 'image':
+                                # Imagem genérica
+                                raw_response = "Legal! Recebi sua imagem. Para eu fazer uma proposta personalizada de economia com energia solar, me conta: qual o valor médio da sua conta de luz?"
+                            elif multimodal_result.get('type') == 'audio':
+                                # Áudio transcrito
+                                transcription = multimodal_result.get('transcription', '')
+                                if transcription:
+                                    raw_response = f"Entendi! Ouvi seu áudio dizendo: '{transcription[:100]}...'. Como posso ajudar você com energia solar?"
+                                else:
+                                    raw_response = "Recebi seu áudio! Para fazer uma análise completa, preciso saber: qual o valor da sua conta de luz?"
+                            else:
+                                # Fallback genérico com mídia
+                                raw_response = "Obrigada por enviar! Para fazer uma proposta personalizada de economia, preciso saber o valor da sua conta de luz. Quanto você paga em média?"
                         else:
-                            raw_response = "Oi! Desculpe, tive um probleminha aqui. Pode repetir sua última mensagem?"
+                            emoji_logger.system_info("🔍 Sem análise multimodal disponível")
+                            # Fallback com base no estágio atual
+                            current_stage = lead_data.get('current_stage', 'INITIAL_CONTACT') if lead_data else 'INITIAL_CONTACT'
+                            if current_stage == 'INITIAL_CONTACT':
+                                raw_response = "Oi! Tudo bem? Sou a Helen da SolarPrime! Antes de começarmos, como posso te chamar?"
+                            else:
+                                raw_response = "Oi! Desculpe, tive um probleminha aqui. Pode repetir sua última mensagem?"
                     
                     # ✅ CORREÇÃO: Verificar se já há tags antes de adicionar (evita duplicação)
                     if "<RESPOSTA_FINAL>" in raw_response:
