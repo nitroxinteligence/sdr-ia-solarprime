@@ -3154,6 +3154,7 @@ Retorne em formato estruturado:
                             else:
                                 raw_response = str(result.content)
                             emoji_logger.system_info(f"✅ Conteúdo extraído de result.content: tipo={type(raw_response).__name__}, tamanho={len(str(raw_response)) if raw_response else 0}")
+                    
                     # 2. Se vazio ou content=True, verificar messages (AGNO padrão)
                     if (not raw_response or raw_response == "" or result.content is True) and hasattr(result, 'messages') and result.messages:
                         emoji_logger.system_info(f"🔍 Verificando {len(result.messages)} mensagens em result.messages")
@@ -3470,22 +3471,39 @@ Retorne em formato estruturado:
                 )
         except asyncio.TimeoutError:
             emoji_logger.system_warning(f"Timeout na personalização após {PERSONALIZATION_TIMEOUT}s, usando resposta original")
-            return response  # Retorna resposta original sem personalização
+            return team_response  # Retorna resposta original sem personalização
         except Exception as e:
             emoji_logger.system_error("Personalization", f"Erro na personalização: {str(e)}, usando resposta original")
-            return response  # Retorna resposta original sem personalização
+            return team_response  # Retorna resposta original sem personalização
         
         # Extrair conteúdo da resposta com múltiplas tentativas
-        if hasattr(result, 'content') and result.content is not None:
-            raw_response = result.content
-        elif hasattr(result, 'text') and result.text is not None:
-            raw_response = result.text
-        elif hasattr(result, 'message') and result.message is not None:
-            raw_response = result.message
-        elif isinstance(result, dict):
-            raw_response = result.get('content') or result.get('text') or result.get('message') or str(result)
-        else:
-            raw_response = str(result)
+        raw_response = None
+        
+        # 1. Tentar content primeiro
+        if hasattr(result, 'content') and result.content is not None and result.content is not True:
+            # Verificar se content é um objeto complexo
+            if hasattr(result.content, 'text'):
+                raw_response = result.content.text
+            elif hasattr(result.content, 'value'):
+                raw_response = result.content.value
+            elif isinstance(result.content, str):
+                raw_response = result.content
+            else:
+                raw_response = str(result.content)
+            emoji_logger.system_info(f"✅ Conteúdo personalizado extraído de result.content: tamanho={len(str(raw_response)) if raw_response else 0}")
+        
+        # 2. Se ainda não temos conteúdo, tentar outros atributos
+        if not raw_response or raw_response == "":
+            if hasattr(result, 'text') and result.text is not None:
+                raw_response = result.text
+            elif hasattr(result, 'message') and result.message is not None:
+                raw_response = result.message
+            elif isinstance(result, dict):
+                raw_response = result.get('content') or result.get('text') or result.get('message')
+                if not raw_response:
+                    raw_response = str(result)
+            else:
+                raw_response = str(result)
         
         # ✅ CORREÇÃO: Verificar se já há tags antes de adicionar (evita duplicação)
         if "<RESPOSTA_FINAL>" in raw_response:
