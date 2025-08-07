@@ -3056,11 +3056,6 @@ Retorne em formato estruturado:
                         emoji_logger.system_warning("⚠️ raw_response é None! Usando fallback...")
                         raw_response = None  # Força None para cair no fallback
                     
-                    # CORREÇÃO: Verificar se é None ou "None"
-                    if raw_response is None or str(raw_response).strip().lower() == "none":
-                        emoji_logger.system_warning("⚠️ raw_response é None! Usando fallback...")
-                        raw_response = None  # Força None para cair no fallback
-                    
                     # Verificar se resposta está vazia antes de processar
                     if not raw_response or str(raw_response).strip() == "":
                         emoji_logger.system_warning("⚠️ raw_response está vazio ANTES da verificação!")

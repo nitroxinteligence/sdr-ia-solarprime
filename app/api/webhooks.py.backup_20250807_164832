@@ -76,14 +76,8 @@ def sanitize_final_response(text: str) -> str:
 
     # 4. Remover espaços duplos e limpar
     text = ' '.join(text.split())
-    text = text.strip()
-    
-    # VERIFICAÇÃO FINAL DE SEGURANÇA
-    if not text or text.lower() == "none":
-        emoji_logger.system_error("Sanitize", f"⚠️ sanitize_final_response resultaria em vazio/None")
-        return "Oi! Como posso ajudar você hoje? 😊"
-    
-    return text
+
+    return text.strip()
 
 def extract_final_response(full_response: str) -> str:
     """
@@ -152,11 +146,6 @@ def extract_final_response(full_response: str) -> str:
                 safe_response = "Ótimo! Para eu fazer uma proposta personalizada de economia, preciso apenas saber o valor da sua conta de luz. Quanto você está pagando em média?"
                 emoji_logger.system_debug(f"✅ Resposta substituída por versão segura")
                 return safe_response
-            
-            # VERIFICAÇÃO FINAL: Nunca retornar None ou vazio
-            if not final_response or final_response.strip() == "" or final_response.strip().lower() == "none":
-                emoji_logger.system_error("Extract", f"⚠️ extract_final_response retornaria vazio/None: '{final_response}'")
-                return "Oi! Como posso ajudar você com energia solar? ☀️"
             
             return final_response
         else:
@@ -1134,19 +1123,6 @@ async def process_message_with_agent(
             # Delay antes de enviar mídia se houver
             if media_data and settings.delay_before_media > 0:
                 await asyncio.sleep(settings.delay_before_media)
-            
-            # VERIFICAÇÃO DE SEGURANÇA CRÍTICA - NUNCA ENVIAR NONE
-            if not response_text or response_text.strip() == "" or response_text.strip().lower() == "none":
-                emoji_logger.system_error("CRITICAL", f"⚠️ BLOQUEADO: Tentativa de enviar mensagem vazia ou None!")
-                emoji_logger.system_error("CRITICAL", f"response_text: '{response_text}'")
-                
-                # Resposta de emergência baseada no contexto
-                if messages_history and len(messages_history) > 2:
-                    response_text = "Desculpe, tive um probleminha técnico aqui. Pode repetir sua última mensagem? 🙏"
-                else:
-                    response_text = "Oi! Sou a Helen da SolarPrime! Como posso ajudar você com energia solar hoje? ☀️"
-                
-                emoji_logger.system_warning(f"✅ Substituído por resposta segura: {response_text}")
             
             # VERIFICAÇÃO DE SEGURANÇA CRÍTICA - NUNCA ENVIAR NONE
             if not response_text or response_text.strip() == "" or response_text.strip().lower() == "none":
