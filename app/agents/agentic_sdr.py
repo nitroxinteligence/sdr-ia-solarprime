@@ -550,7 +550,7 @@ class AgenticSDR:
                         id="gemini-2.0-flash-thinking-exp-01-21",
                         api_key=settings.google_api_key,
                         thinking_budget=8192,
-                        include_thoughts=True
+                        include_thoughts=False  # ✅ CORRIGIDO: Não vazar raciocínio interno para usuário
                     )
                     emoji_logger.system_ready("Modelo reasoning configurado", model="gemini-2.0-flash-thinking")
                 except Exception as e:
@@ -2820,13 +2820,13 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         emoji_logger.agentic_thinking(f"Mensagem complexa detectada, ativando reasoning mode")
                         # Usar reasoning model para perguntas complexas
                         if hasattr(self, 'reasoning_model'):
-                            result = await self.reasoning_model.run(contextual_prompt)
+                            result = await self.agent.arun(contextual_prompt)  # ✅ CORRIGIDO: Usar agent com prompt obrigatório
                         else:
-                            result = await self.intelligent_model.run(contextual_prompt)
+                            result = await self.agent.arun(contextual_prompt)  # ✅ CORRIGIDO: Usar agent com prompt obrigatório
                     else:
                         # Mensagem simples - resposta direta sem reasoning
                         emoji_logger.agentic_thinking(f"Mensagem simples, resposta direta")
-                        result = await self.intelligent_model.run(contextual_prompt)
+                        result = await self.agent.arun(contextual_prompt)  # ✅ CORRIGIDO: Usar agent com prompt obrigatório
                     
                     # Extrair conteúdo da resposta
                     raw_response = result.content if hasattr(result, 'content') else str(result)
