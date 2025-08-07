@@ -278,7 +278,7 @@ class CRMAgent:
         update_if_exists: bool = True
     ) -> Dict[str, Any]:
         """
-        Cria ou atualiza lead no Kommo
+        Cria ou atualiza lead no Kommo COM VERIFICAÇÃO INTELIGENTE
         
         Args:
             lead_data: Dados do lead
@@ -288,27 +288,48 @@ class CRMAgent:
             Detalhes do lead no CRM
         """
         try:
-            # Verificar se lead já existe
-            existing = await self.search_entity(
-                entity_type="leads",
-                query=lead_data.get("phone", lead_data.get("email"))
-            )
+            # 🔍 VERIFICAÇÃO INTELIGENTE - Buscar por telefone E email
+            phone = lead_data.get("phone", lead_data.get("phone_number"))
+            email = lead_data.get("email")
             
-            if existing and existing.get("leads"):
+            existing_lead = None
+            
+            # Primeiro: verificar por telefone (mais confiável)
+            if phone:
+                # Normalizar telefone removendo caracteres especiais
+                clean_phone = ''.join(filter(str.isdigit, str(phone)))
+                if len(clean_phone) >= 10:
+                    phone_search = await self.search_entity("leads", clean_phone)
+                    if phone_search and phone_search.get("leads"):
+                        existing_lead = phone_search["leads"][0]
+                        logger.info(f"✅ Lead encontrado por telefone: {existing_lead['id']}")
+            
+            # Segundo: se não encontrou, verificar por email
+            if not existing_lead and email:
+                email_search = await self.search_entity("leads", email)
+                if email_search and email_search.get("leads"):
+                    existing_lead = email_search["leads"][0]
+                    logger.info(f"✅ Lead encontrado por email: {existing_lead['id']}")
+            
+            # 🔄 ATUALIZAR SE EXISTE
+            if existing_lead:
                 if update_if_exists:
-                    # Atualizar lead existente
-                    lead_id = existing["leads"][0]["id"]
+                    lead_id = existing_lead["id"]
+                    logger.info(f"🔄 Atualizando lead existente: {lead_id}")
                     return await self._update_lead(lead_id, lead_data)
                 else:
                     return {
-                        "success": False,
-                        "error": "Lead já existe",
-                        "existing_id": existing["leads"][0]["id"]
+                        "success": True,  # ✅ Mudança: retorna success=True quando encontra
+                        "action": "found_existing",
+                        "existing_id": existing_lead["id"],
+                        "message": "Lead já existe, não criado novamente"
                     }
             
-            # Criar novo lead
+            # ➕ CRIAR NOVO LEAD
+            logger.info(f"➕ Criando novo lead: {lead_data.get('name', 'Sem nome')}")
+            
             kommo_data = {
-                "name": lead_data.get("name", "Sem nome"),
+                "name": lead_data.get("name", "Novo Lead"),  # Nome padrão melhor
                 "pipeline_id": int(self.kommo_config["pipeline_id"]),
                 "custom_fields_values": self._prepare_custom_fields(lead_data),
                 "tags": self._generate_tags(lead_data),
@@ -345,6 +366,7 @@ class CRMAgent:
                         
                         return {
                             "success": True,
+                            "action": "created",
                             "crm_id": lead_id,
                             "message": "Lead criado no CRM"
                         }
@@ -1023,44 +1045,168 @@ class CRMAgent:
         except Exception as e:
             logger.error(f"Erro ao salvar mapping: {e}")
     
-    async def _update_lead(
+    async def update_lead_from_conversation(
         self,
         lead_id: str,
-        lead_data: Dict[str, Any]
+        conversation_data: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Atualiza lead existente no Kommo"""
+        """
+        🔄 ATUALIZA LEAD CONFORME A CONVERSA PROGRIDE
+        Esta é a função que o Helen usa para manter o CRM atualizado
+        """
         try:
-            kommo_data = {
-                "name": lead_data.get("name"),
-                "custom_fields_values": self._prepare_custom_fields(lead_data)
+            updates = {}
+            tags_to_add = []
+            
+            # 📝 NOME descoberto na conversa
+            if conversation_data.get("name"):
+                updates["name"] = conversation_data["name"]
+                logger.info(f"📝 Nome atualizado: {conversation_data['name']}")
+            
+            # 💰 VALOR DA CONTA atualizado
+            if conversation_data.get("bill_value"):
+                bill_value = conversation_data["bill_value"]
+                # Adicionar tags baseadas no valor
+                if float(bill_value) >= 8000:
+                    tags_to_add.extend(["alto-valor", "conta-premium"])
+                elif float(bill_value) >= 4000:
+                    tags_to_add.append("qualificado")
+                else:
+                    tags_to_add.append("baixo-valor")
+            
+            # 🎯 INTERESSE/ESTÁGIO
+            if conversation_data.get("interest_level"):
+                if conversation_data["interest_level"] == "high":
+                    tags_to_add.append("lead-quente")
+                elif conversation_data["interest_level"] == "medium":
+                    tags_to_add.append("lead-morno")
+                else:
+                    tags_to_add.append("lead-frio")
+            
+            # 📊 SCORE DE QUALIFICAÇÃO
+            if conversation_data.get("qualification_score"):
+                score = conversation_data["qualification_score"]
+                if score >= 70:
+                    tags_to_add.append("qualificado-ia")
+                    
+            # 📅 REUNIÃO AGENDADA
+            if conversation_data.get("meeting_scheduled"):
+                tags_to_add.append("reuniao-agendada")
+            
+            # 🔄 ATUALIZAR NO KOMMO
+            if updates or tags_to_add:
+                result = await self._update_lead_direct(lead_id, updates, tags_to_add)
+                return {
+                    "success": True,
+                    "action": "updated_from_conversation",
+                    "updates": list(updates.keys()),
+                    "tags_added": tags_to_add,
+                    "message": "Lead atualizado conforme conversa"
+                }
+            
+            return {
+                "success": True,
+                "action": "no_updates_needed",
+                "message": "Nenhuma atualização necessária"
             }
             
+        except Exception as e:
+            logger.error(f"Erro ao atualizar lead da conversa: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def _update_lead_direct(
+        self,
+        lead_id: str,
+        updates: Dict[str, Any],
+        tags_to_add: List[str] = None
+    ) -> Dict[str, Any]:
+        """Atualiza lead diretamente no Kommo (função interna)"""
+        try:
             async with aiohttp.ClientSession() as session:
                 url = f"{self.kommo_config['base_url']}/api/v4/leads/{lead_id}"
                 
-                async with session.patch(
-                    url,
-                    json=kommo_data,
-                    headers=self.kommo_config["headers"]
-                ) as response:
-                    if response.status == 200:
-                        logger.info(f"✅ Lead {lead_id} atualizado no Kommo")
+                # Preparar dados para atualização
+                kommo_data = {}
+                
+                if "name" in updates:
+                    kommo_data["name"] = updates["name"]
+                
+                # Campos customizados
+                custom_fields = []
+                if "bill_value" in updates:
+                    custom_fields.append({
+                        "field_id": 392804,  # Valor Conta Energia
+                        "values": [{"value": str(updates["bill_value"])}]
+                    })
+                
+                if "qualification_score" in updates:
+                    custom_fields.append({
+                        "field_id": 392806,  # Score Qualificação
+                        "values": [{"value": str(updates["qualification_score"])}]
+                    })
+                
+                if custom_fields:
+                    kommo_data["custom_fields_values"] = custom_fields
+                
+                # Tags
+                if tags_to_add:
+                    # Buscar tags existentes primeiro
+                    existing_response = await session.get(url, headers=self.kommo_config["headers"])
+                    if existing_response.status == 200:
+                        existing_data = await existing_response.json()
+                        existing_tags = existing_data.get("_embedded", {}).get("tags", [])
+                        existing_tag_names = [tag.get("name") for tag in existing_tags]
                         
-                        return {
-                            "success": True,
-                            "crm_id": lead_id,
-                            "message": "Lead atualizado no CRM"
-                        }
-                    else:
-                        error = await response.text()
-                        return {
-                            "success": False,
-                            "error": error
-                        }
-                        
+                        # Adicionar apenas tags novas
+                        new_tags = [tag for tag in tags_to_add if tag not in existing_tag_names]
+                        if new_tags:
+                            all_tags = existing_tag_names + new_tags
+                            kommo_data["_embedded"] = {
+                                "tags": [{"name": tag} for tag in all_tags]
+                            }
+                
+                # Fazer update
+                if kommo_data:
+                    async with session.patch(
+                        url,
+                        json=kommo_data,
+                        headers=self.kommo_config["headers"]
+                    ) as response:
+                        if response.status == 200:
+                            logger.info(f"✅ Lead {lead_id} atualizado no Kommo")
+                            return {
+                                "success": True,
+                                "crm_id": lead_id,
+                                "message": "Lead atualizado no CRM"
+                            }
+                        else:
+                            error = await response.text()
+                            return {
+                                "success": False,
+                                "error": error
+                            }
+                            
         except Exception as e:
             logger.error(f"Erro ao atualizar lead: {e}")
             return {
                 "success": False,
                 "error": str(e)
             }
+
+    async def _update_lead(
+        self,
+        lead_id: str,
+        lead_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Atualiza lead existente no Kommo (método legado mantido para compatibilidade)"""
+        return await self._update_lead_direct(
+            lead_id,
+            {
+                "name": lead_data.get("name"),
+                "bill_value": lead_data.get("bill_value"),
+                "qualification_score": lead_data.get("qualification_score")
+            }
+        )
