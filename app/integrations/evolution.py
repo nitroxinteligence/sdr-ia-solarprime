@@ -437,14 +437,14 @@ class EvolutionAPIClient:
         try:
             phone = self._format_phone(phone)
             
+            # Evolution API v2 - estrutura correta da payload
             payload = {
-                "reactionMessage": {
-                    "key": {
-                        "remoteJid": f"{phone}@s.whatsapp.net",
-                        "id": message_id
-                    },
-                    "reaction": emoji
-                }
+                "key": {
+                    "remoteJid": f"{phone}@s.whatsapp.net",
+                    "fromMe": False,
+                    "id": message_id
+                },
+                "reaction": emoji
             }
             
             response = await self._make_request(
@@ -453,8 +453,22 @@ class EvolutionAPIClient:
                 json=payload
             )
             
+            # Verificar status da resposta
+            if response.status_code not in [200, 201]:
+                error_text = response.text
+                emoji_logger.evolution_error(f"Evolution API retornou erro {response.status_code}: {error_text}")
+                raise Exception(f"Erro ao enviar reação: Status {response.status_code} - {error_text}")
+            
+            result = response.json()
+            
+            # Verificar se reação foi realmente enviada
+            if not result.get("key", {}).get("id"):
+                emoji_logger.evolution_error(f"Reação não enviada - sem ID na resposta: {result}")
+                raise Exception(f"Reação não foi enviada - resposta inválida da API")
+            
             emoji_logger.evolution_send("reaction", "emoji", reaction=emoji)
-            return response.json()
+            emoji_logger.system_info(f"Reação '{emoji}' enviada com sucesso. ID: {result.get('key', {}).get('id', 'N/A')}")
+            return result
             
         except Exception as e:
             emoji_logger.evolution_error(f"Erro ao enviar reação: {e}")

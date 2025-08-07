@@ -98,6 +98,28 @@ def extract_final_response(full_response: str) -> str:
             # Extrai e limpa o conteúdo
             final_response = match.group(1).strip()
             emoji_logger.system_debug(f"✅ Resposta final extraída com sucesso: {final_response[:50]}...")
+            
+            # 🚨 VALIDAÇÃO DE SEGURANÇA: Verificar se está pedindo dados proibidos
+            forbidden_terms = [
+                'cpf', 'c.p.f', 'cadastro de pessoa', 'documento',
+                'rg', 'r.g', 'identidade', 'cnh', 'c.n.h',
+                'carteira de motorista', 'carteira de identidade',
+                'dados bancários', 'conta bancária', 'senha',
+                'cartão de crédito', 'dados do cartão'
+            ]
+            
+            response_lower = final_response.lower()
+            contains_forbidden = any(term in response_lower for term in forbidden_terms)
+            
+            if contains_forbidden:
+                emoji_logger.system_warning("🚨 ALERTA: Resposta contém solicitação de dados proibidos!")
+                emoji_logger.system_warning(f"Resposta bloqueada: {final_response[:100]}...")
+                
+                # Retornar resposta segura
+                safe_response = "Ótimo! Para eu fazer uma proposta personalizada de economia, preciso apenas saber o valor da sua conta de luz. Quanto você está pagando em média?"
+                emoji_logger.system_debug(f"✅ Resposta substituída por versão segura")
+                return safe_response
+            
             return final_response
         else:
             # 🚨 CORREÇÃO CRÍTICA: NUNCA retornar conteúdo bruto ou raciocínio interno
@@ -1018,12 +1040,16 @@ async def process_message_with_agent(
             # Enviar reação se houver
             if reaction:
                 try:
-                    await evolution_client.send_reaction(phone, message_id, reaction)
-                    emoji_logger.webhook_process(f"Reação enviada: {reaction}")
+                    emoji_logger.webhook_process(f"Tentando enviar reação '{reaction}' para mensagem ID: {message_id}")
+                    reaction_result = await evolution_client.send_reaction(phone, message_id, reaction)
+                    emoji_logger.webhook_process(f"Reação enviada com sucesso: {reaction}")
+                    emoji_logger.system_debug(f"Resposta da API para reação: {reaction_result}")
                     # Pequeno delay após reação
                     await asyncio.sleep(0.5)
                 except Exception as reaction_error:
-                    emoji_logger.system_warning(f"Erro ao enviar reação: {reaction_error}")
+                    emoji_logger.system_error("Reaction Send", f"Erro ao enviar reação '{reaction}': {reaction_error}")
+                    emoji_logger.system_debug(f"Message ID usado: {message_id}")
+                    emoji_logger.system_debug(f"Phone usado: {phone}")
             
             # Delay antes de enviar mídia se houver
             if media_data and settings.delay_before_media > 0:

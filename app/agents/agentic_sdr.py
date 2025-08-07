@@ -2778,7 +2778,7 @@ Retorne em formato estruturado:
                             contextual_prompt += f"""
                     
                     📸 IMAGEM RECEBIDA - ANÁLISE:
-                    {multimodal_result.get('analysis', 'Análise não disponível')}
+                    {multimodal_result.get('content', 'Análise não disponível')}
                     
                     """
                             if multimodal_result.get('is_bill'):
@@ -2877,6 +2877,36 @@ Retorne em formato estruturado:
                         # Resposta sem tags - adicionar tags para extração
                         response = f"<RESPOSTA_FINAL>{raw_response}</RESPOSTA_FINAL>"
                         emoji_logger.system_debug("➕ Adicionando tags <RESPOSTA_FINAL> à resposta")
+                    
+                    # 🚨 VALIDAÇÃO DE SEGURANÇA: Verificar se está pedindo dados proibidos
+                    forbidden_terms = [
+                        'cpf', 'c.p.f', 'cadastro de pessoa', 'documento',
+                        'rg', 'r.g', 'identidade', 'cnh', 'c.n.h',
+                        'carteira de motorista', 'carteira de identidade',
+                        'dados bancários', 'conta bancária', 'senha',
+                        'cartão de crédito', 'dados do cartão'
+                    ]
+                    
+                    response_lower = response.lower()
+                    contains_forbidden = any(term in response_lower for term in forbidden_terms)
+                    
+                    if contains_forbidden:
+                        emoji_logger.system_warning("🚨 ALERTA: Resposta contém solicitação de dados proibidos!")
+                        emoji_logger.system_warning(f"Resposta original: {response}")
+                        
+                        # Substituir resposta por uma segura baseada no contexto
+                        if multimodal_result and 'content' in multimodal_result:
+                            # Se tem análise de imagem, focar nisso
+                            analysis = multimodal_result.get('content', '')
+                            if 'conta' in analysis.lower() and 'valor' in analysis.lower():
+                                response = "<RESPOSTA_FINAL>Perfeito! Vi sua conta de luz aqui. Vamos calcular quanto você pode economizar com energia solar! Me conta, esse valor está pesando no seu bolso?</RESPOSTA_FINAL>"
+                            else:
+                                response = "<RESPOSTA_FINAL>Legal! Recebi sua imagem. Para fazer uma análise completa, preciso saber: qual o valor médio da sua conta de luz?</RESPOSTA_FINAL>"
+                        else:
+                            # Resposta genérica segura
+                            response = "<RESPOSTA_FINAL>Ótimo! Para eu fazer uma proposta personalizada de economia, preciso apenas saber o valor da sua conta de luz. Quanto você está pagando em média?</RESPOSTA_FINAL>"
+                        
+                        emoji_logger.system_debug(f"✅ Resposta substituída por versão segura: {response}")
                     
                 except Exception as agent_error:
                     emoji_logger.system_error("AGENTIC SDR", f"Erro ao gerar resposta: {agent_error}")
