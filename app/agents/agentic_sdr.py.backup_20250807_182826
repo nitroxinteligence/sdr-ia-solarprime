@@ -3129,7 +3129,7 @@ Retorne em formato estruturado:
                                 raw_response = str(result.content)
                             emoji_logger.system_info(f"✅ Conteúdo extraído de result.content: tipo={type(raw_response).__name__}, tamanho={len(str(raw_response)) if raw_response else 0}")
                     # 2. Se vazio ou content=True, verificar messages (AGNO padrão)
-                    if (not raw_response or raw_response == "" or result.content is True) and hasattr(result, 'messages') and result.messages:
+                    if (not raw_response or raw_response == "") and hasattr(result, 'messages') and result.messages:
                         emoji_logger.system_info(f"🔍 Verificando {len(result.messages)} mensagens em result.messages")
                         for i, msg in enumerate(reversed(result.messages)):
                             emoji_logger.system_info(f"🔍 Mensagem {i}: tipo={type(msg).__name__}, tem role={hasattr(msg, 'role')}, tem content={hasattr(msg, 'content')}")
@@ -3155,8 +3155,7 @@ Retorne em formato estruturado:
                                         raw_response = str(msg.content)
                                     
                                     emoji_logger.system_info(f"✅ Conteúdo extraído de messages[{i}]: tipo={type(raw_response).__name__}, tamanho={len(str(raw_response)) if raw_response else 0}")
-                                    if raw_response and str(raw_response).strip():  # Garantir que não está vazio
-                                        break
+                                    break
                     # 3. Outros atributos
                     elif hasattr(result, 'text') and result.text:
                         raw_response = result.text
@@ -3175,6 +3174,14 @@ Retorne em formato estruturado:
                     # Debug adicional para entender conteúdo vazio
                     if raw_response and len(str(raw_response)) == 0:
                         emoji_logger.system_warning(f"⚠️ raw_response existe mas está vazio! tipo={type(raw_response).__name__}, repr={repr(raw_response)}")
+                    
+                    # CORREÇÃO: Verificar se é None ou "None" ou lista vazia
+                    if (raw_response is None or 
+                        str(raw_response).strip().lower() == "none" or
+                        (isinstance(raw_response, list) and len(raw_response) == 0) or
+                        (isinstance(raw_response, str) and raw_response.strip() == "")):
+                        emoji_logger.system_warning("⚠️ raw_response é None ou vazio! Usando fallback...")
+                        raw_response = None  # Força None para cair no fallback
                     
                     # CORREÇÃO: Verificar se é None ou "None" ou lista vazia
                     if (raw_response is None or 
