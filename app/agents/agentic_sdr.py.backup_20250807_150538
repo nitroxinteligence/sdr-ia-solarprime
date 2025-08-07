@@ -2906,10 +2906,10 @@ Retorne em formato estruturado:
                                 )
                             emoji_logger.system_info("✅ agent.arun completou com sucesso (modo complexo)")
                         except asyncio.TimeoutError:
-                            emoji_logger.system_error("Agent Timeout", f"❌ Timeout em agent.arun após {AGENT_TIMEOUT}s (modo complexo)")
+                            emoji_logger.system_error(f"❌ Timeout em agent.arun após {AGENT_TIMEOUT}s (modo complexo)")
                             result = None
                         except Exception as e:
-                            emoji_logger.system_error("Agent Error", f"❌ Erro em agent.arun (modo complexo): {str(e)}")
+                            emoji_logger.system_error(f"❌ Erro em agent.arun (modo complexo): {str(e)}")
                             result = None
                     else:
                         # Mensagem simples - resposta direta sem reasoning
@@ -2926,7 +2926,7 @@ Retorne em formato estruturado:
                             
                             # PROTEÇÃO EXTRA: Verificar se agent está pronto
                             if not self.agent or not hasattr(self.agent, 'arun'):
-                                emoji_logger.system_error("Agent State", "❌ Agent não está pronto ou não tem método arun")
+                                emoji_logger.system_error("❌ Agent não está pronto ou não tem método arun")
                                 result = self._generate_simple_fallback_response(message)
                             else:
                                 # Criar task para poder cancelar se necessário
@@ -2944,18 +2944,18 @@ Retorne em formato estruturado:
                                         pass
                                     raise
                         except asyncio.TimeoutError:
-                            emoji_logger.system_error("Agent Timeout", f"❌ Timeout em agent.arun após {AGENT_TIMEOUT}s")
+                            emoji_logger.system_error(f"❌ Timeout em agent.arun após {AGENT_TIMEOUT}s")
                             # Tentar gerar resposta de fallback
                             try:
                                 emoji_logger.system_info("🔄 Tentando gerar resposta de fallback...")
                                 result = self._generate_simple_fallback_response(message)
                             except Exception as fallback_error:
-                                emoji_logger.system_error("Fallback Error", f"❌ Falha no fallback: {str(fallback_error)}")
+                                emoji_logger.system_error(f"❌ Falha no fallback: {str(fallback_error)}")
                                 result = None
                         except Exception as arun_error:
-                            emoji_logger.system_error("Agent Error", f"❌ Erro em agent.arun: {str(arun_error)}")
+                            emoji_logger.system_error(f"❌ Erro em agent.arun: {str(arun_error)}")
                             import traceback
-                            emoji_logger.system_error("Stack Trace", f"Stack trace: {traceback.format_exc()}")
+                            emoji_logger.system_error(f"Stack trace: {traceback.format_exc()}")
                             result = None
                     
                     # Debug: Log do resultado recebido
@@ -3229,7 +3229,7 @@ Retorne em formato estruturado:
             emoji_logger.system_warning(f"Timeout na personalização após {PERSONALIZATION_TIMEOUT}s, usando resposta original")
             return response  # Retorna resposta original sem personalização
         except Exception as e:
-            emoji_logger.system_error("Personalization", f"Erro na personalização: {str(e)}, usando resposta original")
+            emoji_logger.system_error(f"Erro na personalização: {str(e)}, usando resposta original")
             return response  # Retorna resposta original sem personalização
         
         # Extrair conteúdo da resposta com múltiplas tentativas
