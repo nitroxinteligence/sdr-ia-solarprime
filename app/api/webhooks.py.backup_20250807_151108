@@ -93,30 +93,14 @@ def extract_final_response(full_response: str) -> str:
     emoji_logger.system_info(f"🔎 extract_final_response recebeu: tipo={type(full_response)}, tamanho={len(full_response) if full_response else 0}, primeiros 200 chars: {full_response[:200] if full_response else 'VAZIO'}")
     
     try:
-        # Busca o conteúdo entre as tags - aceita variações
-        patterns = [
-            r'<RESPOSTA_FINAL>(.*?)</RESPOSTA_FINAL>',
-            r'<RESPOSTAFINAL>(.*?)</RESPOSTAFINAL>',
-            r'<RESPOSTA[_ ]FINAL[>:](.*?)$'  # Para casos onde a tag não fecha
-        ]
-        
-        match = None
-        for pattern in patterns:
-            match = re.search(pattern, full_response, re.DOTALL | re.IGNORECASE)
-            if match:
-                break
+        # Busca o conteúdo entre as tags <RESPOSTA_FINAL> e </RESPOSTA_FINAL>
+        pattern = r'<RESPOSTA_FINAL>(.*?)</RESPOSTA_FINAL>'
+        match = re.search(pattern, full_response, re.DOTALL | re.IGNORECASE)
         
         if match:
             # Extrai e limpa o conteúdo
             final_response = match.group(1).strip()
-            
-            # LIMPEZA EXTRA: Remover qualquer tag ou lixo que vazou
-            final_response = re.sub(r'<[^>]*>', '', final_response)  # Remove tags HTML/XML
-            final_response = re.sub(r'</?\w+[^>]*>', '', final_response)  # Remove tags malformadas
-            final_response = re.sub(r'^\s*[.,:;]*\s*', '', final_response)  # Remove pontuação inicial
-            final_response = final_response.strip()
-            
-            emoji_logger.system_debug(f"✅ Resposta final extraída e limpa: {final_response[:50]}...")
+            emoji_logger.system_debug(f"✅ Resposta final extraída com sucesso: {final_response[:50]}...")
             
             # 🚨 VALIDAÇÃO DE SEGURANÇA: Verificar se está pedindo dados proibidos
             forbidden_terms = [
