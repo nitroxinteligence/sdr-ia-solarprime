@@ -1,0 +1,77 @@
+{
+  "architecture": {
+    "status": "failed",
+    "details": {
+      "PIL importado": true,
+      "BytesIO usado": true,
+      "Gemini direto": true,
+      "Processamento simplificado": true,
+      "Sem AGNO Image": false,
+      "Sem img2table": true,
+      "Sem pdf2image complexo": true
+    }
+  },
+  "async_sync": {
+    "status": "passed",
+    "details": {
+      "analyze_energy_bill é síncrona": true,
+      "Usa asyncio.run corretamente": true,
+      "intelligent_model tem método run": true,
+      "Execução sem RuntimeWarning": true,
+      "Retorna Dict": true
+    }
+  },
+  "attribute_errors": {
+    "status": "passed",
+    "details": {
+      "intelligent_model existe": true,
+      "Sem resilient_model": true,
+      "intelligent_model é IntelligentModelFallback": true,
+      "current_model acessível": true,
+      "Métodos disponíveis": true,
+      "Sem referências resilient_model": true,
+      "Usa intelligent_model consistentemente": true
+    }
+  },
+  "performance": {
+    "status": "failed",
+    "details": {
+      "tempo_processamento": "0.03s",
+      "meta_atingida": true,
+      "melhoria_vs_42s": "99.9%",
+      "processamento_sucesso": false,
+      "avaliação": "Excelente! Meta superada"
+    }
+  },
+  "media_types": {
+    "status": "failed",
+    "details": {
+      "image/jpeg": {
+        "processado": false,
+        "tipo_detectado": "image",
+        "tem_conteúdo": false
+      },
+      "image/png": {
+        "processado": false,
+        "tipo_detectado": "image",
+        "tem_conteúdo": false
+      },
+      "application/pdf": {
+        "processado": false,
+        "tipo_detectado": "document",
+        "tem_conteúdo": false
+      },
+      "type_mapping_funcional": true
+    }
+  },
+  "memory_safety": {
+    "status": "passed",
+    "details": {
+      "Detecta tamanho grande": true,
+      "Processa sem crash": true,
+      "Tem validação de tamanho": true,
+      "Código tem verificação de tamanho": true
+    }
+  },
+  "production_ready": false
+}

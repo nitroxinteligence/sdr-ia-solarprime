@@ -51,7 +51,7 @@ class MessageSplitter:
     Usa regex module para suporte a grapheme clusters e NLTK para divisão por frases
     """
     
-    def __init__(self, max_length: int = 150, add_indicators: bool = False, enable_smart_splitting: bool = True, smart_splitting_fallback: bool = True):
+    def __init__(self, max_length: int = 200, add_indicators: bool = False, enable_smart_splitting: bool = True, smart_splitting_fallback: bool = True):
         """
         Inicializa o splitter
         

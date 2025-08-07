@@ -14,6 +14,7 @@ from app.integrations.evolution import evolution_client
 from app.integrations.google_calendar import google_calendar_client
 from app.config import settings, FOLLOW_UP_TYPES
 from app.utils.logger import emoji_logger
+from app.integrations.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -216,68 +217,86 @@ class FollowUpExecutorService:
             lead_id = followup.get('lead_id')
             followup_type = followup.get('type', 'CUSTOM')
             
-            # Buscar dados do lead
-            lead_result = self.db.client.table('leads').select("*").eq(
-                'id', lead_id
-            ).single().execute()
+            # 🔒 LOCK DISTRIBUÍDO POR LEAD - Previne envios duplicados
+            lock_key = f"followup:{lead_id}"
+            lock_acquired = await redis_client.acquire_lock(lock_key, ttl=60)
             
-            if not lead_result.data:
-                logger.error(f"Lead {lead_id} não encontrado")
-                await self._mark_followup_failed(followup['id'], "Lead não encontrado")
+            if not lock_acquired:
+                logger.info(f"🔒 Follow-up para lead {lead_id} já sendo processado por outro processo")
                 return
+                
+            try:
+                # Buscar dados do lead
+                lead_result = self.db.client.table('leads').select("*").eq(
+                    'id', lead_id
+                ).single().execute()
+                
+                if not lead_result.data:
+                    logger.error(f"Lead {lead_id} não encontrado")
+                    await self._mark_followup_failed(followup['id'], "Lead não encontrado")
+                    return
+                
+                lead = lead_result.data
+                phone = lead.get('phone_number')
+                
+                if not phone:
+                    await self._mark_followup_failed(followup['id'], "Telefone não encontrado")
+                    return
+                
+                # NOVA VALIDAÇÃO: Para follow-ups de reengajamento, verificar se usuário realmente ficou inativo
+                if followup_type == 'reengagement':
+                    should_send = await self._validate_inactivity_followup(followup)
+                    if not should_send:
+                        # Usuário respondeu, cancelar este follow-up
+                        self.db.client.table('follow_ups').update({
+                            'status': 'cancelled',
+                            'executed_at': datetime.now().isoformat(),
+                            'response': json.dumps({'reason': 'user_responded_before_followup'})
+                        }).eq('id', followup['id']).execute()
+                        
+                        logger.info(f"📞 Follow-up cancelado - {lead.get('name')} respondeu antes do prazo")
+                        return
+                
+                # Preparar mensagem baseada no template
+                message = await self._prepare_followup_message(followup_type, lead, followup)
+                
+                if not message:
+                    await self._mark_followup_failed(followup['id'], "Falha ao preparar mensagem")
+                    return
+                
+                # SANITIZAÇÃO FINAL - Remove qualquer tag remanescente
+                message = self._sanitize_final_message(message)
+                
+                # Enviar mensagem via WhatsApp
+                result = await self.evolution.send_text_message(
+                    phone=phone,
+                    message=message
+                )
             
-            lead = lead_result.data
-            phone = lead.get('phone_number')
-            
-            if not phone:
-                await self._mark_followup_failed(followup['id'], "Telefone não encontrado")
-                return
-            
-            # NOVA VALIDAÇÃO: Para follow-ups de reengajamento, verificar se usuário realmente ficou inativo
-            if followup_type == 'reengagement':
-                should_send = await self._validate_inactivity_followup(followup)
-                if not should_send:
-                    # Usuário respondeu, cancelar este follow-up
+                if result:
+                    # Marcar como executado
                     self.db.client.table('follow_ups').update({
-                        'status': 'cancelled',
+                        'status': 'executed',
                         'executed_at': datetime.now().isoformat(),
-                        'response': json.dumps({'reason': 'user_responded_before_followup'})
+                        'response': json.dumps({'evolution_result': result})
                     }).eq('id', followup['id']).execute()
                     
-                    logger.info(f"📞 Follow-up cancelado - {lead.get('name')} respondeu antes do prazo")
-                    return
-            
-            # Preparar mensagem baseada no template
-            message = await self._prepare_followup_message(followup_type, lead, followup)
-            
-            if not message:
-                await self._mark_followup_failed(followup['id'], "Falha ao preparar mensagem")
-                return
-            
-            # Enviar mensagem via WhatsApp
-            result = await self.evolution.send_text_message(
-                phone=phone,
-                message=message
-            )
-            
-            if result:
-                # Marcar como executado
-                self.db.client.table('follow_ups').update({
-                    'status': 'executed',
-                    'executed_at': datetime.now().isoformat(),
-                    'response': json.dumps({'evolution_result': result})
-                }).eq('id', followup['id']).execute()
-                
-                emoji_logger.whatsapp_sent(f"Follow-up enviado para {lead.get('name')}")
-                
-                # Agendar próximo follow-up se necessário
-                await self._schedule_next_followup(followup_type, lead, followup)
-            else:
-                await self._mark_followup_failed(followup['id'], "Falha no envio")
+                    emoji_logger.whatsapp_sent(f"Follow-up enviado para {lead.get('name')}")
+                    
+                    # Agendar próximo follow-up se necessário
+                    await self._schedule_next_followup(followup_type, lead, followup)
+                else:
+                    await self._mark_followup_failed(followup['id'], "Falha no envio")
+                    
+            finally:
+                # 🔓 LIBERAR LOCK
+                await redis_client.release_lock(lock_key)
                 
         except Exception as e:
             logger.error(f"❌ Erro ao executar follow-up: {e}")
             await self._mark_followup_failed(followup.get('id'), str(e))
+            # Garantir liberação do lock mesmo em caso de erro
+            await redis_client.release_lock(lock_key)
     
     async def _send_meeting_reminder_v2(self, lead_data: Dict[str, Any], google_event: Dict[str, Any], hours_before: int, qualification_id: str):
         """
@@ -359,6 +378,9 @@ class FollowUpExecutorService:
                     'reminder_2h_sent_at': datetime.now().isoformat()
                 }).eq('id', qualification_id).execute()
             
+            # SANITIZAÇÃO FINAL - Remove qualquer tag remanescente
+            message = self._sanitize_final_message(message)
+            
             # Enviar via WhatsApp
             result = await self.evolution.send_text_message(
                 phone=phone,
@@ -429,34 +451,65 @@ class FollowUpExecutorService:
             return None
     
     async def _schedule_next_followup(self, followup_type: str, lead: Dict, current_followup: Dict):
-        """Agenda próximo follow-up baseado na estratégia"""
+        """Agenda próximo follow-up baseado na estratégia - FLUXO SEQUENCIAL"""
         try:
-            # Lógica de follow-up baseada no tipo
-            if followup_type == "IMMEDIATE_REENGAGEMENT":
-                # Se não houve resposta, agendar daily nurturing em 24h
-                if not lead.get('last_response_at'):
-                    next_time = datetime.now() + timedelta(hours=24)
-                    await self._create_followup(
-                        lead_id=lead['id'],
-                        followup_type="DAILY_NURTURING",
-                        scheduled_at=next_time,
-                        message="",
-                        priority="medium"
-                    )
+            from app.utils.time_utils import get_business_aware_datetime
+            
+            # NOVO FLUXO SEQUENCIAL - Só agenda próximo se usuário não respondeu
+            if followup_type == "reengagement":
+                # Agendar follow-up de 24h apenas se foi o primeiro (30min)
+                metadata = current_followup.get('metadata', {})
+                trigger = metadata.get('trigger', '')
+                
+                if trigger == "agent_response_30min":
+                    # Este era o follow-up de 30min, agendar o de 24h
+                    agent_response_timestamp = metadata.get('agent_response_timestamp')
+                    phone = metadata.get('phone')
+                    conversation_id = metadata.get('conversation_id')
                     
-            elif followup_type == "DAILY_NURTURING":
-                # Continuar nurturing por 7 dias
-                attempt = current_followup.get('attempt', 0)
-                if attempt < 7:
-                    next_time = datetime.now() + timedelta(hours=24)
-                    await self._create_followup(
-                        lead_id=lead['id'],
-                        followup_type="DAILY_NURTURING",
-                        scheduled_at=next_time,
-                        message="",
-                        priority="low",
-                        attempt=attempt + 1
-                    )
+                    if agent_response_timestamp and phone and conversation_id:
+                        next_time = get_business_aware_datetime(hours_from_now=24)
+                        
+                        followup_24h_data = {
+                            'lead_id': lead['id'],
+                            'scheduled_at': next_time.isoformat(),
+                            'type': 'reengagement',
+                            'follow_up_type': 'DAILY_NURTURING',
+                            'message': '',  # Usar mensagem inteligente
+                            'status': 'pending',
+                            'priority': 'medium',
+                            'metadata': {
+                                'phone': phone,
+                                'conversation_id': conversation_id,
+                                'trigger': 'agent_response_24h',
+                                'agent_response_timestamp': agent_response_timestamp,
+                                'scheduled_reason': 'User inactivity check 24h after agent response',
+                                'message_type': 'intelligent_reengagement'
+                            }
+                        }
+                        
+                        result = self.db.client.table('follow_ups').insert(followup_24h_data).execute()
+                        
+                        if result.data:
+                            emoji_logger.system_info(f"📅 Follow-up sequencial de 24h agendado para {phone} às {next_time.strftime('%d/%m %H:%M')}")
+                        else:
+                            logger.error("Falha ao agendar follow-up sequencial de 24h")
+                    
+                elif trigger == "agent_response_24h":
+                    # Este era o follow-up de 24h, pode continuar nurturing por mais alguns dias
+                    attempt = current_followup.get('attempt', 0)
+                    if attempt < 3:  # Máximo 3 tentativas adicionais após 24h
+                        next_time = get_business_aware_datetime(hours_from_now=48)  # A cada 48h
+                        
+                        await self._create_followup(
+                            lead_id=lead['id'],
+                            followup_type="DAILY_NURTURING",
+                            scheduled_at=next_time,
+                            message="",
+                            priority="low",
+                            attempt=attempt + 1
+                        )
+                        emoji_logger.system_info(f"📅 Follow-up de nurturing adicional agendado (tentativa {attempt + 1})")
                     
         except Exception as e:
             logger.error(f"Erro ao agendar próximo follow-up: {e}")
@@ -640,12 +693,7 @@ OBJETIVO: Gerar mensagem empática de reengajamento para reativar conversa onde 
                     intelligent_message = str(response)
                 
                 # Limpar resposta (remover tags se houver)
-                intelligent_message = intelligent_message.strip()
-                if "<RESPOSTA_FINAL>" in intelligent_message:
-                    start = intelligent_message.find("<RESPOSTA_FINAL>") + len("<RESPOSTA_FINAL>")
-                    end = intelligent_message.find("</RESPOSTA_FINAL>")
-                    if end > start:
-                        intelligent_message = intelligent_message[start:end].strip()
+                intelligent_message = self._extract_final_response(intelligent_message)
                 
                 # Garantir linha única para WhatsApp
                 intelligent_message = intelligent_message.replace('\n', ' ').replace('\r', ' ')
@@ -751,12 +799,7 @@ OBJETIVO: Gerar mensagem empática de reengajamento para reativar conversa onde 
                     intelligent_reminder = str(response)
                 
                 # Limpar resposta (remover tags se houver)
-                intelligent_reminder = intelligent_reminder.strip()
-                if "<RESPOSTA_FINAL>" in intelligent_reminder:
-                    start = intelligent_reminder.find("<RESPOSTA_FINAL>") + len("<RESPOSTA_FINAL>")
-                    end = intelligent_reminder.find("</RESPOSTA_FINAL>")
-                    if end > start:
-                        intelligent_reminder = intelligent_reminder[start:end].strip()
+                intelligent_reminder = self._extract_final_response(intelligent_reminder)
                 
                 # Garantir formatação adequada para WhatsApp (manter quebras de linha)
                 intelligent_reminder = intelligent_reminder.strip()
@@ -789,6 +832,67 @@ OBJETIVO: Gerar mensagem empática de reengajamento para reativar conversa onde 
                 'success': False,
                 'error': str(e)
             }
+    
+    def _sanitize_final_message(self, text: str) -> str:
+        """
+        Sanitização final de mensagens - Remove qualquer tag remanescente
+        
+        Args:
+            text: Texto a ser sanitizado
+            
+        Returns:
+            Texto limpo sem tags
+        """
+        import re
+        
+        if not isinstance(text, str) or not text:
+            return ""
+        
+        # Remove qualquer tag XML/HTML remanescente
+        text = re.sub(r'<[^>]+>', '', text)
+        
+        # Remove quebras de linha múltiplas
+        text = re.sub(r'\n+', '\n', text)
+        text = re.sub(r'\r+', '', text)
+        
+        # Limpa espaços extras
+        text = ' '.join(text.split())
+        
+        return text.strip()
+    
+    def _extract_final_response(self, full_response: str) -> str:
+        """
+        Extrai apenas a resposta final das tags <RESPOSTA_FINAL>
+        
+        Args:
+            full_response: Resposta completa do LLM incluindo raciocínio
+            
+        Returns:
+            Apenas o conteúdo dentro das tags RESPOSTA_FINAL
+        """
+        import re
+        
+        try:
+            if not full_response:
+                return "Desculpe, tive um problema ao processar sua mensagem. Pode tentar novamente?"
+            
+            # Busca o conteúdo entre as tags <RESPOSTA_FINAL> e </RESPOSTA_FINAL>
+            pattern = r'<RESPOSTA_FINAL>(.*?)</RESPOSTA_FINAL>'
+            match = re.search(pattern, full_response, re.DOTALL | re.IGNORECASE)
+            
+            if match:
+                # Extrai e limpa o conteúdo
+                final_response = match.group(1).strip()
+                return final_response
+            else:
+                # ✅ RESPOSTA SEGURA: fallback que não vaza raciocínio
+                logger.warning("🚨 TAGS <RESPOSTA_FINAL> não encontradas no follow-up")
+                return "Olá! Como posso te ajudar hoje com sua energia solar?"
+                
+        except Exception as e:
+            logger.error(f"🚨 ERRO ao extrair resposta final: {e}")
+            # 🚨 RESPOSTA SEGURA: fallback de emergência
+            return "Oi! Tive um probleminha técnico. Me dê só um momento que já te respondo!"
 
 # Singleton
 followup_executor_service = FollowUpExecutorService()

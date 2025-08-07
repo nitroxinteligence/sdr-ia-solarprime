@@ -339,6 +339,10 @@ class EmojiLogger:
         cls.log_with_emoji("DEBUG", "system_debug", message, **kwargs)
     
     @classmethod
+    def system_success(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "success", message, **kwargs)
+    
+    @classmethod
     def system_shutdown(cls, component: str, message: str = "", **kwargs):
         """Log de shutdown de componente"""
         kwargs["component"] = component

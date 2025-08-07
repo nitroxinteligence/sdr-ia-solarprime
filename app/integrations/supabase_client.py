@@ -188,24 +188,39 @@ class SupabaseClient:
     async def get_conversation_emotional_state(self, conversation_id: str) -> str:
         """Obtém o estado emocional atual da conversa"""
         try:
-            # Por enquanto retorna estado padrão até a coluna ser criada no banco
-            emoji_logger.system_warning("Campo emotional_state não implementado no banco, usando estado padrão")
-            return 'ENTUSIASMADA'  # Estado padrão
+            response = await self.client.table('conversations').select('emotional_state').eq('id', conversation_id).execute()
             
+            if response.data and len(response.data) > 0:
+                emotional_state = response.data[0].get('emotional_state', 'ENTUSIASMADA')
+                emoji_logger.system_debug(f"Estado emocional recuperado: {emotional_state}")
+                return emotional_state
+            else:
+                emoji_logger.system_warning(f"Conversa {conversation_id} não encontrada, usando estado padrão")
+                return 'ENTUSIASMADA'
+                
         except Exception as e:
             emoji_logger.supabase_error(f"Erro ao buscar estado emocional: {str(e)}", table="conversations")
             return 'ENTUSIASMADA'
     
     async def update_conversation_emotional_state(self, conversation_id: str, emotional_state: str) -> None:
-        """Atualiza o estado emocional da conversa"""
+        """Atualiza o estado emocional da conversa com validação"""
         try:
+            # Validar estado antes de salvar
+            valid_states = ['ENTUSIASMADA', 'CURIOSA', 'CONFIANTE', 'DUVIDOSA', 'NEUTRA']
+            
+            if emotional_state not in valid_states:
+                emoji_logger.system_warning(
+                    f"Estado emocional inválido: {emotional_state}, usando NEUTRA como fallback"
+                )
+                emotional_state = 'NEUTRA'
+            
             await self.update_conversation(
                 conversation_id,
                 {'emotional_state': emotional_state}
             )
-            # Estado emocional atualizado
+            emoji_logger.system_debug(f"Estado emocional atualizado para: {emotional_state}")
         except Exception as e:
-            logger.error(f"Erro ao atualizar estado emocional: {str(e)}")
+            emoji_logger.supabase_error(f"Erro ao atualizar estado emocional: {str(e)}", table="conversations")
     
     # ============= MESSAGES =============
     

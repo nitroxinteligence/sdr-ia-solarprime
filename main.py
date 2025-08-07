@@ -97,6 +97,24 @@ async def lifespan(app: FastAPI):
             await followup_executor_service.start()
             emoji_logger.system_ready("FollowUp Executor", check_interval="1min", types="30min, 24h")
         
+        # PRÉ-AQUECIMENTO: Cria agente singleton na inicialização com retry
+        from app.api.webhooks import get_agentic_agent
+        
+        for attempt in range(3):
+            try:
+                emoji_logger.system_info(f"🔥 Pré-aquecendo AgenticSDR (tentativa {attempt+1}/3)...")
+                await get_agentic_agent()  # Força criação do singleton
+                emoji_logger.system_ready("AgenticSDR", status="pré-aquecido com sucesso")
+                break
+            except Exception as e:
+                if attempt == 2:  # Última tentativa
+                    emoji_logger.system_error("AgenticSDR", f"Falha no pré-aquecimento após 3 tentativas: {e}")
+                    # Continua sem pré-aquecimento - cold start na primeira mensagem
+                    emoji_logger.system_warning("AgenticSDR funcionará com cold start na primeira mensagem")
+                else:
+                    emoji_logger.system_warning(f"Tentativa {attempt+1} falhou, tentando novamente...")
+                    await asyncio.sleep(2)  # Aguarda 2 segundos antes de tentar novamente
+        
         emoji_logger.system_ready("SDR IA Solar Prime", startup_time=3.0)
         
     except Exception as e:

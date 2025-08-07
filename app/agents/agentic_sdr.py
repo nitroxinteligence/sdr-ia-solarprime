@@ -14,7 +14,6 @@ import base64
 
 from agno.agent import Agent
 from agno.models.google import Gemini
-from agno.media import Image as AgnoImage
 # OpenAI via requests - contorna problemas do SDK
 try:
     import requests
@@ -196,7 +195,7 @@ class IntelligentModelFallback:
             self.current_model = self.primary_model
             
         except Exception as e:
-            emoji_logger.system_error(f"Erro na inicialização de modelos: {e}")
+            emoji_logger.system_error("Model Init", f"Erro na inicialização de modelos: {e}")
             raise
     
     def _is_gemini_error(self, error) -> bool:
@@ -397,14 +396,12 @@ class ConversationContext(Enum):
 
 
 class EmotionalState(Enum):
-    """Estados emocionais do AGENTIC SDR"""
-    ENTUSIASMADA = "entusiasmada"
-    EMPATICA = "empatica"
-    CANSADA = "cansada"
-    DETERMINADA = "determinada"
-    FRUSTRADA_SUTIL = "frustrada_sutil"
-    CURIOSA = "curiosa"
-    SATISFEITA = "satisfeita"
+    """Estados emocionais do AGENTIC SDR - Alinhados com banco de dados"""
+    ENTUSIASMADA = "ENTUSIASMADA"
+    CURIOSA = "CURIOSA"
+    CONFIANTE = "CONFIANTE"
+    DUVIDOSA = "DUVIDOSA"
+    NEUTRA = "NEUTRA"
 
 
 class AgenticSDR:
@@ -567,7 +564,7 @@ class AgenticSDR:
                                      reasoning_enabled=self.reasoning_enabled)
                 
         except Exception as e:
-            emoji_logger.system_error(f"Erro crítico na configuração de modelos: {e}")
+            emoji_logger.system_error("Model Config", f"Erro crítico na configuração de modelos: {e}")
             raise
     
     def _create_agentic_agent(self):
@@ -1180,7 +1177,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     
                     # Validar tamanho mínimo (100x100)
                     if width < 100 or height < 100:
-                        emoji_logger.system_error(f"❌ IMAGEM: Muito pequena ({width}x{height}). Mínimo: 100x100")
+                        emoji_logger.system_error("Image Validation", f"❌ IMAGEM: Muito pequena ({width}x{height}). Mínimo: 100x100")
                         return {
                             "type": "image",
                             "error": f"Imagem muito pequena ({width}x{height} pixels). Envie uma imagem maior que 100x100.",
@@ -1190,7 +1187,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     
                     # Validar tamanho máximo (10MB)
                     if len(img_bytes) > 10 * 1024 * 1024:
-                        emoji_logger.system_error(f"❌ IMAGEM: Muito grande ({len(img_bytes) / 1024 / 1024:.1f}MB). Máximo: 10MB")
+                        emoji_logger.system_error("Image Validation", f"❌ IMAGEM: Muito grande ({len(img_bytes) / 1024 / 1024:.1f}MB). Máximo: 10MB")
                         return {
                             "type": "image",
                             "error": "Imagem muito grande. Por favor, envie uma imagem menor que 10MB.",
@@ -1199,24 +1196,25 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         }
                     
                     # Avisos sobre qualidade
-                    is_thumbnail = data_size < 50000  # Menos de 50KB em base64
-                    if is_thumbnail:
+                    if data_size < 50000:  # Menos de 50KB em base64
                         emoji_logger.system_warning("⚠️ IMAGEM: Possível thumbnail detectada (<50KB)")
                     elif estimated_mb > 2:
                         emoji_logger.system_warning(f"⚠️ IMAGEM: Tamanho grande ({estimated_mb:.2f} MB) - pode causar lentidão")
                     
                 except Exception as val_error:
-                    emoji_logger.system_error(f"❌ Erro ao validar imagem: {str(val_error)}")
+                    emoji_logger.system_error("Image Validation", f"❌ Erro ao validar imagem: {str(val_error)}")
                     # Continuar mesmo com erro de validação
                 
-                # Preparar prompt específico para análise
-                # As instruções detalhadas estão no arquivo prompt-agente.md
-                analysis_prompt = f"""Analise esta imagem e extraia TODAS as informações visíveis de forma detalhada.
-                {f'Contexto fornecido pelo usuário: {caption}' if caption else ''}
-                
-                {'⚠️ ATENÇÃO: Esta pode ser apenas uma miniatura de baixa resolução. Faça o melhor possível com o que consegue ver.' if is_thumbnail else ''}
-                
-                Por favor, extraia e mencione especificamente todos os valores, datas, nomes e informações relevantes que conseguir identificar na imagem."""
+                # Preparar prompt específico para análise (simplificado para evitar erros)
+                analysis_prompt = f"""Analise esta imagem e extraia as informações visíveis.
+{f'Contexto: {caption}' if caption else ''}
+
+Retorne em formato estruturado:
+- Tipo de documento
+- Valores encontrados
+- Datas
+- Nomes ou empresas
+- Outras informações relevantes"""
                 
                 try:
                     # AGNO Framework Solution: Usar agno.media.Image nativo
@@ -1278,98 +1276,55 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                     
                     emoji_logger.agentic_thinking(f"AGNO detectou: {format_hint} (confiança: {detection_result.get('confidence', 'unknown')})")
                     
-                    # Criar objeto AGNO Image com bytes da imagem
-                    # SOLUÇÃO: AgnoImage precisa dos bytes decodificados, não da string base64
+                    # 🔧 CORREÇÃO MULTIMODAL: Usar PIL + Gemini diretamente (sem AGNO)
+                    # Esta correção resolve o erro 400 INVALID_ARGUMENT e a latência de 42s
+                    emoji_logger.system_info("🔧 Usando PIL + Gemini direto (correção implementada)")
+                    
                     try:
-                        # Opção 1: Tentar passar os bytes diretamente
-                        try:
-                            agno_image = AgnoImage(
-                                content=image_bytes,  # Usar bytes decodificados
-                                format=agno_params['format'],
-                                detail=agno_params['detail']
-                            )
-                            emoji_logger.agentic_thinking("AGNO Image criado com sucesso (usando bytes)")
-                        except Exception as e1:
-                            # Opção 2: Se falhar, salvar temporariamente e usar o filepath
-                            import tempfile
-                            import os
-                            
-                            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
-                                tmp_file.write(image_bytes)
-                                temp_path = tmp_file.name
-                            
-                            try:
-                                agno_image = AgnoImage(
-                                    filepath=temp_path,
-                                    format=agno_params['format'],
-                                    detail=agno_params['detail']
-                                )
-                                emoji_logger.agentic_thinking("AGNO Image criado com sucesso (usando arquivo temporário)")
-                            finally:
-                                # Limpar arquivo temporário após criar o objeto
-                                if os.path.exists(temp_path):
-                                    os.unlink(temp_path)
-                        
-                        # Usar IntelligentModelFallback para análise com fallback automático
-                        emoji_logger.agentic_thinking("Usando IntelligentModelFallback para análise de imagem...")
-                        
-                        # Criar agente temporário com o modelo inteligente
-                        temp_agent = Agent(
-                            model=self.intelligent_model,  # Usa o wrapper com fallback
-                            markdown=True,
-                            show_tool_calls=False,
-                            instructions="Você é um assistente especializado em análise de imagens e documentos. Extraia todas as informações relevantes de forma detalhada."
-                        )
-                        
-                        # Processar imagem com fallback automático
-                        emoji_logger.agentic_thinking("Enviando imagem para análise com fallback automático...")
-                        response = temp_agent.run(
-                            analysis_prompt,
-                            images=[agno_image]
-                        )
-                        
-                        # Extrair conteúdo da resposta AGNO
-                        if hasattr(response, 'content'):
-                            analysis_content = response.content
-                        elif isinstance(response, dict) and 'content' in response:
-                            analysis_content = response['content']
-                        elif isinstance(response, str):
-                            analysis_content = response
-                        else:
-                            analysis_content = str(response)
-                            
-                    except Exception as agno_error:
-                        emoji_logger.system_warning(f"AGNO Image processamento falhou: {str(agno_error)}")
-                        
-                        # Fallback: tentar processamento direto com PIL+Gemini se AGNO falhar
+                        # Processamento direto com PIL + Gemini (sem AGNO Framework)
                         from io import BytesIO
                         from PIL import Image as PILImage
                         import google.generativeai as genai
                         
-                        try:
-                            # Decodificar base64 para usar com PIL
-                            fallback_bytes = base64.b64decode(media_data)
-                            img = PILImage.open(BytesIO(fallback_bytes))
+                        # Decodificar base64 para usar com PIL
+                        img_bytes = base64.b64decode(media_data)
+                        img = PILImage.open(BytesIO(img_bytes))
+                        
+                        # Configurar Gemini com modelo Vision correto
+                        from app.config import settings
+                        genai.configure(api_key=settings.google_api_key)
+                        vision_model = genai.GenerativeModel('gemini-1.5-flash')  # Modelo com capacidade vision
+                        
+                        # Prompt específico para análise de contas de energia
+                        if "conta" in analysis_prompt.lower() or "energia" in analysis_prompt.lower():
+                            enhanced_prompt = """Analise esta conta de energia elétrica e extraia as seguintes informações:
+                            1. Valor total a pagar (em R$)
+                            2. Consumo mensal em kWh
+                            3. Nome completo do titular da conta
+                            4. Endereço completo da instalação
+                            5. Mês de referência da conta
+                            6. Vencimento da fatura
                             
-                            # Configurar Gemini diretamente como fallback
-                            from app.config import settings
-                            genai.configure(api_key=settings.google_api_key)
-                            model = genai.GenerativeModel('gemini-2.5-pro')
+                            Responda em formato estruturado e claro. Se não conseguir identificar alguma informação, indique como "Não identificado"."""
+                        else:
+                            enhanced_prompt = analysis_prompt
+                        
+                        emoji_logger.system_info("📤 Enviando imagem para Gemini Vision com prompt otimizado...")
+                        
+                        # Enviar imagem com prompt otimizado ao Gemini
+                        response = vision_model.generate_content([enhanced_prompt, img])
+                        analysis_content = response.text if hasattr(response, 'text') else str(response)
+                        
+                        emoji_logger.system_info("✅ PIL + Gemini direto: Sucesso (latência otimizada)")
                             
-                            # Enviar imagem com prompt
-                            response = model.generate_content([analysis_prompt, img])
-                            analysis_content = response.text if hasattr(response, 'text') else str(response)
-                            
-                            emoji_logger.system_info("Fallback PIL+Gemini bem-sucedido")
-                            
-                        except Exception as fallback_error:
-                            emoji_logger.system_error("Fallback completo", f"Erro: {str(fallback_error)}")
-                            return {
-                                "type": "image",
-                                "error": f"Não foi possível processar a imagem: {str(fallback_error)}",
-                                "status": "error",
-                                "suggestion": "Tente enviar a imagem em formato JPEG ou PNG"
-                            }
+                    except Exception as pil_gemini_error:
+                        emoji_logger.system_error("PIL + Gemini direto falhou", f"Erro: {str(pil_gemini_error)}")
+                        return {
+                            "type": "image",
+                            "error": f"Não foi possível processar a imagem: {str(pil_gemini_error)}",
+                            "status": "error",
+                            "suggestion": "Tente enviar a imagem em formato JPEG ou PNG"
+                        }
                         
                     emoji_logger.agentic_multimodal("Análise de imagem concluída com sucesso")
                     
@@ -1411,7 +1366,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                         "type": "image",
                         "error": error_msg,
                         "status": "error",
-                        "is_thumbnail": is_thumbnail
+                        "is_thumbnail": data_size < 50000
                     }
             
             elif media_type == "audio":
@@ -1711,9 +1666,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             
         except asyncio.TimeoutError:
             total_time = time.time() - start_time
-            emoji_logger.system_error(f"❌ MULTIMODAL: Timeout após {MULTIMODAL_TIMEOUT}s")
-            emoji_logger.system_error(f"  • Tipo: {media_type}")
-            emoji_logger.system_error(f"  • Tempo decorrido: {total_time:.2f}s")
+            emoji_logger.system_error("Multimodal Timeout", f"❌ MULTIMODAL: Timeout após {MULTIMODAL_TIMEOUT}s")
+            emoji_logger.system_info(f"  • Tipo: {media_type}")
+            emoji_logger.system_info(f"  • Tempo decorrido: {total_time:.2f}s")
             
             return {
                 "type": media_type,
@@ -1793,7 +1748,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             emoji_logger.team_knowledge(f"❌ Erro na busca: {e}")
             return []
     
-    async def analyze_energy_bill(self, image_data: str, customer_name: str = "Cliente") -> Dict[str, Any]:
+    def analyze_energy_bill(self, image_data: str, customer_name: str = "Cliente") -> Dict[str, Any]:
         """
         Analisa conta de energia via Vision AI - SUBSTITUI BillAnalyzerAgent (881 linhas → função simples)
         
@@ -1840,28 +1795,38 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             import base64
             image_bytes = base64.b64decode(image_data)
             
-            response = await self.resilient_model.primary_model.generate(
-                analysis_prompt,
-                images=[image_bytes]
-            )
+            # Usar Gemini diretamente via genai (não pelo AGNO)
+            import google.generativeai as genai
+            genai.configure(api_key=settings.google_api_key)
+            
+            # Preparar imagem para Gemini
+            from PIL import Image
+            from io import BytesIO
+            img = Image.open(BytesIO(image_bytes))
+            
+            # Usar modelo Gemini Flash para análise rápida
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content([analysis_prompt, img])
             
             # Parse da resposta JSON
             import json
             import re
             from datetime import datetime
             
-            json_start = response.find('{')
-            json_end = response.rfind('}') + 1
+            # Extrair texto da resposta
+            response_text = response.text if hasattr(response, 'text') else str(response)
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
             
             if json_start >= 0 and json_end > json_start:
-                json_str = response[json_start:json_end]
+                json_str = response_text[json_start:json_end]
                 try:
                     result = json.loads(json_str)
                 except:
                     # Fallback: extrair manualmente via regex
-                    result = self._extract_bill_data_fallback(response)
+                    result = self._extract_bill_data_fallback(response_text)
             else:
-                result = self._extract_bill_data_fallback(response)
+                result = self._extract_bill_data_fallback(response_text)
             
             # Normalizar campos e garantir dados mínimos
             normalized_result = {
@@ -2019,22 +1984,41 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             Retorne JSON estruturado com os dados extraídos.
             """
             
-            response = await self.resilient_model.primary_model.generate(
-                prompt,
-                images=[data]
-            )
+            # Usar Gemini diretamente para documentos também
+            import google.generativeai as genai
+            genai.configure(api_key=settings.google_api_key)
+            
+            # Para PDFs, tentar usar como imagem primeiro
+            from PIL import Image
+            from io import BytesIO
+            
+            try:
+                # Tentar abrir como imagem (para PDFs simples)
+                img = Image.open(BytesIO(data))
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content([prompt, img])
+                response_text = response.text if hasattr(response, 'text') else str(response)
+            except:
+                # Se falhar, usar apenas o texto do prompt
+                # Por agora, retornar erro estruturado
+                return {
+                    "success": False,
+                    "error": "PDF complexo requer processamento avançado",
+                    "document_type": "pdf",
+                    "content": "Não foi possível processar este PDF automaticamente. Por favor, envie uma imagem da conta."
+                }
             
             # Parse simples da resposta
             import json
             try:
-                json_start = response.find('{')
-                json_end = response.rfind('}') + 1
+                json_start = response_text.find('{')
+                json_end = response_text.rfind('}') + 1
                 if json_start >= 0 and json_end > json_start:
-                    result = json.loads(response[json_start:json_end])
+                    result = json.loads(response_text[json_start:json_end])
                 else:
-                    result = {"text_content": response, "document_type": "unknown"}
+                    result = {"text_content": response_text, "document_type": "unknown"}
             except:
-                result = {"text_content": response, "document_type": "text"}
+                result = {"text_content": response_text, "document_type": "text"}
             
             result.update({
                 "success": True,
@@ -3011,31 +2995,40 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         context_analysis: Dict[str, Any],
         current_state: str
     ) -> str:
-        """Calcula novo estado emocional baseado na conversa"""
+        """Calcula novo estado emocional baseado na conversa - Alinhado com banco"""
         
-        # Lógica simplificada de transição de estados
+        # Validar estado atual
+        valid_states = [state.value for state in EmotionalState]
+        if current_state not in valid_states:
+            current_state = EmotionalState.NEUTRA.value
+        
+        # Lógica de transição de estados atualizada
         dominant_emotion = emotional_triggers.get("dominant_emotion")
         
-        if dominant_emotion == "frustration" and \
-           emotional_triggers.get("frustration_indicators", 0) > 3:
-            new_state = "FRUSTRADA_SUTIL"
+        if dominant_emotion == "frustration" or dominant_emotion == "hesitation":
+            # Usuário com dúvidas ou hesitação
+            new_state = EmotionalState.DUVIDOSA.value
         
-        elif dominant_emotion == "excitement":
-            new_state = "ENTUSIASMADA"
+        elif dominant_emotion == "excitement" or dominant_emotion == "interest":
+            # Usuário animado ou interessado
+            new_state = EmotionalState.ENTUSIASMADA.value
         
-        elif dominant_emotion == "hesitation":
-            new_state = "EMPATICA"
+        elif dominant_emotion == "curiosity" or emotional_triggers.get("questions_asked", 0) > 2:
+            # Usuário fazendo muitas perguntas
+            new_state = EmotionalState.CURIOSA.value
         
-        elif context_analysis.get("decision_stage") == "decision":
-            new_state = "DETERMINADA"
+        elif context_analysis.get("decision_stage") == "decision" or \
+             context_analysis.get("conversion_probability", 0) > 0.7:
+            # Usuário próximo da decisão
+            new_state = EmotionalState.CONFIANTE.value
+        
+        elif emotional_triggers.get("neutral_indicators", 0) > 2:
+            # Conversa neutra/inicial
+            new_state = EmotionalState.NEUTRA.value
         
         else:
-            # Mantém o estado atual se não houver mudança
-            new_state = current_state
-        
-        # REMOVIDO: Limite de conversas e estado CANSADA
-        # O agente SEMPRE responde a TODOS os usuários
-        # Sem limites, sem cansaço, sempre disponível!
+            # Mantém o estado atual se válido
+            new_state = current_state if current_state in valid_states else EmotionalState.NEUTRA.value
         
         emoji_logger.agentic_thinking(f"Estado emocional atualizado: {new_state}",
                                      emotional_state=new_state)

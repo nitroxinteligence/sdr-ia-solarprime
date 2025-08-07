@@ -449,32 +449,40 @@ async def process_message_with_agent(
         message_id: ID da mensagem
     """
     try:
-        # GARANTIA: Parar qualquer typing que possa estar ativo quando usuário envia mensagem
-        try:
-            await evolution_client.send_typing(phone, 0, context="USER_MESSAGE")
-            emoji_logger.system_debug("Typing parado ao receber mensagem do usuário")
-        except:
-            pass  # Se falhar, continua normalmente
-        # OTIMIZAÇÃO: Busca lead primeiro (necessário para conversation)
-        lead = await supabase_client.get_lead_by_phone(phone)
+        # PARALELIZAÇÃO MÁXIMA: Busca lead + conversa + agente em paralelo com tratamento de erros
+        lead_task = asyncio.create_task(supabase_client.get_lead_by_phone(phone))
+        conversation_task = asyncio.create_task(supabase_client.get_conversation_by_phone(phone))
+        agent_task = asyncio.create_task(get_agentic_agent())  # Pré-carrega agente
+        
+        # Aguarda todas as tasks com tratamento de erros
+        results = await asyncio.gather(
+            lead_task,
+            conversation_task,
+            agent_task,
+            return_exceptions=True
+        )
+        
+        # Processar resultados com tratamento de erros
+        lead_result, conv_result, agent_result = results
+        
+        # Verificar lead
+        if isinstance(lead_result, Exception):
+            emoji_logger.system_error("Lead Fetch", f"Erro ao buscar lead: {lead_result}")
+            lead = None
+        else:
+            lead = lead_result
         
         if not lead:
             # Cria novo lead
             lead = await supabase_client.create_lead({
                 "phone_number": phone,
                 "current_stage": "INITIAL_CONTACT",
-                "qualification_status": "PENDING",
+                "qualification_status": "PENDING", 
                 "interested": True,
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
             })
-            
             emoji_logger.supabase_insert("leads", 1, phone=phone)
-        
-        # OTIMIZAÇÃO: Buscar conversa em paralelo com preparação de dados
-        conversation_task = asyncio.create_task(
-            supabase_client.get_conversation_by_phone(phone)
-        )
         
         # Preparar dados da mensagem enquanto busca conversa
         message_data = {
@@ -487,8 +495,12 @@ async def process_message_with_agent(
             }
         }
         
-        # Aguardar resultado da conversa
-        conversation = await conversation_task
+        # Verificar conversa
+        if isinstance(conv_result, Exception):
+            emoji_logger.system_error("Conversation Fetch", f"Erro ao buscar conversa: {conv_result}")
+            conversation = None
+        else:
+            conversation = conv_result
         
         if not conversation:
             conversation = await supabase_client.create_conversation(phone, lead["id"])
@@ -512,10 +524,22 @@ async def process_message_with_agent(
         # Executar tarefas em paralelo
         await asyncio.gather(*save_tasks, return_exceptions=True)
         
-        # Processa com o AGENTIC SDR
-        emoji_logger.webhook_process("Obtendo instância do AGENTIC SDR")
-        agentic = await get_agentic_agent()
-        emoji_logger.webhook_process("AGENTIC SDR obtido com sucesso")
+        # OTIMIZAÇÃO: Agente já está sendo carregado em paralelo
+        emoji_logger.webhook_process("Aguardando AGENTIC SDR pré-carregado...")
+        
+        # Verificar agente
+        if isinstance(agent_result, Exception):
+            emoji_logger.system_error("Agent Load", f"Erro ao carregar agente: {agent_result}")
+            # Tentar criar agente novamente (fallback)
+            try:
+                agentic = await get_agentic_agent()
+            except Exception as e:
+                emoji_logger.system_error("Agent Fallback", f"Falha no fallback do agente: {e}")
+                raise HTTPException(status_code=503, detail="Agente temporariamente indisponível")
+        else:
+            agentic = agent_result
+            
+        emoji_logger.webhook_process("AGENTIC SDR pronto para uso")
         
         # REMOVIDO: Não simular tempo de leitura quando usuário envia mensagem
         # Isso estava causando typing aparecer quando não deveria
@@ -1462,23 +1486,9 @@ async def _schedule_inactivity_followup(lead_id: str, phone: str, conversation_i
         if result.data:
             emoji_logger.system_info(f"⏰ Follow-up de 30min agendado para {phone} às {scheduled_time.strftime('%H:%M')}")
             
-            # Agendar também follow-up de 24h caso usuário continue sem responder
-            scheduled_24h = get_business_aware_datetime(hours_from_now=24)
-            followup_24h_data = {
-                **followup_data,
-                "scheduled_at": scheduled_24h.isoformat(),
-                "message": "",  # CORREÇÃO: Vazio para usar mensagem inteligente
-                "metadata": {
-                    **followup_data["metadata"],
-                    "trigger": "agent_response_24h",
-                    "agent_response_timestamp": agent_response_timestamp,  # Mesmo timestamp do agente
-                    "scheduled_reason": "User inactivity check 24h after agent response",
-                    "message_type": "intelligent_reengagement"  # Flag para usar IA
-                }
-            }
-            
-            supabase_client.client.table("follow_ups").insert(followup_24h_data).execute()
-            emoji_logger.system_info(f"⏰ Follow-up de 24h agendado para {phone} às {scheduled_24h.strftime('%d/%m %H:%M')}")
+            # NÃO agendar follow-up de 24h imediatamente
+            # Será agendado pelo próprio FollowUpExecutorService se o usuário não responder ao de 30min
+            emoji_logger.system_info(f"📋 Follow-up sequencial: 24h será agendado apenas se usuário não responder ao de 30min")
             
         else:
             emoji_logger.system_error("Follow-up", "Falha ao agendar follow-up de inatividade")

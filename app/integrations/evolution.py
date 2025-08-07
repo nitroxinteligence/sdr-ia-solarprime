@@ -296,14 +296,16 @@ class EvolutionAPIClient:
             
             # Simular digitação se habilitado - SEMPRE é resposta do agente aqui
             if simulate_typing:
-                # Enviar typing em PARALELO - não bloquear o envio da mensagem
-                typing_task = asyncio.create_task(
-                    self.send_typing(phone, len(message), context="agent_response")
-                )
-                # NÃO aguardar - deixar rodar em paralelo
+                # CORREÇÃO DEFINITIVA: Enviar typing SEQUENCIAL antes da mensagem
+                # Calcular duração baseada no tamanho da mensagem
+                typing_duration = self._calculate_humanized_typing_duration(len(message))
                 
-                # Pequeno delay para garantir que o typing apareça primeiro
-                await asyncio.sleep(0.5)
+                # 1. Enviar indicador de typing
+                await self.send_typing(phone, len(message), duration_seconds=typing_duration, context="agent_response")
+                
+                # 2. AGUARDAR a duração do typing para simular digitação real
+                emoji_logger.system_debug(f"Aguardando {typing_duration:.1f}s de typing antes de enviar mensagem")
+                await asyncio.sleep(typing_duration)
             
             # Preparar payload
             payload = {
@@ -415,9 +417,8 @@ class EvolutionAPIClient:
             
             emoji_logger.evolution_send(phone, "typing", duration_seconds=round(duration, 2), message_length=message_length)
             
-            # NÃO aguardar aqui - deixar o typing rodar em paralelo
-            # O sleep agora é feito de forma não bloqueante
-            logger.debug(f"Typing iniciado por {duration}s em paralelo")
+            # Typing enviado com sucesso
+            logger.debug(f"Typing enviado por {duration}s")
             
         except Exception as e:
             emoji_logger.evolution_error(f"Erro ao simular digitação: {e}")
@@ -474,7 +475,15 @@ class EvolutionAPIClient:
             
             # Simular digitação se habilitado - SEMPRE é resposta do agente aqui
             if simulate_typing:
-                await self.send_typing(phone, len(text), context="agent_response")
+                # CORREÇÃO DEFINITIVA: Enviar typing SEQUENCIAL antes da mensagem
+                typing_duration = self._calculate_humanized_typing_duration(len(text))
+                
+                # 1. Enviar indicador de typing
+                await self.send_typing(phone, len(text), duration_seconds=typing_duration, context="agent_response")
+                
+                # 2. AGUARDAR a duração do typing para simular digitação real
+                emoji_logger.system_debug(f"Aguardando {typing_duration:.1f}s de typing antes de enviar resposta")
+                await asyncio.sleep(typing_duration)
             
             payload = {
                 "number": phone,
