@@ -250,7 +250,39 @@ class CalendarAgent:
                     "alternatives": alternatives
                 }
             
-            # Criar evento no Google Calendar
+            # PRIMEIRO: Criar qualificação do lead ANTES de agendar
+            qualification_record = None
+            try:
+                from app.integrations.supabase_client import supabase_client
+                
+                # Verificar se já existe qualificação
+                existing_qual = await supabase_client.get_latest_qualification(lead_id)
+                
+                if not existing_qual:
+                    qualification_data = {
+                        'lead_id': lead_id,
+                        'qualification_status': 'QUALIFIED',
+                        'score': 85,  # Score alto por agendar reunião
+                        'criteria': {
+                            'meeting_scheduled': True,
+                            'meeting_type': meeting_type,
+                            'meeting_date': start_time.isoformat(),
+                            'interest_level': 'high',
+                            'decision_maker': True
+                        },
+                        'notes': f'Lead qualificado - Pronto para agendar reunião "{title}"'
+                    }
+                    
+                    qualification_record = await supabase_client.create_lead_qualification(qualification_data)
+                    logger.info(f"✅ Lead {lead_id} qualificado ANTES do agendamento")
+                else:
+                    qualification_record = existing_qual
+                    
+            except Exception as qual_error:
+                logger.error(f"Erro ao criar qualificação: {qual_error}")
+                # Continua mesmo se falhar a qualificação
+            
+            # SEGUNDO: Criar evento no Google Calendar
             async with self.rate_limiter:
                 await asyncio.sleep(self.request_interval)
                 
@@ -281,30 +313,67 @@ class CalendarAgent:
                     meeting_type=meeting_type
                 )
                 
-                # NOVO: Criar qualificação do lead quando agenda reunião
+                # TERCEIRO: Atualizar qualificação com google_event_id
+                if qualification_record:
+                    try:
+                        # Atualizar qualificação com o ID do evento
+                        await supabase_client.client.table('leads_qualifications').update({
+                            'google_event_id': result.get("google_event_id"),
+                            'updated_at': datetime.now().isoformat()
+                        }).eq('id', qualification_record['id']).execute()
+                        
+                        logger.info(f"✅ Qualificação atualizada com google_event_id")
+                    except Exception as update_error:
+                        logger.error(f"Erro ao atualizar qualificação com google_event_id: {update_error}")
+                
+                # QUARTO: Atualizar lead com dados da reunião
                 try:
-                    from app.integrations.supabase_client import supabase_client
-                    
-                    qualification_data = {
+                    await supabase_client.update_lead(lead_id, {
+                        'google_event_id': result.get("google_event_id"),
+                        'meeting_scheduled_at': start_time.isoformat(),
+                        'qualification_status': 'QUALIFIED'
+                    })
+                    logger.info(f"✅ Lead {lead_id} atualizado com dados da reunião")
+                except Exception as lead_error:
+                    logger.error(f"Erro ao atualizar lead com dados da reunião: {lead_error}")
+                
+                # QUINTO: Criar lembretes de reunião na tabela follow_ups
+                try:
+                    # Lembrete 24h antes
+                    reminder_24h_time = start_time - timedelta(hours=24)
+                    await supabase_client.create_follow_up({
                         'lead_id': lead_id,
-                        'qualification_status': 'QUALIFIED',
-                        'score': 85,  # Score alto por agendar reunião
-                        'criteria': {
-                            'meeting_scheduled': True,
-                            'meeting_type': meeting_type,
-                            'meeting_date': start_time.isoformat(),
-                            'interest_level': 'high',
-                            'decision_maker': True
-                        },
-                        'notes': f'Lead qualificado - Reunião "{title}" agendada para {date} às {time}'
-                    }
+                        'type': 'MEETING_REMINDER',
+                        'scheduled_at': reminder_24h_time.isoformat(),
+                        'status': 'PENDING',
+                        'priority': 'high',
+                        'message': f'Lembrete 24h - Reunião "{title}" amanhã às {time}',
+                        'metadata': {
+                            'hours_before': 24,
+                            'meeting_time': start_time.isoformat(),
+                            'google_event_id': result.get("google_event_id")
+                        }
+                    })
                     
-                    await supabase_client.create_lead_qualification(qualification_data)
-                    logger.info(f"✅ Lead {lead_id} qualificado após agendar reunião")
+                    # Lembrete 2h antes
+                    reminder_2h_time = start_time - timedelta(hours=2)
+                    await supabase_client.create_follow_up({
+                        'lead_id': lead_id,
+                        'type': 'MEETING_REMINDER',
+                        'scheduled_at': reminder_2h_time.isoformat(),
+                        'status': 'PENDING',
+                        'priority': 'critical',
+                        'message': f'Lembrete 2h - Reunião "{title}" às {time}',
+                        'metadata': {
+                            'hours_before': 2,
+                            'meeting_time': start_time.isoformat(),
+                            'google_event_id': result.get("google_event_id")
+                        }
+                    })
                     
-                except Exception as qual_error:
-                    logger.error(f"Erro ao criar qualificação: {qual_error}")
-                    # Não falha o agendamento se a qualificação falhar
+                    logger.info(f"✅ Lembretes de reunião criados na tabela follow_ups")
+                except Exception as reminder_error:
+                    logger.error(f"Erro ao criar lembretes de reunião: {reminder_error}")
                 
                 logger.info(f"✅ Reunião agendada: {title} em {date} às {time}")
                 

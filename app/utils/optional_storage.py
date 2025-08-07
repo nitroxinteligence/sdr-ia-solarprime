@@ -1,118 +1,69 @@
 """
-OptionalStorage - Storage wrapper que funciona com ou sem PostgreSQL
-Arquitetura modular simples - zero complexidade
+SupabaseOnlyStorage - Storage usando apenas Supabase (sem PostgreSQL)
+Arquitetura ultra-simples - zero complexidade
 """
 
 from typing import Optional, Any, Dict
 from loguru import logger
-import asyncio
-import time
 from app.utils.supabase_storage import SupabaseStorage
 from app.integrations.supabase_client import supabase_client
 
 
 class OptionalStorage:
     """
-    Storage wrapper que pode funcionar com PostgreSQL ou em memória
-    Fallback automático se PostgreSQL não estiver disponível
+    Storage usando apenas Supabase - SIMPLES E FUNCIONAL
     """
     
     def __init__(
         self,
         table_name: str,
-        db_url: str,
+        db_url: str = None,  # Parâmetro ignorado - mantido por compatibilidade
         schema: str = "public",
         auto_upgrade_schema: bool = True
     ):
         """
-        Tenta inicializar PostgresStorage, fallback para memória se falhar
+        Inicializa SupabaseStorage diretamente - SEM PostgreSQL
         
         Args:
             table_name: Nome da tabela
-            db_url: URL do banco de dados
+            db_url: Ignorado (compatibilidade)
             schema: Schema do banco
             auto_upgrade_schema: Auto-atualizar schema
         """
-        self.storage = None
-        self.memory_storage = {}  # Storage em memória como fallback
         self.table_name = table_name
         
-        # Tenta conectar ao PostgreSQL com retry
-        self._connect_with_retry(table_name, db_url, schema, auto_upgrade_schema)
-    
-    def _connect_with_retry(self, table_name: str, db_url: str, schema: str, auto_upgrade_schema: bool):
-        """Conecta usando SupabaseStorage em vez de PostgreSQL direto"""
-        try:
-            # Usa SupabaseStorage com o cliente Supabase existente
-            self.storage = SupabaseStorage(
-                table_name=table_name,
-                supabase_client=supabase_client,
-                schema=schema,
-                auto_upgrade_schema=auto_upgrade_schema
-            )
-            # Conectado com sucesso (sem logs repetitivos)
-        except Exception as e:
-            logger.warning(f"⚠️ Erro ao conectar SupabaseStorage: {e}")
-            logger.warning(f"📝 Sistema funcionará com storage em memória para: {table_name}")
-            self.storage = None
+        # USA APENAS SUPABASE - SIMPLES!
+        self.storage = SupabaseStorage(
+            table_name=table_name,
+            supabase_client=supabase_client,
+            schema=schema,
+            auto_upgrade_schema=auto_upgrade_schema
+        )
+        
+        logger.info(f"✅ SupabaseStorage inicializado para: {table_name}")
     
     def is_connected(self) -> bool:
-        """Verifica se está conectado ao storage"""
-        return self.storage is not None
+        """Verifica se está conectado ao storage - SEMPRE True com Supabase"""
+        return True
     
-    # Métodos compatíveis com AGNO Storage
+    # Métodos compatíveis com AGNO Storage - DIRETO pro Supabase!
     def get(self, key: str) -> Optional[Any]:
         """Obtém valor do storage"""
-        if self.storage:
-            try:
-                return self.storage.get(key)
-            except:
-                pass
-        return self.memory_storage.get(key)
+        return self.storage.get(key)
     
     def set(self, key: str, value: Any) -> bool:
         """Define valor no storage"""
-        if self.storage:
-            try:
-                return self.storage.set(key, value)
-            except:
-                pass
-        self.memory_storage[key] = value
-        return True
+        return self.storage.set(key, value)
     
     def delete(self, key: str) -> bool:
         """Remove valor do storage"""
-        if self.storage:
-            try:
-                return self.storage.delete(key)
-            except:
-                pass
-        if key in self.memory_storage:
-            del self.memory_storage[key]
-            return True
-        return False
+        return self.storage.delete(key)
     
     def exists(self, key: str) -> bool:
         """Verifica se chave existe"""
-        if self.storage:
-            try:
-                return self.storage.exists(key)
-            except:
-                pass
-        return key in self.memory_storage
+        return self.storage.exists(key)
     
-    # Métodos requeridos pelo AGNO Memory
+    # Métodos requeridos pelo AGNO Memory - PROXY DIRETO
     def __getattr__(self, name):
-        """
-        Proxy para métodos do PostgresStorage real
-        Se não tiver storage, retorna método dummy
-        """
-        if self.storage and hasattr(self.storage, name):
-            return getattr(self.storage, name)
-        
-        # Retorna função dummy para métodos não implementados
-        def dummy_method(*args, **kwargs):
-            logger.debug(f"Método {name} chamado sem PostgreSQL - operação ignorada")
-            return None
-        
-        return dummy_method
+        """Proxy direto para SupabaseStorage - SEM FALLBACK"""
+        return getattr(self.storage, name)

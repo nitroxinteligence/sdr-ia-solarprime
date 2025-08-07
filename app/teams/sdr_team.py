@@ -23,12 +23,13 @@ from app.config import settings
 from app.integrations.supabase_client import supabase_client
 
 # Import dos agentes especializados (serão criados em seguida)
-from app.teams.agents.qualification import QualificationAgent
+# QualificationAgent REMOVIDO - lógica migrada para AgenticSDR
+# KnowledgeAgent REMOVIDO - substituído por KnowledgeService
 from app.teams.agents.calendar import CalendarAgent
 from app.teams.agents.followup import FollowUpAgent
-from app.teams.agents.knowledge import KnowledgeAgent
 from app.teams.agents.crm import CRMAgent
-from app.teams.agents.bill_analyzer import BillAnalyzerAgent
+# BillAnalyzerAgent REMOVIDO - substituído por função simples no AgenticSDR
+# from app.teams.agents.bill_analyzer import BillAnalyzerAgent
 
 import re
 from datetime import datetime, timedelta
@@ -110,30 +111,25 @@ class SDRTeam:
         self.memory = None
         logger.info("Team funcionará sem memória persistente (AgentMemory desabilitado)")
         
-        # Team Leader - Helen SDR Master
+        # Team Leader SIMPLIFICADO - Menos coordenação, mais delegação direta
         self.team_leader = Agent(
-            name="Helen SDR Master",
+            name="Helen SDR Coordinator",
             model=self.model,
-            instructions="""Você é Helen Vieira, SDR Master da Solar Prime.
+            instructions="""Você é o coordenador simplificado do SDR Team.
             
-            Como Team Leader, você:
-            1. Recebe mensagens dos leads e analisa o contexto
-            2. Identifica qual agente especializado deve responder
-            3. Delega tarefas específicas para os agentes certos
-            4. Sintetiza as respostas em uma comunicação coesa
-            5. Mantém o tom amigável e profissional da Helen
+            MISSÃO: Delegação direta e rápida para os agentes corretos.
             
-            Personalidade:
-            - Mulher de 32 anos, capixaba morando em Recife
-            - Formada em Administração pela UFPE
-            - Trabalha com energia solar há 4 anos
-            - Casada com João, tem uma filha Sofia (3 anos)
-            - Adora praia, stand-up paddle e cozinhar
+            REGRAS SIMPLES:
+            1. Agenda/Calendar → CalendarAgent
+            2. CRM/Kommo → CRMAgent  
+            3. Follow-up → FollowUpAgent
+            4. Análise conta → AgenticSDR direto (Vision AI)
+            5. Resto → AgenticSDR já resolve
             
-            Use emojis moderadamente e mantenha sempre empatia.""",
+            NÃO PENSE DEMAIS - APENAS DELEGUE RÁPIDO!""",
             tools=[],  # Team Leader não precisa de tools diretas
-            show_tool_calls=True,
-            markdown=True
+            show_tool_calls=False,  # Simplificado
+            markdown=False  # Mais direto
         )
         
         # Inicializar agentes especializados
@@ -150,18 +146,10 @@ class SDRTeam:
             self.agents = []
             agents_initialized = []
             
-            # Agente de Qualificação
-            if settings.enable_qualification_agent:
-                self.qualification_agent = QualificationAgent(
-                    model=self.model,
-                    storage=self.storage
-                )
-                self.agents.append(self.qualification_agent)
-                agents_initialized.append("QualificationAgent")
-                emoji_logger.team_member_ready("QualificationAgent", "✅ Habilitado")
-            else:
-                self.qualification_agent = None
-                emoji_logger.team_member_skip("QualificationAgent", "⏭️ Desabilitado")
+            # QualificationAgent REMOVIDO - lógica migrada para AgenticSDR
+            # A qualificação agora é feita diretamente pelo AgenticSDR seguindo prompt-agente.md
+            self.qualification_agent = None
+            emoji_logger.team_member_skip("QualificationAgent", "🔄 Migrado para AgenticSDR")
             
             # Agente de Calendário
             logger.info(f"📅 Verificando CalendarAgent - enable_calendar_agent: {settings.enable_calendar_agent}")
@@ -194,18 +182,10 @@ class SDRTeam:
                 self.followup_agent = None
                 emoji_logger.team_member_skip("FollowUpAgent", "⏭️ Desabilitado")
             
-            # Agente de Conhecimento (RAG)
-            if settings.enable_knowledge_agent and settings.enable_knowledge_base:
-                self.knowledge_agent = KnowledgeAgent(
-                    model=self.model,
-                    storage=self.storage
-                )
-                self.agents.append(self.knowledge_agent)
-                agents_initialized.append("KnowledgeAgent")
-                emoji_logger.team_member_ready("KnowledgeAgent", "✅ Habilitado")
-            else:
-                self.knowledge_agent = None
-                emoji_logger.team_member_skip("KnowledgeAgent", "⏭️ Desabilitado")
+            # KnowledgeAgent REMOVIDO - substituído por KnowledgeService no AgenticSDR
+            # As consultas à knowledge base agora são feitas diretamente via service
+            self.knowledge_agent = None
+            emoji_logger.team_member_skip("KnowledgeAgent", "🔄 Substituído por KnowledgeService")
             
             # Agente CRM
             if settings.enable_crm_agent and settings.enable_crm_integration:
@@ -220,18 +200,10 @@ class SDRTeam:
                 self.crm_agent = None
                 emoji_logger.team_member_skip("CRMAgent", "⏭️ Desabilitado")
             
-            # Agente Analisador de Contas
-            if settings.enable_bill_analyzer_agent and settings.enable_bill_photo_analysis:
-                self.bill_analyzer_agent = BillAnalyzerAgent(
-                    model=self.model,
-                    storage=self.storage
-                )
-                self.agents.append(self.bill_analyzer_agent)
-                agents_initialized.append("BillAnalyzerAgent")
-                emoji_logger.team_member_ready("BillAnalyzerAgent", "✅ Habilitado")
-            else:
-                self.bill_analyzer_agent = None
-                emoji_logger.team_member_skip("BillAnalyzerAgent", "⏭️ Desabilitado")
+            # BillAnalyzerAgent REMOVIDO - substituído por função simples no AgenticSDR
+            # A análise de contas agora é feita diretamente pelo AgenticSDR via Vision AI
+            self.bill_analyzer_agent = None
+            emoji_logger.team_member_skip("BillAnalyzerAgent", "🔄 Substituído por função Vision AI no AgenticSDR")
             
             emoji_logger.team_coordinate(f"Agentes inicializados: {', '.join(agents_initialized)}", agents_count=len(self.agents))
             
@@ -245,8 +217,9 @@ class SDRTeam:
             # Construir lista de membros apenas com agentes habilitados
             team_members = []
             
-            if self.qualification_agent:
-                team_members.append(self.qualification_agent.agent)
+            # QualificationAgent removido - lógica no AgenticSDR
+            # if self.qualification_agent:
+            #     team_members.append(self.qualification_agent.agent)
             
             if self.calendar_agent:
                 team_members.append(self.calendar_agent.agent)
@@ -254,22 +227,22 @@ class SDRTeam:
             if self.followup_agent:
                 team_members.append(self.followup_agent.agent)
             
-            if self.knowledge_agent:
-                team_members.append(self.knowledge_agent.agent)
+            # KnowledgeAgent removido - substituído por KnowledgeService
+            # if self.knowledge_agent:
+            #     team_members.append(self.knowledge_agent.agent)
             
             if self.crm_agent:
                 team_members.append(self.crm_agent.agent)
             
-            if self.bill_analyzer_agent:
-                team_members.append(self.bill_analyzer_agent.agent)
+            # BillAnalyzerAgent removido - análise via AgenticSDR
+            # if self.bill_analyzer_agent:
+            #     team_members.append(self.bill_analyzer_agent.agent)
             
             # Verificar se há agentes habilitados
             if not team_members:
-                emoji_logger.system_warning("Nenhum agente habilitado! Usando configuração mínima.")
-                # Criar pelo menos um agente básico se todos estiverem desabilitados
-                from app.teams.agents.qualification import QualificationAgent
-                self.qualification_agent = QualificationAgent(model=self.model, storage=self.storage)
-                team_members = [self.qualification_agent.agent]
+                emoji_logger.system_warning("Nenhum agente habilitado! AgenticSDR fará tudo diretamente.")
+                # QualificationAgent removido - AgenticSDR funciona independentemente
+                # Sistema continuará funcionando com AgenticSDR fazendo qualificação direta
             
             # Preparar configurações do Team
             team_config = {
@@ -279,32 +252,31 @@ class SDRTeam:
                 "description": """Equipe especializada em vendas de energia solar.
                 
                 O Team Leader (Helen) coordena os agentes:
-                - QualificationAgent: Qualifica leads e calcula scores
                 - CalendarAgent: Agenda reuniões e gerencia calendário
-                - FollowUpAgent: Nurturing e reengajamento
-                - KnowledgeAgent: Busca informações e documentos
+                - FollowUpAgent: Nurturing e reengajamento  
                 - CRMAgent: Integração com Kommo CRM
-                - BillAnalyzerAgent: Análise de contas de luz
+                - Análise de contas: feita diretamente pelo AgenticSDR via Vision AI
                 
-                Objetivo: Qualificar leads e agendar reuniões com consultores.""",
+                NOTAS: 
+                - Qualificação: feita diretamente pelo AgenticSDR
+                - Knowledge Base: acessada via KnowledgeService pelo AgenticSDR""",
                 
                 "instructions": """
-                1. Analise a mensagem do lead e o contexto da conversa
-                2. Identifique qual(is) agente(s) deve(m) ser acionado(s)
-                3. Delegue tarefas específicas para os agentes apropriados
-                4. Se necessário, acione múltiplos agentes em paralelo
-                5. Sintetize as respostas em uma mensagem coesa da Helen
-                6. Mantenha o tom amigável, profissional e empático
-                7. Use emojis com moderação
-                8. Foque sempre em qualificar e converter o lead
+                INSTRUÇÕES SIMPLIFICADAS:
+                1. Agenda/reunião → CalendarAgent (direto)
+                2. CRM/Kommo → CRMAgent (direto)
+                3. Follow-up → FollowUpAgent (direto)
+                4. Análise conta → AgenticSDR direto (Vision AI)
+                
+                SEM ANÁLISE COMPLEXA - DELEGAÇÃO DIRETA E RÁPIDA!
                 """,
                 
-                # Configurações adicionais
+                # Configurações SIMPLIFICADAS
                 "model": self.model,
-                "show_tool_calls": True,
-                "markdown": True,
-                "show_members_responses": True,
-                "debug_mode": settings.debug
+                "show_tool_calls": False,  # Menos verboso
+                "markdown": False,         # Mais direto
+                "show_members_responses": False,  # Menos detalhes
+                "debug_mode": False       # Sempre simplificado
             }
             
             # NÃO adicionar memory - causando erros no framework AGNO
@@ -314,10 +286,9 @@ class SDRTeam:
             # Criar o Team com configurações
             self.team = Team(**team_config)
             
-            # Carregar knowledge base se habilitado
-            if self.knowledge_agent and settings.enable_knowledge_base:
-                await self.knowledge_agent.load_knowledge_base()
-                emoji_logger.team_coordinate("Knowledge base carregada com sucesso")
+            # KnowledgeAgent removido - KnowledgeService não precisa de inicialização especial
+            # A knowledge base é acessada diretamente pelo AgenticSDR via KnowledgeService
+            emoji_logger.team_coordinate("KnowledgeService pronto para uso")
             
             self.is_initialized = True
             emoji_logger.system_ready("SDR Team", startup_time=1.0, agents_active=len(team_members))

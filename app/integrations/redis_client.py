@@ -8,6 +8,7 @@ from typing import Optional, Any, List, Dict
 from datetime import datetime, timedelta
 from loguru import logger
 from app.config import settings
+from app.utils.safe_conversions import safe_json_loads, safe_int_conversion
 
 class RedisClient:
     """Cliente Redis para cache e filas"""
@@ -375,7 +376,7 @@ class RedisClient:
                     value = await self.redis_client.lpop(normal_key)
             
             if value:
-                return json.loads(value)
+                return safe_json_loads(value)
                 
             return None
             
@@ -520,7 +521,7 @@ class RedisClient:
             current = await self.redis_client.get(rate_key)
             
             if current:
-                remaining = max_requests - int(current)
+                remaining = max_requests - safe_int_conversion(current)
                 return max(0, remaining)
                 
             return max_requests
@@ -674,7 +675,7 @@ class RedisClient:
         try:
             key = f"counter:{counter_name}"
             value = await self.redis_client.get(key)
-            return int(value) if value else 0
+            return safe_int_conversion(value, default=0)
             
         except Exception as e:
             logger.error(f"Erro ao obter contador {counter_name}: {e}")

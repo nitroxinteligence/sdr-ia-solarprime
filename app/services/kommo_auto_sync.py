@@ -10,6 +10,47 @@ from loguru import logger
 from app.integrations.supabase_client import SupabaseClient
 from app.teams.agents.crm_enhanced import KommoEnhancedCRM
 from app.config import settings
+from app.utils.safe_conversions import safe_int_conversion
+
+
+def safe_float_conversion(value: Any, default: float = 0.0) -> float:
+    """
+    Converte valor para float de forma segura
+    
+    Args:
+        value: Valor a ser convertido
+        default: Valor padrão se a conversão falhar
+        
+    Returns:
+        float: Valor convertido ou default
+    """
+    if value is None:
+        return default
+    
+    # Se já for float, retorna direto
+    if isinstance(value, (int, float)):
+        return float(value)
+    
+    # Se for string, tenta converter
+    if isinstance(value, str):
+        # Remove espaços e verifica casos especiais
+        value = value.strip()
+        
+        # Casos especiais de strings vazias ou "None"
+        if not value or value.lower() in ['none', 'null', 'nan']:
+            return default
+        
+        # Tenta converter removendo símbolos de moeda comuns
+        value = value.replace('R$', '').replace('$', '').replace(',', '.')
+        
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            logger.warning(f"Não foi possível converter '{value}' para float. Usando valor padrão {default}")
+            return default
+    
+    # Para qualquer outro tipo, retorna default
+    return default
 
 
 class KommoAutoSyncService:
@@ -161,7 +202,7 @@ class KommoAutoSyncService:
                 "email": lead.get("email"),
                 "bill_value": lead.get("bill_value"),
                 "qualification_score": lead.get("qualification_score"),
-                "price": float(lead.get("bill_value") or 0) * 12  # Valor anual
+                "price": safe_float_conversion(lead.get("bill_value")) * 12  # Valor anual
             }
             
             # Determinar tags baseadas no lead
@@ -262,10 +303,10 @@ class KommoAutoSyncService:
                 fields["whatsapp"] = lead["phone_number"]
             
             if lead.get("bill_value"):
-                fields["valor_conta_energia"] = float(lead["bill_value"])
+                fields["valor_conta_energia"] = safe_float_conversion(lead.get("bill_value"))
             
             if lead.get("qualification_score"):
-                fields["score_qualificacao"] = int(lead["qualification_score"])
+                fields["score_qualificacao"] = safe_int_conversion(lead.get("qualification_score"))
             
             if lead.get("address"):
                 fields["endereco"] = lead["address"]
@@ -274,7 +315,7 @@ class KommoAutoSyncService:
                 fields["tipo_imovel"] = lead["property_type"]
             
             if lead.get("consumption_kwh"):
-                fields["consumo_kwh"] = int(lead["consumption_kwh"])
+                fields["consumo_kwh"] = safe_int_conversion(lead.get("consumption_kwh"))
             
             # Adicionar fonte
             fields["fonte"] = "WhatsApp SDR IA"
@@ -399,7 +440,7 @@ class KommoAutoSyncService:
                 # Criar deal
                 result = await self.crm.create_deal(
                     lead_id=kommo_id,
-                    value=float(lead.get("bill_value", 0)) * 12,
+                    value=safe_float_conversion(lead.get("bill_value")) * 12,
                     name=f"Solar - {lead.get('name', 'Cliente')}"
                 )
                 

@@ -15,7 +15,7 @@ import aiohttp
 from app.integrations.supabase_client import supabase_client
 from app.config import settings
 
-from app.teams.agents.tool_wrapper import ToolRegistry, create_tool_from_method
+# tool_wrapper REMOVIDO - simplificação direta de tools
 
 
 class DealStage(Enum):
@@ -91,8 +91,8 @@ class CRMAgent:
         
         # Tools do agente
         
-        # Tool Registry para gerenciar tools
-        self.tool_registry = ToolRegistry()
+        # Tools simplificadas - ZERO COMPLEXIDADE
+        self.tools = []
         
         # Registrar métodos como tools após inicialização completa
         self._tools_registered = False
@@ -159,29 +159,20 @@ class CRMAgent:
         return tools
 
     def _register_tools(self):
-        """Registra métodos como tools usando ToolRegistry"""
+        """Registra tools de forma SIMPLES - sem ToolRegistry complexo"""
         if self._tools_registered:
             return
-            
-        methods_to_register = [
-            'create_or_update_lead',
-            'create_contact', 
-            'create_deal',
-            'update_deal_stage',
-            'add_note',
-            'add_task',
-            'search_entity',
-            'sync_lead_to_crm',
-            'get_deal_history'
+        
+        # Tools essenciais diretas (sem decorator complexo)
+        self.tools = [
+            self.sync_lead_to_crm,
+            self.create_or_update_lead, 
+            self.update_deal_stage,
+            self.add_note,
+            self.search_entity
         ]
         
-        for method_name in methods_to_register:
-            if hasattr(self, method_name):
-                method = getattr(self, method_name)
-                self.tool_registry.register_method_as_tool(method, self, method_name)
-                
         self._tools_registered = True
-        self.tools = self.tool_registry.get_tools()
         
         # Atualizar tools do agente
         if hasattr(self, 'agent'):

@@ -1042,6 +1042,11 @@ async def process_message_with_agent(
             await redis_client.increment_counter(f"messages:{phone}")
             
             emoji_logger.webhook_process("Mensagem processada com sucesso!")
+            
+            # 🚀 FOLLOW-UP POR INATIVIDADE - "O SIMPLES FUNCIONA SEMPRE"
+            # Agendar follow-up de 30 minutos para verificar se usuário respondeu
+            await _schedule_inactivity_followup(lead["id"], phone, conversation["id"])
+            
         else:
             emoji_logger.system_warning(f"Nenhuma resposta gerada para {phone} após todas as tentativas")
             
@@ -1350,6 +1355,82 @@ async def webhook_health():
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
+
+# 🚀 FOLLOW-UP POR INATIVIDADE - IMPLEMENTAÇÃO ULTRA-SIMPLES
+async def _schedule_inactivity_followup(lead_id: str, phone: str, conversation_id: str):
+    """
+    Agenda follow-up de inatividade de 30 minutos após agente responder
+    Usa infraestrutura existente - ZERO COMPLEXIDADE
+    """
+    try:
+        from datetime import timedelta
+        
+        # Agendamento para 30 minutos a partir de agora
+        scheduled_time = datetime.now() + timedelta(minutes=30)
+        
+        # Buscar última mensagem do usuário para armazenar como referência
+        last_user_message_query = supabase_client.client.table("messages")\
+            .select("created_at")\
+            .eq("conversation_id", conversation_id)\
+            .eq("sender", "user")\
+            .order("created_at", desc=True)\
+            .limit(1)
+        
+        last_user_msg = last_user_message_query.execute()
+        last_user_time = None
+        if last_user_msg.data:
+            last_user_time = last_user_msg.data[0]["created_at"]
+        
+        # Criar registro na tabela follow_ups (usa estrutura existente)
+        # CRUCIAL: Timestamp atual da resposta do agente para validação de inatividade
+        agent_response_timestamp = datetime.now().isoformat()
+        
+        followup_data = {
+            "lead_id": lead_id,
+            "scheduled_at": scheduled_time.isoformat(),
+            "type": "reengagement",  # Tipo na tabela  
+            "follow_up_type": "IMMEDIATE_REENGAGEMENT",  # Subtipo (template)
+            "message": f"Follow-up de inatividade - 30min após resposta do agente",
+            "status": "pending",
+            "priority": "high",
+            "metadata": {
+                "phone": phone,
+                "conversation_id": conversation_id,
+                "trigger": "agent_response_30min",
+                "last_user_message_at": last_user_time,
+                "agent_response_timestamp": agent_response_timestamp,  # NOVO: Para validação
+                "scheduled_reason": "User inactivity check after agent response"
+            }
+        }
+        
+        result = supabase_client.client.table("follow_ups").insert(followup_data).execute()
+        
+        if result.data:
+            emoji_logger.system_info(f"⏰ Follow-up de 30min agendado para {phone} às {scheduled_time.strftime('%H:%M')}")
+            
+            # Agendar também follow-up de 24h caso usuário continue sem responder
+            scheduled_24h = datetime.now() + timedelta(hours=24)
+            followup_24h_data = {
+                **followup_data,
+                "scheduled_at": scheduled_24h.isoformat(),
+                "message": f"Follow-up de inatividade - 24h após resposta do agente",
+                "metadata": {
+                    **followup_data["metadata"],
+                    "trigger": "agent_response_24h",
+                    "agent_response_timestamp": agent_response_timestamp,  # Mesmo timestamp do agente
+                    "scheduled_reason": "User inactivity check 24h after agent response"
+                }
+            }
+            
+            supabase_client.client.table("follow_ups").insert(followup_24h_data).execute()
+            emoji_logger.system_info(f"⏰ Follow-up de 24h agendado para {phone} às {scheduled_24h.strftime('%d/%m %H:%M')}")
+            
+        else:
+            emoji_logger.system_error("Follow-up", "Falha ao agendar follow-up de inatividade")
+            
+    except Exception as e:
+        emoji_logger.system_error("Follow-up", f"Erro ao agendar follow-up: {e}")
+        # Não re-lançar erro para não quebrar o fluxo principal
 
 @router.post("/test")
 async def test_webhook(data: Dict[str, Any]):

@@ -257,9 +257,8 @@ class Settings(BaseSettings):
         return f"redis://{self.redis_host}:{self.redis_port}/0"
     
     def get_postgres_url(self) -> str:
-        """DEPRECATED - Não usamos mais conexão direta com PostgreSQL"""
-        # Mantido por compatibilidade, mas não é mais usado
-        # Agora usamos apenas Supabase Client
+        """DESNECESSÁRIO - Não usamos PostgreSQL, apenas Supabase Storage"""
+        # Retorna string vazia pois OptionalStorage agora ignora este parâmetro
         return ""
     
     def is_business_hours(self) -> bool:

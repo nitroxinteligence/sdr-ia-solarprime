@@ -1,151 +1,143 @@
-# Análise e Proposta de Melhoria para o Sistema de Follow-up
+# 🕵️‍♂️ Análise Completa e Verificação do Sistema de Follow-up
 
-## Diagnóstico da Implementação Atual
-
-O sistema de follow-up existente é composto por três componentes principais:
-
-1.  **`FollowUpAgent` (`app/teams/agents/followup.py`)**:
-    *   **Função**: Responsável por *agendar* os follow-ups, ou seja, criar registros na tabela `follow_ups` no banco de dados.
-    *   **Geração de Mensagens**: Contém a lógica para gerar mensagens personalizadas para cada tipo de follow-up.
-    *   **Agendamento**: Utiliza o parâmetro `delay_hours` para definir o tempo até o follow-up ser agendado.
-
-2.  **`FollowUpExecutorService` (`app/services/followup_executor_service.py`)**:
-    *   **Função**: Opera em segundo plano, *executando* os follow-ups pendentes (enviando as mensagens via Evolution API) e gerenciando lembretes de reuniões.
-    *   **Lógica de Próximo Follow-up**: Possui uma lógica básica em `_schedule_next_followup` que agenda um `DAILY_NURTURING` após um `IMMEDIATE_REENGAGEMENT` se não houver resposta.
-    *   **Limitação**: Atualmente, não há uma integração direta com o CRM para atualizar o status do lead.
-
-3.  **Banco de Dados (Tabelas `follow_ups`, `calendar_events`, `leads`)**:
-    *   **`follow_ups`**: Armazena os follow-ups agendados, incluindo um campo `attempt` (tentativa).
-    *   **`calendar_events`**: Usada para lembretes de reuniões.
-    *   **`leads`**: Contém informações do lead, como `last_response_at` (última resposta).
-    *   **Gaps**: O campo `attempt` não é totalmente utilizado para impor uma regra estrita de "duas tentativas e marcar como não interessado".
-
-4.  **Integração com Kommo CRM (`app/teams/agents/crm_enhanced.py`)**:
-    *   **Capacidade**: O `KommoEnhancedCRM` possui métodos como `move_card_to_pipeline` e `add_tags_to_lead`, que são essenciais para atualizar o status do lead no Kommo.
-    *   **Limitação**: O `FollowUpExecutorService` não interage diretamente com o `CRMAgent` para realizar essas atualizações.
-
-5.  **Gatilhos e Respostas**:
-    *   O `SDRTeam` é o ponto de entrada para iniciar o primeiro follow-up.
-    *   O `webhooks.py` é responsável por processar as mensagens recebidas e, idealmente, deveria sinalizar quando um lead respondeu para interromper a sequência de follow-ups.
-
-### Problemas e Lacunas Identificadas
-
-1.  **Ausência de Lógica "Não Interessado" no Kommo**: Não existe um mecanismo explícito para mover o lead para o status "Não Interessado" no Kommo CRM após um número definido de follow-ups sem resposta.
-2.  **Aplicação Incompleta do Limite de Tentativas**: Embora a coluna `attempt` exista, ela não é rigorosamente utilizada para parar as sequências de follow-up e acionar a atualização no Kommo.
-3.  **Comunicação Inter-Serviços Deficiente**: O `FollowUpExecutorService` não tem acesso direto ao `CRMAgent`, o que impede a atualização do Kommo diretamente do serviço de execução de follow-ups.
-4.  **Sequência Específica (30min/24h) Não Totalmente Implementada**: A sequência exata de "30 minutos, depois 24 horas, e então marcar como não interessado" não está totalmente codificada ou imposta.
-5.  **Definição Clara de "Tentativa Falha"**: A lógica atual para agendar o próximo follow-up baseia-se em `not lead.get('last_response_at')`, que precisa ser mais precisamente vinculada à contagem de tentativas e ao tipo de follow-up.
-
-## Proposta de Solução Detalhada
-
-A solução proposta visa aprimorar o `FollowUpExecutorService` para gerenciar as tentativas de follow-up e interagir diretamente com o `CRMAgent` para atualizar o Kommo.
-
-### A. Atualização do Esquema do Banco de Dados
-
-*   **Adicionar `kommo_updated`**: Incluir uma coluna `kommo_updated BOOLEAN DEFAULT FALSE` na tabela `follow_ups`. Esta coluna indicará se o Kommo CRM já foi atualizado para aquela sequência de follow-up.
-*   **Estender `follow_up_type`**: Adicionar novos valores ao `follow_up_type` ENUM para identificar as tentativas específicas:
-    *   `SECOND_REENGAGEMENT_24H`: Para a segunda tentativa de reengajamento após 24 horas.
-
-### B. Modificações no Código
-
-#### 1. `app/services/followup_executor_service.py`
-
-*   **Injeção do `CRMAgent`**:
-    *   Modificar o construtor de `FollowUpExecutorService` para aceitar uma instância do `CRMAgent`. Isso permitirá que o serviço chame métodos do CRM diretamente.
-
-    ```python
-    # Exemplo de modificação no construtor
-    class FollowUpExecutorService:
-        def __init__(self, crm_agent: CRMAgent): # Adicionar crm_agent aqui
-            self.db = SupabaseClient()
-            self.evolution = evolution_client
-            self.crm = crm_agent # Atribuir a instância do CRMAgent
-            self.running = False
-            self.check_interval = 60 # 1 minuto
-            # ... (restante do código)
-    ```
-
-*   **Refinar Lógica de `_execute_followup`**:
-    *   Após o envio de uma mensagem de follow-up, o status do registro na tabela `follow_ups` deve ser atualizado para `sent`.
-    *   Implementar um fluxo condicional baseado no `followup['type']` e `followup['attempt']`:
-        *   **Se `IMMEDIATE_REENGAGEMENT` (tentativa 0) for enviado**:
-            *   Agendar um novo follow-up do tipo `SECOND_REENGAGEMENT_24H` (tentativa 1) para 24 horas depois.
-        *   **Se `SECOND_REENGAGEMENT_24H` (tentativa 1) for enviado**:
-            *   Esta é a última tentativa.
-            *   Chamar um novo método auxiliar `_mark_lead_not_interested_in_kommo(lead_id)`.
-            *   Marcar o status do follow-up como `completed` e `kommo_updated = TRUE`.
-    *   Atualizar o registro `follow_ups` com `status='sent'` e `last_attempt_at=datetime.now()`.
-
-*   **Novo Método: `_mark_lead_not_interested_in_kommo(self, lead_id: str)`**:
-    *   Este método será responsável por interagir com o Kommo CRM.
-    *   Buscar o `kommo_lead_id` do lead no Supabase.
-    *   Utilizar a instância injetada do `CRMAgent` para:
-        *   Chamar `self.crm.move_card_to_pipeline` para mover o lead para o estágio "Não Interessado" no Kommo.
-        *   Chamar `self.crm.add_tags_to_lead` para adicionar uma tag como "sem-resposta-final" ao lead no Kommo.
-    *   Atualizar o registro correspondente na tabela `follow_ups` com `kommo_updated = TRUE`.
-
-*   **Novo Método: `cancel_pending_followups_for_lead(self, lead_id: str)`**:
-    *   Este método será chamado quando o usuário responder a qualquer mensagem.
-    *   Ele deve atualizar todos os follow-ups `pending` (pendentes) para aquele `lead_id` para um status como `responded` ou `cancelled`, garantindo que não sejam enviados follow-ups desnecessários.
-
-#### 2. `app/teams/agents/followup.py`
-
-*   **Simplificar `schedule_followup`**:
-    *   Garantir que este método possa iniciar o follow-up do tipo `IMMEDIATE_REENGAGEMENT` com `attempt=0`. A lógica de agendamento da próxima tentativa será movida para o `FollowUpExecutorService`.
-*   **Atualizar `personalize_message`**:
-    *   Adicionar templates de mensagens específicos para os novos tipos de follow-up: `IMMEDIATE_REENGAGEMENT` e `SECOND_REENGAGEMENT_24H`.
-
-#### 3. `app/teams/sdr_team.py`
-
-*   **Injetar Dependências**:
-    *   No método `initialize` do `SDRTeam`, garantir que o `FollowUpExecutorService` seja instanciado com a instância correta do `CRMAgent`.
-
-    ```python
-    # Exemplo de modificação no initialize do SDRTeam
-    # ...
-    if settings.enable_crm_agent and settings.enable_crm_integration:
-        self.crm_agent = CRMAgent(model=self.model, storage=self.storage)
-        team_members.append(self.crm_agent.agent)
-        # ...
-    
-    # Inicializar FollowUpExecutorService com o crm_agent
-    from app.services.followup_executor_service import followup_executor_service
-    followup_executor_service.crm = self.crm_agent # Injetar o crm_agent
-    # ...
-    ```
-
-*   **Gatilho de Follow-up Inicial**:
-    *   No método `process_message_with_context` do `SDRTeam`, implementar uma lógica para verificar se uma conversa ficou inativa (por exemplo, baseando-se em `lead_data.last_interaction` ou `lead_data.updated_at`).
-    *   Se a conversa estiver inativa e não houver follow-ups pendentes para o lead, chamar `self.followup_agent.schedule_followup` para iniciar o `IMMEDIATE_REENGAGEMENT` (30 minutos).
-    *   Adicionar uma verificação para evitar agendamentos duplicados.
-
-#### 4. `app/api/webhooks.py`
-
-*   **Marcar Follow-ups como Respondidos**:
-    *   No método `process_message_with_agent`, após uma mensagem do usuário ser processada, chamar o novo método `followup_executor_service.cancel_pending_followups_for_lead(lead_id)` para interromper qualquer sequência de follow-up ativa para aquele lead.
-
-#### 5. `app/teams/agents/crm_enhanced.py`
-
-*   **Verificar Estágio "Não Interessado"**:
-    *   Confirmar que o dicionário `self.pipeline_stages` no `CRMAgent` (ou `KommoEnhancedCRM`) mapeia corretamente `"nao_interessado"` para o ID do estágio correspondente no Kommo CRM.
-
-### G. Testes e Validação
-
-*   **Testes Unitários**: Criar ou atualizar testes unitários para `FollowUpAgent` e `FollowUpExecutorService` para cobrir a nova lógica de tentativas e a integração com o CRM.
-*   **Testes de Integração**: Realizar testes de ponta a ponta para simular o fluxo completo:
-    1.  Início da conversa.
-    2.  Inatividade do lead.
-    3.  Envio do follow-up de 30 minutos.
-    4.  Inatividade contínua.
-    5.  Envio do follow-up de 24 horas.
-    6.  Inatividade contínua.
-    7.  Atualização do status do lead para "Não Interessado" no Kommo CRM.
-    8.  Simular uma resposta do lead em qualquer ponto para verificar se os follow-ups pendentes são cancelados.
-
-### H. Documentação
-
-*   Este documento serve como a base para a documentação. Após a implementação, ele pode ser refinado e incluído na pasta `docs/` do projeto.
+**Documento:** `ANALISE_COMPLETA_FOLLOWUP.md`  
+**Versão:** 1.0  
+**Data:** 04/08/2025  
+**Autor:** Engenharia Sênior
 
 ---
 
-Com esta abordagem, o sistema de follow-up se tornará mais robusto, autônomo e alinhado com os requisitos de negócio, garantindo que leads inativos sejam devidamente classificados no CRM.
+## 1. Resumo Executivo
+
+Esta análise verifica a funcionalidade e a robustez do sistema de follow-up, que é dividido em duas categorias principais:
+
+1.  **Follow-up de Reengajamento:** Acionado quando um lead para de responder.
+2.  **Lembretes de Reunião:** Acionado após o agendamento de uma reunião no Google Calendar.
+
+O sistema foi projetado para ser desacoplado, com a lógica de **agendamento** separada da lógica de **execução**, o que é uma excelente prática de engenharia. O `FollowUpExecutorService` atua como um worker de backend que processa tarefas de forma assíncrona, garantindo que a API principal não seja bloqueada.
+
+**Veredito Geral:**
+
+-   **Lembretes de Reunião (24h e 2h):** O sistema está **funcional e robusto**. A lógica está bem implementada, buscando eventos diretamente do Google Calendar e cruzando com a base de dados para garantir o envio correto.
+-   **Follow-up por Falta de Resposta (30min e 24h):** Este fluxo **NÃO está implementado** no código. Embora o `prompt-agente.md` descreva essa funcionalidade, não há nenhuma lógica nos webhooks ou agentes que detecte a inatividade do usuário e agende esses follow-ups específicos. Esta é uma **lacuna crítica** entre a especificação (prompt) e a implementação.
+
+---
+
+## 2. Análise do Follow-up de Lembretes de Reunião (24h e 2h)
+
+**Status:** ✅ **Funcional e Correto**
+
+### 2.1. Fluxo de Funcionamento
+
+O sistema de lembretes de reunião é orquestrado pelo `FollowUpExecutorService` e não depende de agendamentos manuais pelo agente, o que o torna muito confiável.
+
+```mermaid
+graph TD
+    subgraph "Serviço de Backend (FollowUpExecutorService)"
+        A[Loop Principal] -- A cada 5 minutos --> B{Processar Lembretes};
+        B --> C{Busca eventos no Google Calendar para as próximas 24h e 2h};
+    end
+
+    subgraph "Integrações"
+        C --> D[Google Calendar API: list_events];
+        E[Supabase DB] --> F{Busca lead pelo google_event_id};
+    end
+
+    subgraph "Lógica de Envio"
+        C --> F;
+        F --> G{Verifica se lembrete já foi enviado (flag no DB)};
+        G --Não--> H[Prepara Mensagem Personalizada];
+        H --> I[Envia via Evolution API];
+        I --> J[Atualiza flag `reminder_sent` no Supabase];
+    end
+```
+
+### 2.2. Verificação de Pontos-Chave
+
+-   **Gatilho (`FollowUpExecutorService`):** O método `process_meeting_reminders` é executado em um loop a cada 5 minutos. Ele busca proativamente por eventos no Google Calendar que ocorrerão em janelas de tempo específicas (23:55-24:05 e 1:55-2:05 a partir de agora). **Isto é robusto e não depende de webhooks ou agendamentos manuais.**
+
+-   **Fonte da Verdade (Google Calendar):** O sistema usa o Google Calendar como a fonte primária da verdade para os horários das reuniões, o que é correto. Ele busca os eventos e, a partir do `google_event_id`, encontra o lead correspondente na tabela `leads_qualifications`.
+
+-   **Prevenção de Duplicidade:** O sistema utiliza as colunas `reminder_24h_sent` e `reminder_2h_sent` na tabela `leads_qualifications` para garantir que cada lembrete seja enviado apenas uma vez. Após o envio, a flag é marcada como `True`.
+
+-   **Personalização da Mensagem:** O método `_send_meeting_reminder_v2` monta a mensagem de forma personalizada, incluindo o nome do lead, data e hora da reunião, e o link do Google Meet, se disponível.
+
+-   **Tratamento de Erros:** A lógica está dentro de blocos `try...except`, garantindo que uma falha no envio de um lembrete não interrompa o serviço.
+
+### 2.3. Conclusão sobre Lembretes
+
+O sistema de lembretes de reunião está bem implementado, é resiliente e funciona conforme o esperado. A abordagem de usar um worker de backend para consultar proativamente o calendário é excelente e evita muitos dos problemas comuns em sistemas baseados em webhooks.
+
+---
+
+## 3. Análise do Follow-up por Falta de Resposta (30min e 24h)
+
+**Status:** ❌ **Não Implementado**
+
+### 3.1. O que Diz o Prompt
+
+O arquivo `prompt-agente.md` descreve claramente a funcionalidade:
+
+> **Seção 4.2: Reengajamento por Não Resposta**
+> -   **after_30min:** Gatilho de 30 minutos sem resposta do lead.
+> -   **after_24h:** Gatilho se continuar sem resposta.
+
+O prompt sugere que o `FollowUpAgent` seria acionado para agendar essas tarefas.
+
+### 3.2. Análise do Código
+
+Uma busca minuciosa no código-fonte revela que **não há nenhuma implementação** para este fluxo:
+
+1.  **`app/api/webhooks.py`:** O webhook que processa novas mensagens (`process_new_message`) não possui nenhuma lógica para agendar um follow-up de 30 minutos. Ele simplesmente processa a mensagem atual.
+
+2.  **`app/agents/agentic_sdr.py`:** O agente principal não possui nenhum mecanismo para detectar a ausência de resposta. Ele é reativo e só atua quando uma nova mensagem chega.
+
+3.  **`app/teams/agents/followup.py`:** O `FollowUpAgent` possui a *ferramenta* `schedule_followup`, mas essa ferramenta **nunca é chamada** no contexto de "não resposta".
+
+4.  **`app/services/followup_executor_service.py`:** Este serviço apenas *executa* follow-ups que já estão na tabela `follow_ups`. Ele não tem a lógica para *criar* follow-ups baseados em inatividade.
+
+### 3.3. Como Deveria Funcionar (Sugestão de Implementação)
+
+Para que esta funcionalidade opere corretamente, seria necessário implementar o seguinte fluxo:
+
+1.  **No `webhook` (`process_message_with_agent`):**
+    -   Após o agente enviar uma resposta, ele deveria agendar uma tarefa de verificação para dali a 30 minutos. Essa tarefa poderia ser colocada em uma fila do Redis ou em uma nova tabela no Supabase (ex: `pending_followup_checks`).
+
+2.  **Um Novo Serviço Worker (`FollowUpSchedulerService`):**
+    -   Este novo serviço consumiria a fila do Redis.
+    -   Ao processar uma tarefa, ele verificaria a hora da última mensagem do *usuário* na conversa.
+    -   Se o tempo decorrido for maior que 30 minutos, ele chamaria o `FollowUpAgent.schedule_followup` para criar o registro na tabela `follow_ups`.
+    -   Isso desacoplaria a verificação do agendamento, tornando o sistema mais escalável.
+
+```mermaid
+graph TD
+    A[Agente envia resposta] --> B{Agendar verificação em 30min};
+    B --> C[Fila Redis: `followup_checks`];
+    
+    subgraph "Novo Serviço: FollowUpSchedulerService"
+        D[Worker consome fila] --> E{Verificar última msg do usuário};
+        E --"> 30min?"--> F[Chamar FollowUpAgent.schedule_followup];
+        E --"< 30min?"--> G[Descartar tarefa];
+    end
+    
+    F --> H[Supabase: Novo registro na tabela `follow_ups`];
+    
+    subgraph "Serviço Existente: FollowUpExecutorService"
+        I[Executor busca tarefas] --> H;
+    end
+```
+
+### 3.4. Conclusão sobre Follow-up de Não Resposta
+
+A funcionalidade de follow-up por falta de resposta, embora crucial para a proatividade do SDR, **é inexistente na implementação atual**. A documentação no prompt está em desacordo com o código. Esta é a lacuna funcional mais crítica encontrada na análise.
+
+---
+
+## 4. Veredito Final e Recomendações
+
+-   **Sistema de Lembretes de Reunião:** ⭐️ **5/5** - Robusto, confiável e bem implementado.
+-   **Sistema de Follow-up por Inatividade:** ⭐️ **0/5** - Funcionalidade ausente. Requer implementação completa.
+
+**Recomendação Crítica:**
+
+É **urgente** implementar o fluxo de follow-up por falta de resposta para alinhar o comportamento do sistema com a estratégia de vendas descrita no prompt. A sugestão de implementação usando uma fila no Redis e um novo serviço de agendamento (`FollowUpSchedulerService`) é a abordagem mais robusta e escalável para resolver essa lacuna.
