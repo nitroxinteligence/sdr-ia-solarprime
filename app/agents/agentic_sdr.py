@@ -910,21 +910,36 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         }
         
         # Fator 1: Complexidade da solicitação - CALENDÁRIO
+        # ✅ CORRIGIDO: Keywords específicas para evitar falsos positivos
         calendar_keywords = [
-            "agendar", "reunião", "marcar", "horário", "disponibilidade",
-            "agenda", "calendário", "encontro", "meeting", "apresentação",
-            "reagendar", "remarcar", "cancelar reunião", "data", "dia",
-            "semana que vem", "próxima semana", "amanhã", "hoje",
-            "manhã", "tarde", "noite", "às", "horas"
+            "agendar reunião", "marcar reunião", "marcar encontro", "marcar meeting",
+            "horário para reunião", "disponibilidade para", "agenda disponível",
+            "calendário livre", "encontro para", "meeting para", "apresentação comercial",
+            "reagendar", "remarcar reunião", "cancelar reunião",
+            "que dia pode ser", "qual horário", "quando podemos nos reunir",
+            "semana que vem para reunião", "próxima semana reunião", 
+            "amanhã para reunião", "hoje para reunião", "vamos marcar"
         ]
+        
+        # ✅ NOVO: Filtro de saudação para evitar falsos positivos
+        greeting_indicators = ["olá", "oi", "bom dia", "boa tarde", "boa noite", "tudo bem", "tchau", "obrigado"]
+        is_simple_greeting = any(greeting in current_message.lower() for greeting in greeting_indicators) and len(current_message.split()) <= 5
+        
+        # ✅ CORRIGIDO: Indicadores negativos para agendamento
+        negative_indicators = ["não", "nao", "sem interesse", "não quero", "já tenho", "não pedi"]
+        has_negative_context = any(neg in current_message.lower() for neg in negative_indicators)
         
         # VERIFICAR SE É FOLLOW-UP/REENGAJAMENTO antes de detectar calendário
         followup_indicators = ["reengajamento", "follow-up", "não é agendamento", "parou de responder"]
         is_followup_message = any(indicator in current_message.lower() for indicator in followup_indicators)
         
-        if any(word in current_message.lower() for word in calendar_keywords) and not is_followup_message:
-            # Boost maior para calendário para garantir ativação
-            decision_factors["complexity_score"] += 0.8  # Aumentado de 0.4 para 0.8
+        # ✅ CORRIGIDO: Lógica mais inteligente para detectar agendamento REAL
+        calendar_detected = any(word in current_message.lower() for word in calendar_keywords)
+        is_real_calendar_request = calendar_detected and not is_simple_greeting and not has_negative_context and not is_followup_message
+        
+        if is_real_calendar_request:
+            # ✅ CORRIGIDO: Score mais conservador para evitar ativação desnecessária
+            decision_factors["complexity_score"] += 0.6  # Reduzido de 0.8 para 0.6
             decision_factors["recommended_agent"] = "CalendarAgent"
             decision_factors["reasoning"].append("🗓️ Solicitação de agendamento detectada - Ativando CalendarAgent")
             
