@@ -114,7 +114,6 @@ def extract_final_response(full_response: str) -> str:
             response_lower = final_response.lower()
             
             # CORREÇÃO: Usar regex para detectar palavras completas, não substrings
-            import re
             contains_forbidden = False
             for term in forbidden_terms:
                 # \b marca limites de palavra para evitar falsos positivos
