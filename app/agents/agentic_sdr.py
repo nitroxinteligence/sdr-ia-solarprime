@@ -453,9 +453,7 @@ class AgenticSDR:
         self.multimodal_enabled = settings.enable_multimodal_analysis
         self.knowledge_search_enabled = settings.enable_knowledge_base
         
-        # Cache para histórico de mensagens - OTIMIZAÇÃO DE PERFORMANCE
-        self._message_cache = {}
-        self._cache_ttl = 300  # 5 minutos de cache
+        # Cache removido - sempre buscar histórico atualizado do Supabase
         self.sentiment_analysis_enabled = settings.enable_sentiment_analysis
         self.emotional_triggers_enabled = settings.enable_emotional_triggers
         self.lead_scoring_enabled = settings.enable_lead_scoring
@@ -756,7 +754,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
     
     async def get_last_100_messages(self, identifier: str) -> List[Dict[str, Any]]:
         """
-        Busca as últimas 100 mensagens do Supabase COM CACHE
+        Busca as últimas 100 mensagens do Supabase (sempre atualizado)
         
         Args:
             identifier: Número do telefone ou conversation_id
@@ -764,15 +762,6 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         Returns:
             Lista com últimas 100 mensagens
         """
-        # Verificar cache primeiro - OTIMIZAÇÃO DE PERFORMANCE
-        cache_key = f"hist_{identifier}"
-        now = datetime.now().timestamp()
-        
-        if cache_key in self._message_cache:
-            cached_time, cached_data = self._message_cache[cache_key]
-            if now - cached_time < self._cache_ttl:
-                emoji_logger.agentic_context(f"✅ Cache hit! Economizou busca de 100 mensagens")
-                return cached_data
         
         try:
             conversation_id = None
@@ -824,17 +813,7 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
                 
             emoji_logger.supabase_success(success_msg, execution_time=0.1)
             
-            # Cachear resultado antes de retornar - OTIMIZAÇÃO DE PERFORMANCE
-            if messages:  # Se encontrou mensagens
-                self._message_cache[cache_key] = (now, messages)
-                emoji_logger.agentic_context(f"💾 Mensagens cacheadas por {self._cache_ttl}s")
-                
-                # Limpar cache antigo (manter só últimos 10)
-                if len(self._message_cache) > 10:
-                    oldest_key = min(self._message_cache.keys(), 
-                                   key=lambda k: self._message_cache[k][0])
-                    del self._message_cache[oldest_key]
-            
+            # Retornar mensagens diretamente (sem cache)
             return messages
             
         except Exception as e:
