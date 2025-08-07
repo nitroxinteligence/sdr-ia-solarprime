@@ -53,9 +53,9 @@ class KnowledgeService:
             logger.info(f"🔍 Buscando na knowledge_base: {query[:50]}...")
             
             # Busca direta no Supabase
-            response = await supabase_client.supabase.table("knowledge_base").select(
-                "id, title, content, category, tags, created_at"
-            ).ilike("content", f"%{query}%").limit(max_results).execute()
+            response = supabase_client.client.table("knowledge_base").select(
+                "id, question, answer, category, keywords, created_at"
+            ).or_(f"question.ilike.%{query}%,answer.ilike.%{query}%").limit(max_results).execute()
             
             if response.data:
                 # Cachear resultado
@@ -90,8 +90,8 @@ class KnowledgeService:
             if self._is_cached(cache_key):
                 return self._cache[cache_key]['data']
             
-            response = await supabase_client.supabase.table("knowledge_base").select(
-                "id, title, content, category, tags"
+            response = supabase_client.client.table("knowledge_base").select(
+                "id, question, answer, category, keywords"
             ).eq("category", category).limit(limit).execute()
             
             if response.data:

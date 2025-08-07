@@ -2629,7 +2629,9 @@ Retorne em formato estruturado:
         
         formatted = []
         for i, result in enumerate(results[:3], 1):  # Máximo 3 resultados
-            formatted.append(f"{i}. {result.get('title', 'Info')}: {result.get('content', '')[:200]}...")
+            question = result.get('question', 'Pergunta')
+            answer = result.get('answer', 'Resposta')[:200]
+            formatted.append(f"{i}. P: {question}\n   R: {answer}...")
         
         return "\n".join(formatted)
 
@@ -2904,10 +2906,15 @@ Retorne em formato estruturado:
                     try:
                         if message and len(message.strip()) > 2:  # Mensagem válida
                             emoji_logger.system_info("🔍 Consultando Knowledge Base (OBRIGATÓRIO)")
-                            knowledge_results = await self.search_knowledge_base(message)
+                            # Timeout específico para knowledge base
+                            kb_task = asyncio.create_task(self.search_knowledge_base(message))
+                            knowledge_results = await asyncio.wait_for(kb_task, timeout=5.0)  # 5 segundos max
                             emoji_logger.system_info(f"✅ Knowledge Base: {len(knowledge_results)} resultados encontrados")
+                    except asyncio.TimeoutError:
+                        emoji_logger.system_warning("⏱️ Knowledge Base timeout (5s), continuando sem resultados")
+                        knowledge_results = []
                     except Exception as kb_error:
-                        emoji_logger.system_warning(f"Knowledge Base falhou, continuando: {str(kb_error)[:50]}")
+                        emoji_logger.system_warning(f"Knowledge Base falhou: {str(kb_error)[:100]}")
                         knowledge_results = []
                     
                     # Detectar se é primeiro contato ANTES de construir o prompt
@@ -3013,7 +3020,7 @@ Retorne em formato estruturado:
                         emoji_logger.system_info(f"🖼️ Multimodal incluído no prompt: tipo={multimodal_result.get('type')}, tem conteúdo={bool(multimodal_result.get('content'))}")
                     
                     # Timeout para evitar travamento
-                    AGENT_TIMEOUT = 30  # segundos
+                    AGENT_TIMEOUT = 45  # segundos
                     
                     if self.reasoning_enabled and is_complex:
                         emoji_logger.agentic_thinking(f"Mensagem complexa detectada, ativando reasoning mode")
