@@ -2620,44 +2620,6 @@ Retorne em formato estruturado:
         # Se não identificou, mantém o atual ou usa default
         return lead_data.get('current_stage', 'EM_QUALIFICACAO') if lead_data else "INITIAL_CONTACT"
     
-
-
-    def _format_knowledge_results(self, results: List[Dict[str, Any]]) -> str:
-        """Formata resultados da knowledge base de forma concisa"""
-        if not results:
-            return "Sem informações específicas"
-        
-        formatted = []
-        for i, result in enumerate(results[:3], 1):  # Máximo 3 resultados
-            formatted.append(f"{i}. {result.get('title', 'Info')}: {result.get('content', '')[:200]}...")
-        
-        return "\n".join(formatted)
-
-    def _is_first_contact(self, messages_history: List[Dict[str, Any]]) -> bool:
-        """
-        Detecta se é o primeiro contato com o lead de forma INTELIGENTE
-        
-        Returns:
-            True se for primeira interação, False caso contrário
-        """
-        if not messages_history:
-            return True
-        
-        # Contar mensagens do AGENTE (não do usuário)
-        agent_messages = [
-            msg for msg in messages_history 
-            if msg.get('sender') == 'agent' or msg.get('role') == 'assistant'
-        ]
-        
-        # Se o agente nunca respondeu, é primeira interação
-        return len(agent_messages) == 0
-    
-    def _should_knowledge_search(self, message: str) -> bool:
-        """
-        SEMPRE retorna True - knowledge search é OBRIGATÓRIO
-        """
-        return True
-
     async def process_message(
         self,
         phone: str,
@@ -2780,10 +2742,9 @@ Retorne em formato estruturado:
                     "recommended_action": "Continuar conversa naturalmente"
                 }
             
-            # 2. SEMPRE buscar histórico (OBRIGATÓRIO) e detectar gatilhos emocionais
+            # 2. Detectar gatilhos emocionais e obter histórico (com fallback)
             messages_history = []
             try:
-                # MELHORIA HÍBRIDA: Histórico é SEMPRE consultado
                 # VALIDAÇÃO CRÍTICA: Garantir que conversation_id é válido
                 if not conversation_id:
                     emoji_logger.system_error("HISTÓRICO", f"❌ conversation_id é None/vazio! Lead: {lead_data}")
@@ -2881,46 +2842,13 @@ Retorne em formato estruturado:
                     # AGNO Framework já formatou multimodal + histórico no formatted_history
                     formatted_history = context_result.get('formatted_history', '')
                     
-                    # MELHORIA HÍBRIDA: Context Pruning - limitar para evitar poluição
-                    if len(messages_history) > 20:
-                        emoji_logger.system_info(f"📊 Context Pruning: {len(messages_history)} → 20 mensagens")
-                        # Pegar apenas as 20 mais recentes para o contexto
-                        recent_messages = messages_history[-20:]
-                        context_result = self._format_context_simple(
-                            message_history=recent_messages,
-                            multimodal_result=multimodal_result,
-                            phone=phone
-                        )
-                        formatted_history = context_result.get('formatted_history', '')
-                    
                     # DEBUG: Verificar se multimodal foi incluído no contexto
                     if context_result.get('has_multimodal'):
                         emoji_logger.system_info("✅ Análise multimodal incluída no contexto formatado")
                         emoji_logger.system_debug(f"Primeiras 500 chars do contexto: {formatted_history[:500]}...")
                     
-                    
-                    # MELHORIA HÍBRIDA: SEMPRE consultar knowledge base (OBRIGATÓRIO)
-                    knowledge_results = []
-                    try:
-                        if message and len(message.strip()) > 2:  # Mensagem válida
-                            emoji_logger.system_info("🔍 Consultando Knowledge Base (OBRIGATÓRIO)")
-                            knowledge_results = await self.search_knowledge_base(message)
-                            emoji_logger.system_info(f"✅ Knowledge Base: {len(knowledge_results)} resultados encontrados")
-                    except Exception as kb_error:
-                        emoji_logger.system_warning(f"Knowledge Base falhou, continuando: {str(kb_error)[:50]}")
-                        knowledge_results = []
-                    
-                    # Detectar se é primeiro contato ANTES de construir o prompt
-                    is_first_contact = self._is_first_contact(messages_history)
-                    emoji_logger.system_info(f"🎯 Primeiro contato detectado: {is_first_contact}")
-                    
                     # Preparar prompt com contexto completo AGNO-enhanced
                     contextual_prompt = f"""
-                    🚨 ESTADO DA CONVERSA: {'PRIMEIRO CONTATO - APRESENTE-SE!' if is_first_contact else f'CONVERSA EM ANDAMENTO ({len(messages_history)} mensagens)'}
-                    
-                    📚 KNOWLEDGE BASE (CONSULTADA):
-                    {self._format_knowledge_results(knowledge_results) if knowledge_results else 'Nenhum resultado específico'}
-                    
                     CONTEXTO DO LEAD:
                     - Nome: {lead_data.get('name', 'Não informado') if lead_data else 'Não informado'}
                     - Telefone: {phone}
@@ -2990,8 +2918,6 @@ Retorne em formato estruturado:
                     Por exemplo, se detectamos uma conta de luz com valor, MENCIONE O VALOR DETECTADO.
                     
                     Responda de forma natural, empática e personalizada, levando em conta todo o contexto e histórico da conversa.
-                    
-                    {'🚨 IMPORTANTE: Como é o PRIMEIRO CONTATO, APRESENTE-SE como Helen da SolarPrime!' if is_first_contact else '⚠️ NÃO se apresente novamente - vocês já se conhecem!'}
                     """
                     
                     # Usar reasoning APENAS para casos complexos
@@ -3237,25 +3163,13 @@ Retorne em formato estruturado:
                 emoji_logger.system_warning("Nenhuma resposta gerada, usando fallback")
                 # Resposta fallback baseada no contexto
                 if "oi" in message.lower() or "olá" in message.lower() or "ola" in message.lower():
-                    if is_first_contact:
-                        response = "<RESPOSTA_FINAL>Oi! Tudo bem? Sou a Helen da Solar Prime! Como posso ajudar você hoje?</RESPOSTA_FINAL>"
-                    else:
-                        response = "<RESPOSTA_FINAL>Oi! Tudo bem? Como posso ajudar você?</RESPOSTA_FINAL>"
+                    response = "<RESPOSTA_FINAL>Oi! Tudo bem? Sou a Helen da Solar Prime! Como posso ajudar você hoje?</RESPOSTA_FINAL>"
                 elif "bom dia" in message.lower():
-                    if is_first_contact:
-                        response = "<RESPOSTA_FINAL>Bom dia! Que legal você entrar em contato! Sou a Helen da Solar Prime. Em que posso ajudar?</RESPOSTA_FINAL>"
-                    else:
-                        response = "<RESPOSTA_FINAL>Bom dia! Em que posso ajudar?</RESPOSTA_FINAL>"
+                    response = "<RESPOSTA_FINAL>Bom dia! Que legal você entrar em contato! Sou a Helen da Solar Prime. Em que posso ajudar?</RESPOSTA_FINAL>"
                 elif "boa tarde" in message.lower():
-                    if is_first_contact:
-                        response = "<RESPOSTA_FINAL>Boa tarde! Obrigada por entrar em contato com a Solar Prime! Sou a Helen, como posso ajudar?</RESPOSTA_FINAL>"
-                    else:
-                        response = "<RESPOSTA_FINAL>Boa tarde! Como posso ajudar?</RESPOSTA_FINAL>"
+                    response = "<RESPOSTA_FINAL>Boa tarde! Obrigada por entrar em contato com a Solar Prime! Sou a Helen, como posso ajudar?</RESPOSTA_FINAL>"
                 elif "boa noite" in message.lower():
-                    if is_first_contact:
-                        response = "<RESPOSTA_FINAL>Boa noite! Que bom falar com você! Sou a Helen da Solar Prime. Como posso ajudar?</RESPOSTA_FINAL>"
-                    else:
-                        response = "<RESPOSTA_FINAL>Boa noite! Como posso ajudar?</RESPOSTA_FINAL>"
+                    response = "<RESPOSTA_FINAL>Boa noite! Que bom falar com você! Sou a Helen da Solar Prime. Como posso ajudar?</RESPOSTA_FINAL>"
                 else:
                     response = "<RESPOSTA_FINAL>Olá! Sou a Helen da Solar Prime. Vi sua mensagem e adoraria ajudar! Você tem interesse em economizar na conta de luz com energia solar?</RESPOSTA_FINAL>"
             
