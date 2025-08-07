@@ -1967,6 +1967,26 @@ Retorne em formato estruturado:
             
             # Formato simples: "USER: mensagem" ou "ASSISTANT: mensagem"
             formatted_lines = []
+            
+            # CORREÇÃO CRÍTICA: Incluir análise multimodal PRIMEIRO no contexto
+            if multimodal_result and not multimodal_result.get('error'):
+                media_type = multimodal_result.get('type', 'unknown')
+                content = multimodal_result.get('content', '')
+                
+                if content:
+                    # Adicionar análise multimodal com destaque
+                    formatted_lines.append("=== ANÁLISE MULTIMODAL RECEBIDA ===")
+                    formatted_lines.append(f"TIPO: {media_type.upper()}")
+                    formatted_lines.append(f"ANÁLISE: {content}")
+                    
+                    # Se for conta de luz, adicionar detalhes
+                    if multimodal_result.get('is_bill'):
+                        formatted_lines.append(f"CONTA DE LUZ DETECTADA - Valor: R$ {multimodal_result.get('bill_amount', 0):.2f}")
+                    
+                    formatted_lines.append("=== FIM DA ANÁLISE ===")
+                    formatted_lines.append("")  # Linha em branco para separação
+            
+            # Adicionar histórico de mensagens
             for msg in recent_messages:
                 role = msg.get('sender', 'user').upper()
                 content = msg.get('content', '')
@@ -1976,7 +1996,8 @@ Retorne em formato estruturado:
             return {
                 'formatted_history': '\n'.join(formatted_lines),
                 'message_count': len(recent_messages),
-                'context_quality': 'excellent' if len(recent_messages) >= 50 else 'good' if len(recent_messages) >= 10 else 'basic'
+                'context_quality': 'excellent' if len(recent_messages) >= 50 else 'good' if len(recent_messages) >= 10 else 'basic',
+                'has_multimodal': bool(multimodal_result and not multimodal_result.get('error'))
             }
             
         except Exception as e:
@@ -2766,6 +2787,11 @@ Retorne em formato estruturado:
                     
                     # AGNO Framework já formatou multimodal + histórico no formatted_history
                     formatted_history = context_result.get('formatted_history', '')
+                    
+                    # DEBUG: Verificar se multimodal foi incluído no contexto
+                    if context_result.get('has_multimodal'):
+                        emoji_logger.system_info("✅ Análise multimodal incluída no contexto formatado")
+                        emoji_logger.debug(f"Primeiras 500 chars do contexto: {formatted_history[:500]}...")
                     
                     # Preparar prompt com contexto completo AGNO-enhanced
                     contextual_prompt = f"""
