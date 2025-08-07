@@ -476,22 +476,22 @@ class AgenticSDR:
         # Setup models BEFORE Memory (needed for fallback)
         self._setup_models()
         
-        # Memory v2 com Supabase - ZERO PostgreSQL
-        # Usa apenas Supabase storage que já funciona perfeitamente
+        # Memory v2 - SOLUÇÃO DEFINITIVA (conforme ANALISE_ERRO_AGENTMEMORY.md)
+        # AgentMemory agora é apenas para memória de trabalho (RAM), sem db
+        # O storage é passado diretamente para o Agent, não para AgentMemory
         try:
-            # Tenta com storage do Supabase (OptionalStorage que funciona)
+            # CORREÇÃO: AgentMemory sem parâmetro db (arquitetura nova do AGNO)
             self.memory = AgentMemory(
-                db=self.storage,  # OptionalStorage com Supabase
                 create_user_memories=True,
                 create_session_summary=True
             )
-            emoji_logger.system_ready("Memory", status="com Supabase")
+            emoji_logger.system_ready("Memory", status="configurada (in-memory)")
         except Exception as e:
             emoji_logger.system_info(f"Memory fallback: {str(e)[:100]}...")
-            # Memória não é crítica - Agent funciona sem ela
+            # Se AgentMemory falhar completamente, usar None
             # O Agent da AGNO aceita memory=None
             self.memory = None
-            emoji_logger.system_info("💾 Memory: Desabilitado (Agent funcionará sem persistência)")
+            emoji_logger.system_info("💾 Memory: Desabilitado (Agent funcionará sem memória)")
         
         # Knowledge base SEM PostgreSQL - usando apenas dados locais
         # Sistema funciona perfeitamente sem vector database PostgreSQL
@@ -630,7 +630,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             model=self.intelligent_model,  # CORREÇÃO: Passar o wrapper, não o modelo direto
             instructions=enhanced_prompt,
             tools=self.tools,
-            memory=self.memory,
+            storage=self.storage,  # CORREÇÃO: Passar storage diretamente para o Agent
+            memory=self.memory,    # Passar a memória simples (ou None se falhou)
             knowledge=self.knowledge,
             show_tool_calls=False,
             markdown=True,
