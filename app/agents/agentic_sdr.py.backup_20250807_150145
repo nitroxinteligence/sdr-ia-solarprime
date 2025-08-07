@@ -2399,8 +2399,6 @@ Retorne em formato estruturado:
     def _generate_simple_fallback_response(self, message: str) -> str:
         """Gera resposta simples de fallback quando agent.arun falha ou dá timeout"""
         
-        emoji_logger.system_info("🔄 Gerando resposta de fallback...")
-        
         # Respostas contextuais baseadas em palavras-chave
         message_lower = message.lower()
         
@@ -2923,26 +2921,11 @@ Retorne em formato estruturado:
                         
                         try:
                             emoji_logger.system_info(f"🚀 Chamando agent.arun com timeout de {AGENT_TIMEOUT}s...")
-                            
-                            # PROTEÇÃO EXTRA: Verificar se agent está pronto
-                            if not self.agent or not hasattr(self.agent, 'arun'):
-                                emoji_logger.system_error("❌ Agent não está pronto ou não tem método arun")
-                                result = self._generate_simple_fallback_response(message)
-                            else:
-                                # Criar task para poder cancelar se necessário
-                                agent_task = asyncio.create_task(self.agent.arun(contextual_prompt))
-                                
-                                try:
-                                    result = await asyncio.wait_for(agent_task, timeout=AGENT_TIMEOUT)
-                                    emoji_logger.system_info("✅ agent.arun completou com sucesso")
-                                except asyncio.TimeoutError:
-                                    # Cancelar task se ainda estiver rodando
-                                    agent_task.cancel()
-                                    try:
-                                        await agent_task
-                                    except asyncio.CancelledError:
-                                        pass
-                                    raise
+                            result = await asyncio.wait_for(
+                                self.agent.arun(contextual_prompt),
+                                timeout=AGENT_TIMEOUT
+                            )
+                            emoji_logger.system_info("✅ agent.arun completou com sucesso")
                         except asyncio.TimeoutError:
                             emoji_logger.system_error(f"❌ Timeout em agent.arun após {AGENT_TIMEOUT}s")
                             # Tentar gerar resposta de fallback

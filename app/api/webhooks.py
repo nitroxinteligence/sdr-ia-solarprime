@@ -212,21 +212,22 @@ def extract_base64_from_data_url(data_url: str) -> str:
         return data_url.split(";base64,")[1]
     return data_url
 
-# Cache global do agente - SINGLETON para performance
-_cached_agent = None
-_agent_lock = asyncio.Lock()
+# REMOVIDO: Cache global do agente - causava deadlock com múltiplas mensagens
+# _cached_agent = None
+# _agent_lock = asyncio.Lock()
 
 async def get_agentic_agent():
-    """Retorna instância única e reutilizável do agente (Singleton)"""
-    global _cached_agent
-    
-    async with _agent_lock:
-        if _cached_agent is None:
-            emoji_logger.webhook_process("🚀 Criando AgenticSDR singleton pela primeira vez...")
-            _cached_agent = await create_agentic_sdr()
-            emoji_logger.system_ready("✅ AgenticSDR singleton criado e pronto!")
-        
-        return _cached_agent
+    """Cria NOVA instância do agente para cada requisição (evita deadlock)"""
+    # SEMPRE criar nova instância - evita problemas de estado compartilhado
+    # Isso resolve o problema de travamento após a primeira mensagem
+    emoji_logger.webhook_process("🚀 Criando nova instância do AgenticSDR...")
+    try:
+        agent = await create_agentic_sdr()
+        emoji_logger.system_ready("✅ Nova instância do AgenticSDR criada!")
+        return agent
+    except Exception as e:
+        emoji_logger.system_error("Agent Creation", f"Erro ao criar AgenticSDR: {str(e)}")
+        raise
 
 def get_message_buffer_instance():
     """Obtém instância do Message Buffer (deve ser inicializado no startup)"""
