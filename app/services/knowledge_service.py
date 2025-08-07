@@ -50,12 +50,13 @@ class KnowledgeService:
                 logger.info(f"📋 Cache hit para query: {query[:30]}...")
                 return self._cache[cache_key]['data']
             
-            logger.info(f"🔍 Buscando na knowledge_base: {query[:50]}...")
+            logger.info(f"📚 Carregando TODA a knowledge_base para enriquecer resposta...")
             
-            # Busca direta no Supabase
+            # MUDANÇA: Buscar TUDO da knowledge base, não filtrar
+            # O objetivo é ter TODO o conhecimento disponível para o agente
             response = supabase_client.client.table("knowledge_base").select(
                 "id, question, answer, category, keywords, created_at"
-            ).or_(f"question.ilike.%{query}%,answer.ilike.%{query}%").limit(max_results).execute()
+            ).limit(20).execute()  # Limitar a 20 para não sobrecarregar
             
             if response.data:
                 # Cachear resultado
@@ -219,4 +220,37 @@ class KnowledgeService:
 
 
 # Instância global
+
+    async def get_all_knowledge(self, limit: int = 15) -> List[Dict[str, Any]]:
+        """
+        Busca TODO o conhecimento disponível para enriquecer respostas
+        Não filtra por query - o objetivo é ter contexto completo
+        """
+        try:
+            cache_key = f"all_knowledge_{limit}"
+            if self._is_cached(cache_key):
+                logger.info("📋 Usando knowledge base do cache")
+                return self._cache[cache_key]['data']
+            
+            logger.info("📚 Carregando knowledge base completa...")
+            
+            # Buscar tudo, ordenado por prioridade ou categoria
+            response = supabase_client.client.table("knowledge_base").select(
+                "id, question, answer, category, keywords"
+            ).order("category").limit(limit).execute()
+            
+            if response.data:
+                self._cache[cache_key] = {
+                    'data': response.data,
+                    'timestamp': datetime.now().timestamp()
+                }
+                logger.info(f"✅ {len(response.data)} itens de conhecimento carregados")
+                return response.data
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao carregar knowledge base: {e}")
+            return []
+
 knowledge_service = KnowledgeService()

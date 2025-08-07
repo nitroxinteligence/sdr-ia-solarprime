@@ -1161,6 +1161,10 @@ async def process_message_with_agent(
                 
                 emoji_logger.system_warning(f"✅ Substituído por resposta segura: {response_text}")
             
+            # DEBUG: Log completo da resposta antes de dividir
+            emoji_logger.system_info(f"📝 Resposta completa antes de dividir: {response_text}")
+            emoji_logger.system_info(f"📏 Tamanho: {len(response_text)} chars")
+            
             # Se o splitter está habilitado e a mensagem é longa, divide em chunks
             if settings.enable_message_splitter and len(response_text) > settings.message_max_length:
                 splitter = get_message_splitter_instance()

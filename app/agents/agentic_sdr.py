@@ -2906,8 +2906,10 @@ Retorne em formato estruturado:
                     try:
                         if message and len(message.strip()) > 2:  # Mensagem válida
                             emoji_logger.system_info("🔍 Consultando Knowledge Base (OBRIGATÓRIO)")
-                            # Timeout específico para knowledge base
-                            kb_task = asyncio.create_task(self.search_knowledge_base(message))
+                            # MUDANÇA: Buscar TODO o conhecimento, não filtrar por mensagem
+                            # O objetivo é enriquecer a resposta com TODAS as informações disponíveis
+                            from app.services.knowledge_service import knowledge_service
+                            kb_task = asyncio.create_task(knowledge_service.get_all_knowledge(limit=15))
                             knowledge_results = await asyncio.wait_for(kb_task, timeout=5.0)  # 5 segundos max
                             emoji_logger.system_info(f"✅ Knowledge Base: {len(knowledge_results)} resultados encontrados")
                     except asyncio.TimeoutError:
