@@ -101,8 +101,8 @@ def extract_final_response(full_response: str) -> str:
             return final_response
         else:
             # 🚨 CORREÇÃO CRÍTICA: NUNCA retornar conteúdo bruto ou raciocínio interno
-            emoji_logger.system_error(f"🚨 TAGS <RESPOSTA_FINAL> NÃO ENCONTRADAS - BLOQUEANDO VAZAMENTO")
-            emoji_logger.system_error(f"📝 Conteúdo original (primeiros 200 chars): {full_response[:200]}...")
+            emoji_logger.system_error("extract_final_response", "🚨 TAGS <RESPOSTA_FINAL> NÃO ENCONTRADAS - BLOQUEANDO VAZAMENTO")
+            emoji_logger.system_error("extract_final_response", f"📝 Conteúdo original (primeiros 200 chars): {full_response[:200]}...")
             
             # ✅ RESPOSTA SEGURA: fallback controlado que não vaza raciocínio
             safe_fallback = "Oi! Desculpe, estou processando sua mensagem. Me dê só um minutinho que já te respondo! 😊"
@@ -112,7 +112,7 @@ def extract_final_response(full_response: str) -> str:
                 
     except Exception as e:
         emoji_logger.system_error("extract_final_response", f"🚨 ERRO CRÍTICO ao extrair resposta: {e}")
-        emoji_logger.system_error(f"📝 Conteúdo que causou erro (primeiros 200 chars): {full_response[:200] if full_response else 'None'}...")
+        emoji_logger.system_error("extract_final_response", f"📝 Conteúdo que causou erro (primeiros 200 chars): {full_response[:200] if full_response else 'None'}...")
         
         # 🚨 CORREÇÃO CRÍTICA: NUNCA retornar resposta completa em caso de erro
         # ✅ RESPOSTA SEGURA: fallback de emergência que não vaza raciocínio
@@ -615,7 +615,7 @@ async def process_message_with_agent(
             
             # NÃO usar thumbnail - sempre exigir imagem completa
             if not image_base64:
-                emoji_logger.system_error("❌ Falha ao obter imagem completa")
+                emoji_logger.system_error("Webhook Message Processing", "❌ Falha ao obter imagem completa")
                 logger.error("Não foi possível baixar a imagem completa. Thumbnail não é aceita para garantir qualidade.")
                 
                 # Retornar erro informativo para o usuário

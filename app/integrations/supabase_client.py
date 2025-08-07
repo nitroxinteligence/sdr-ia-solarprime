@@ -188,7 +188,7 @@ class SupabaseClient:
     async def get_conversation_emotional_state(self, conversation_id: str) -> str:
         """Obtém o estado emocional atual da conversa"""
         try:
-            response = await self.client.table('conversations').select('emotional_state').eq('id', conversation_id).execute()
+            response = self.client.table('conversations').select('emotional_state').eq('id', conversation_id).execute()
             
             if response.data and len(response.data) > 0:
                 emotional_state = response.data[0].get('emotional_state', 'ENTUSIASMADA')

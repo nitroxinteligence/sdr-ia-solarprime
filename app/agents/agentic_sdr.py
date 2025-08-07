@@ -379,6 +379,11 @@ class IntelligentModelFallback:
             "fallback_active": self.fallback_active,
             "has_fallback": self.fallback_model is not None
         }
+    
+    # Alias para compatibilidade com AGNO Agent
+    async def arun(self, message: str, **kwargs):
+        """Alias para run() - mantém compatibilidade com AGNO Agent que espera arun()"""
+        return await self.run(message, **kwargs)
 
 
 class ConversationContext(Enum):
@@ -2625,7 +2630,7 @@ Retorne em formato estruturado:
                         })
                         emoji_logger.system_success("✅ Qualificação salva na tabela leads_qualifications")
                     except Exception as qual_error:
-                        emoji_logger.system_error(f"Erro ao salvar qualificação: {qual_error}")
+                        emoji_logger.system_error("AGENTIC SDR", f"Erro ao salvar qualificação: {qual_error}")
             
             # Atualizar no banco se houver mudanças
             if update_data and lead_data and lead_data.get('id'):
@@ -2815,6 +2820,10 @@ Retorne em formato estruturado:
                     # Determinar se a mensagem atual é complexa
                     is_complex = self._is_complex_message(message)
                     
+                    # Debug: Log do prompt sendo enviado
+                    emoji_logger.system_debug(f"📝 Prompt para o agente (primeiros 500 chars): {contextual_prompt[:500]}...")
+                    emoji_logger.system_debug(f"📏 Tamanho do prompt: {len(contextual_prompt)} caracteres")
+                    
                     if self.reasoning_enabled and is_complex:
                         emoji_logger.agentic_thinking(f"Mensagem complexa detectada, ativando reasoning mode")
                         # Usar reasoning model para perguntas complexas
@@ -2827,8 +2836,37 @@ Retorne em formato estruturado:
                         emoji_logger.agentic_thinking(f"Mensagem simples, resposta direta")
                         result = await self.agent.arun(contextual_prompt)  # ✅ CORRIGIDO: Usar agent com prompt obrigatório
                     
+                    # Debug: Log do resultado recebido
+                    emoji_logger.system_debug(f"🔍 Tipo do result: {type(result)}")
+                    emoji_logger.system_debug(f"🔍 result tem content? {hasattr(result, 'content')}")
+                    if hasattr(result, '__dict__'):
+                        emoji_logger.system_debug(f"🔍 Atributos do result: {list(result.__dict__.keys())}")
+                    
                     # Extrair conteúdo da resposta
-                    raw_response = result.content if hasattr(result, 'content') else str(result)
+                    if hasattr(result, 'content') and result.content is not None:
+                        raw_response = result.content
+                    elif hasattr(result, 'text') and result.text is not None:
+                        raw_response = result.text
+                    elif hasattr(result, 'message') and result.message is not None:
+                        raw_response = result.message
+                    elif isinstance(result, dict):
+                        raw_response = result.get('content') or result.get('text') or result.get('message') or str(result)
+                    else:
+                        raw_response = str(result)
+                    
+                    # Debug: Log do conteúdo extraído
+                    emoji_logger.system_debug(f"📄 raw_response (primeiros 200 chars): {raw_response[:200]}...")
+                    emoji_logger.system_debug(f"📏 Tamanho raw_response: {len(raw_response)} caracteres")
+                    
+                    # ✅ CORREÇÃO: Verificar se a resposta está vazia antes de processar
+                    if not raw_response or raw_response.strip() == "":
+                        emoji_logger.system_warning("⚠️ Agent retornou resposta vazia! Usando fallback...")
+                        # Fallback com base no estágio atual
+                        current_stage = lead_data.get('current_stage', 'INITIAL_CONTACT') if lead_data else 'INITIAL_CONTACT'
+                        if current_stage == 'INITIAL_CONTACT':
+                            raw_response = "Oi! Tudo bem? Sou a Helen da SolarPrime! Antes de começarmos, como posso te chamar?"
+                        else:
+                            raw_response = "Oi! Desculpe, tive um probleminha aqui. Pode repetir sua última mensagem?"
                     
                     # ✅ CORREÇÃO: Verificar se já há tags antes de adicionar (evita duplicação)
                     if "<RESPOSTA_FINAL>" in raw_response:
@@ -2976,8 +3014,18 @@ Retorne em formato estruturado:
         else:
             # Fallback para run() se arun() não estiver disponível
             result = await self.agent.run(personalization_prompt)
-        # Extrair conteúdo e verificar se já há tags (evita duplicação)
-        raw_response = result.content if hasattr(result, 'content') else str(result)
+        
+        # Extrair conteúdo da resposta com múltiplas tentativas
+        if hasattr(result, 'content') and result.content is not None:
+            raw_response = result.content
+        elif hasattr(result, 'text') and result.text is not None:
+            raw_response = result.text
+        elif hasattr(result, 'message') and result.message is not None:
+            raw_response = result.message
+        elif isinstance(result, dict):
+            raw_response = result.get('content') or result.get('text') or result.get('message') or str(result)
+        else:
+            raw_response = str(result)
         
         # ✅ CORREÇÃO: Verificar se já há tags antes de adicionar (evita duplicação)
         if "<RESPOSTA_FINAL>" in raw_response:
