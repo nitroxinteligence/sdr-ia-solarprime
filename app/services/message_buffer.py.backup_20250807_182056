@@ -85,23 +85,16 @@ class MessageBuffer:
                 acquired_immediately = lock.locked() == False
                 
                 if acquired_immediately:
-                    # Agente LIVRE → aguarda por mensagens subsequentes (usuário digitando)
-                    emoji_logger.system_debug(f"Agente livre para {phone}, aguardando 7s por mais mensagens...")
+                    # Agente LIVRE → processa IMEDIATAMENTE
+                    emoji_logger.system_debug(f"Agente livre para {phone}, processando imediatamente!")
                     first_message = await queue.get()
                     messages = [first_message]
                     
-                    # CORREÇÃO: Aguarda 7s por mensagens subsequentes (tempo médio de digitação)
+                    # Coleta mensagens rápidas que chegaram juntas (sem timeout)
                     try:
-                        wait_start = asyncio.get_event_loop().time()
-                        while (asyncio.get_event_loop().time() - wait_start) < 7.0:
-                            try:
-                                msg = await asyncio.wait_for(queue.get(), timeout=1.0)
-                                if msg:
-                                    messages.append(msg)
-                            except asyncio.TimeoutError:
-                                # Continua esperando até 7s total
-                                pass
-                    except Exception:
+                        while True:
+                            messages.append(queue.get_nowait())
+                    except asyncio.QueueEmpty:
                         pass
                 else:
                     # Agente OCUPADO → aguarda timeout para agrupar mensagens
