@@ -1337,23 +1337,10 @@ Retorne em formato estruturado:
                     
                     if is_bill:
                         emoji_logger.agentic_multimodal("Conta de luz detectada", media_type="bill_image")
-                        # Extrair valor da conta se possível
-                        import re
-                        
-                        # Buscar padrão de valor monetário na análise
-                        valor_match = re.search(r'R\$\s*(\d+[.,]\d{2})', analysis_content)
-                        bill_amount = None
-                        if valor_match:
-                            # Converter vírgula para ponto e para float
-                            bill_amount = float(valor_match.group(1).replace(',', '.'))
-                            emoji_logger.system_info(f"💰 Valor da conta detectado: R$ {bill_amount:.2f}")
-                        
                         return {
                             "type": "bill_image",
                             "needs_analysis": True,
-                            "content": analysis_content,
-                            "bill_amount": bill_amount,  # Adicionar valor extraído
-                            "is_bill": True  # Garantir que é reconhecido como conta
+                            "content": analysis_content
                         }
                     else:
                         # Imagem genérica
@@ -2839,15 +2826,14 @@ Retorne em formato estruturado:
                     IMPORTANTE: Use a transcrição acima como o conteúdo real da mensagem do cliente, não a mensagem genérica.
                     """
                         
-                        elif media_type in ['image', 'bill_image']:  # CORREÇÃO: Aceitar bill_image
+                        elif media_type == 'image':
                             contextual_prompt += f"""
                     
                     📸 IMAGEM RECEBIDA - ANÁLISE:
                     {multimodal_result.get('content', 'Análise não disponível')}
                     
                     """
-                            # CORREÇÃO: Verificar tanto is_bill quanto type=='bill_image'
-                            if multimodal_result.get('is_bill') or multimodal_result.get('type') == 'bill_image':
+                            if multimodal_result.get('is_bill'):
                                 contextual_prompt += f"""
                     💡 CONTA DE LUZ DETECTADA:
                     - Valor mensal: R$ {multimodal_result.get('bill_amount', 0):.2f}
@@ -2878,9 +2864,6 @@ Retorne em formato estruturado:
                     Estado Emocional do Lead:
                     - Emoção Dominante: {emotional_triggers.get('dominant_emotion')}
                     - Urgência: {context_analysis.get('urgency_level')}
-                    
-                    IMPORTANTE: Se uma análise de imagem foi fornecida acima, USE ESSAS INFORMAÇÕES NA SUA RESPOSTA!
-                    Por exemplo, se detectamos uma conta de luz com valor, MENCIONE O VALOR DETECTADO.
                     
                     Responda de forma natural, empática e personalizada, levando em conta todo o contexto e histórico da conversa.
                     """
