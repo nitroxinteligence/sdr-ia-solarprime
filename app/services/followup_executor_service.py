@@ -377,16 +377,24 @@ class FollowUpExecutorService:
     async def _prepare_followup_message(self, followup_type: str, lead: Dict, followup: Dict) -> Optional[str]:
         """Prepara mensagem personalizada - INTELIGENTE para reengajamento, template para outros"""
         try:
-            # FOLLOW-UP INTELIGENTE: Para reengajamento, usar Helen completa com contexto
-            if followup_type in ["IMMEDIATE_REENGAGEMENT", "ABANDONMENT_CHECK"]:
+            # FOLLOW-UP INTELIGENTE: Para reengajamento, SEMPRE usar Helen completa com contexto
+            if followup_type in ["reengagement", "IMMEDIATE_REENGAGEMENT", "ABANDONMENT_CHECK"]:
                 return await self._generate_intelligent_message(followup_type, lead, followup)
             
             # TEMPLATES EXISTENTES: Para outros tipos (funcionam perfeitamente)
             templates = self.templates.get(followup_type, [])
             
             if not templates:
-                # Usar mensagem customizada se houver
-                return followup.get('message', '')
+                # CORREÇÃO CRÍTICA: NUNCA usar campo 'message' diretamente pois pode conter texto técnico
+                # Em vez disso, usar fallback inteligente
+                if followup.get('message', '').strip():
+                    # Se tem mensagem mas não é template conhecido, tentar IA também
+                    intelligent_fallback = await self._generate_intelligent_message(followup_type, lead, followup)
+                    if intelligent_fallback:
+                        return intelligent_fallback
+                    # Se IA falhar, usar template padrão seguro
+                    return f"Oi {lead.get('name', 'Cliente')}! Vi que nossa conversa ficou pela metade... Posso continuar te ajudando?"
+                return None
             
             # Selecionar template baseado no índice do follow-up
             attempt = followup.get('attempt', 0)

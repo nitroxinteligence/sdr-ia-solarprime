@@ -1415,9 +1415,10 @@ async def _schedule_inactivity_followup(lead_id: str, phone: str, conversation_i
     """
     try:
         from datetime import timedelta
+        from app.utils.time_utils import get_business_aware_datetime
         
-        # Agendamento para 30 minutos a partir de agora
-        scheduled_time = datetime.now() + timedelta(minutes=30)
+        # CORREÇÃO: Agendamento respeitando horário comercial e fuso horário correto
+        scheduled_time = get_business_aware_datetime(minutes_from_now=30)
         
         # Buscar última mensagem do usuário para armazenar como referência
         last_user_message_query = supabase_client.client.table("messages")\
@@ -1441,7 +1442,7 @@ async def _schedule_inactivity_followup(lead_id: str, phone: str, conversation_i
             "scheduled_at": scheduled_time.isoformat(),
             "type": "reengagement",  # Tipo na tabela  
             "follow_up_type": "IMMEDIATE_REENGAGEMENT",  # Subtipo (template)
-            "message": f"Follow-up de inatividade - 30min após resposta do agente",
+            "message": "",  # CORREÇÃO: Vazio para usar mensagem inteligente gerada pelo followup_executor
             "status": "pending",
             "priority": "high",
             "metadata": {
@@ -1450,7 +1451,8 @@ async def _schedule_inactivity_followup(lead_id: str, phone: str, conversation_i
                 "trigger": "agent_response_30min",
                 "last_user_message_at": last_user_time,
                 "agent_response_timestamp": agent_response_timestamp,  # NOVO: Para validação
-                "scheduled_reason": "User inactivity check after agent response"
+                "scheduled_reason": "User inactivity check after agent response",
+                "message_type": "intelligent_reengagement"  # Flag para usar IA
             }
         }
         
@@ -1460,16 +1462,17 @@ async def _schedule_inactivity_followup(lead_id: str, phone: str, conversation_i
             emoji_logger.system_info(f"⏰ Follow-up de 30min agendado para {phone} às {scheduled_time.strftime('%H:%M')}")
             
             # Agendar também follow-up de 24h caso usuário continue sem responder
-            scheduled_24h = datetime.now() + timedelta(hours=24)
+            scheduled_24h = get_business_aware_datetime(hours_from_now=24)
             followup_24h_data = {
                 **followup_data,
                 "scheduled_at": scheduled_24h.isoformat(),
-                "message": f"Follow-up de inatividade - 24h após resposta do agente",
+                "message": "",  # CORREÇÃO: Vazio para usar mensagem inteligente
                 "metadata": {
                     **followup_data["metadata"],
                     "trigger": "agent_response_24h",
                     "agent_response_timestamp": agent_response_timestamp,  # Mesmo timestamp do agente
-                    "scheduled_reason": "User inactivity check 24h after agent response"
+                    "scheduled_reason": "User inactivity check 24h after agent response",
+                    "message_type": "intelligent_reengagement"  # Flag para usar IA
                 }
             }
             
