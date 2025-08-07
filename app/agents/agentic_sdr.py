@@ -3154,9 +3154,14 @@ Retorne em formato estruturado:
                             else:
                                 raw_response = str(result.content)
                             emoji_logger.system_info(f"✅ Conteúdo extraído de result.content: tipo={type(raw_response).__name__}, tamanho={len(str(raw_response)) if raw_response else 0}")
+                            
+                            # 🚨 CORREÇÃO CRÍTICA: Se já extraímos content com sucesso, marcar para NÃO CONTINUAR!
+                            content_extracted_successfully = True if (raw_response and raw_response != "" and str(raw_response) != "True") else False
+                            if content_extracted_successfully:
+                                emoji_logger.system_info("✅ Content extraído com sucesso - vamos pular outras tentativas")
                     
                     # 2. Se vazio ou content=True, verificar messages (AGNO padrão)
-                    if (not raw_response or raw_response == "" or result.content is True) and hasattr(result, 'messages') and result.messages:
+                    if (not raw_response or raw_response == "" or result.content is True) and hasattr(result, 'messages') and result.messages and not locals().get('content_extracted_successfully', False):
                         emoji_logger.system_info(f"🔍 Verificando {len(result.messages)} mensagens em result.messages")
                         for i, msg in enumerate(reversed(result.messages)):
                             emoji_logger.system_info(f"🔍 Mensagem {i}: tipo={type(msg).__name__}, tem role={hasattr(msg, 'role')}, tem content={hasattr(msg, 'content')}")
@@ -3185,7 +3190,7 @@ Retorne em formato estruturado:
                                     if raw_response and str(raw_response).strip():  # Garantir que não está vazio
                                         break
                     # 3. Outros atributos - APENAS se ainda não extraímos nada
-                    if not raw_response or raw_response == "":
+                    if (not raw_response or raw_response == "") and not locals().get('content_extracted_successfully', False):
                         if hasattr(result, 'text') and result.text:
                             raw_response = result.text
                         elif hasattr(result, 'message') and result.message:
@@ -3193,7 +3198,12 @@ Retorne em formato estruturado:
                         elif isinstance(result, dict):
                             raw_response = result.get('content') or result.get('text') or str(result)
                         else:
-                            raw_response = str(result)
+                            # 🚨 ÚLTIMO RECURSO: só usar str(result) se REALMENTE não temos nada
+                            if not raw_response or raw_response == "":
+                                raw_response = str(result)
+                                emoji_logger.system_warning("⚠️ Usando str(result) como último recurso")
+                            else:
+                                emoji_logger.system_info("✅ Já temos raw_response, não vamos sobrescrever!")
                     
                     # Debug: Log do conteúdo extraído
                     emoji_logger.system_info(f"📄 raw_response tipo: {type(raw_response).__name__ if raw_response else 'None'}")
@@ -3264,6 +3274,21 @@ Retorne em formato estruturado:
                         # Resposta sem tags - adicionar tags para extração
                         response = f"<RESPOSTA_FINAL>{raw_response}</RESPOSTA_FINAL>"
                         emoji_logger.system_debug("➕ Adicionando tags <RESPOSTA_FINAL> à resposta")
+                    
+                    # 🚨 CORREÇÃO CRÍTICA: Verificar se response contém RunResponse serializado
+                    if "RunResponse(" in str(response):
+                        emoji_logger.system_error("🚨 ERRO CRÍTICO: response contém RunResponse serializado!")
+                        emoji_logger.system_error(f"Tamanho do response: {len(str(response))} caracteres")
+                        # Tentar extrair apenas o conteúdo de dentro do RunResponse
+                        import re
+                        match = re.search(r"RunResponse\(content='([^']+)'", str(response))
+                        if match:
+                            content_only = match.group(1)
+                            response = f"<RESPOSTA_FINAL>{content_only}</RESPOSTA_FINAL>"
+                            emoji_logger.system_info(f"✅ Extraído apenas conteúdo: {len(content_only)} caracteres")
+                        else:
+                            emoji_logger.system_error("❌ Não foi possível extrair conteúdo do RunResponse")
+                            response = "<RESPOSTA_FINAL>Desculpe, tive um problema técnico. Pode repetir sua mensagem?</RESPOSTA_FINAL>"
                     
                     # 🚨 VALIDAÇÃO DE SEGURANÇA: Verificar se está pedindo dados proibidos
                     forbidden_terms = [
