@@ -69,20 +69,26 @@ class KommoAutoSyncService:
         
         # Mapeamento de estágios do sistema para Kommo
         self.stage_mapping = {
-            # Valores que o agente REALMENTE retorna (em português)
-            "INITIAL_CONTACT": "novo_lead",
-            "EM_QUALIFICACAO": "em_qualificacao",
-            "QUALIFICADO": "qualificado",
-            "REUNIAO_AGENDADA": "reuniao_agendada",
-            "NAO_INTERESSADO": "nao_interessado",
-            "EM_NEGOCIACAO": "em_negociacao",
+            # Valores que o agente REALMENTE retorna para nomes em português no Kommo
+            "INITIAL_CONTACT": "Novo Lead",
+            "EM_QUALIFICACAO": "Em Qualificação",
+            "QUALIFICADO": "Qualificado",
+            "REUNIAO_AGENDADA": "Reunião Agendada",
+            "NAO_INTERESSADO": "Não Interessado",
+            "EM_NEGOCIACAO": "Em Negociação",
             # Manter valores antigos para compatibilidade
-            "IDENTIFYING_NEED": "em_negociacao",
-            "QUALIFYING": "em_qualificacao",
-            "QUALIFIED": "qualificado",
-            "SCHEDULING": "reuniao_agendada",
-            "MEETING_DONE": "reuniao_finalizada",
-            "NOT_INTERESTED": "nao_interessado"
+            "IDENTIFYING_NEED": "Em Negociação",
+            "QUALIFYING": "Em Qualificação",
+            "QUALIFIED": "Qualificado",
+            "SCHEDULING": "Reunião Agendada",
+            "MEETING_DONE": "Reunião Finalizada",
+            "NOT_INTERESTED": "Não Interessado",
+            # Adicionar mapeamento para valores em snake_case também
+            "novo_lead": "Novo Lead",
+            "em_qualificacao": "Em Qualificação",
+            "qualificado": "Qualificado",
+            "reuniao_agendada": "Reunião Agendada",
+            "nao_interessado": "Não Interessado"
         }
         
         # Tags automáticas baseadas em condições (tags oficiais do sistema)

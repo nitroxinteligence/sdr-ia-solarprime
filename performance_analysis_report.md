@@ -73,7 +73,7 @@ async def sync_with_limit(func):
 
 ### 2.2 Gargalos Sequenciais Identificados
 
-1. **Message Buffer**: Processa mensagens uma por vez por usuário
+1. **Message Buffer**: Processa mensagens uma por vez por usuário (Aqui o message buffer deveria juntar todas as mensagens do usuário, em vez de processar uma por uma)
 2. **Follow-up Executor**: Executa follow-ups sequencialmente
 3. **Media Processing**: Processa imagem → análise → resposta sequencialmente
 

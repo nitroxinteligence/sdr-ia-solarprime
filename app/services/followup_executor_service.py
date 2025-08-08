@@ -712,7 +712,7 @@ class FollowUpExecutorService:
             # 3. VERIFICAR KNOWLEDGE BASE (AgenticSDR pode acessar quando necessário)
             try:
                 # Schema correto baseado no SQL: question, answer, category
-                kb_result = self.db.client.table('knowledge_base').select("question").limit(1).execute()
+                kb_result = self.db.client.table('knowledge_base').select("title").limit(1).execute()
                 kb_available = len(kb_result.data) > 0
                 logger.info(f"🧠 Knowledge base disponível: {'✅' if kb_available else '❌'}")
             except Exception as e:
