@@ -196,7 +196,7 @@ class FollowUpExecutorService:
                             if google_event and google_event.get('status') == 'cancelled':
                                 # Reunião cancelada, marcar lembrete como cancelado
                                 await self.db.client.table('follow_ups').update({
-                                    'status': 'CANCELLED',
+                                    'status': 'cancelled',
                                     'executed_at': now.isoformat(),
                                     'response': json.dumps({'reason': 'meeting_cancelled'})
                                 }).eq('id', reminder['id']).execute()
@@ -221,14 +221,14 @@ class FollowUpExecutorService:
                     
                     # Marcar lembrete como executado
                     await self.db.client.table('follow_ups').update({
-                        'status': 'EXECUTED',
+                        'status': 'executed',
                         'executed_at': now.isoformat()
                     }).eq('id', reminder['id']).execute()
                     
                 except Exception as reminder_error:
                     logger.error(f"Erro ao processar lembrete {reminder['id']}: {reminder_error}")
                     await self.db.client.table('follow_ups').update({
-                        'status': 'FAILED',
+                        'status': 'failed',
                         'executed_at': now.isoformat(),
                         'error_reason': str(reminder_error)
                     }).eq('id', reminder['id']).execute()

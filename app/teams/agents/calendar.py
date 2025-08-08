@@ -299,10 +299,15 @@ class CalendarAgent:
                 }
                 
                 # Se for online, adicionar link de reunião
+                conference_data_enabled = False
                 if "Online" in location or "online" in location.lower():
-                    event_data["conference_data"] = True  # Vai gerar link alternativo (Jitsi)
+                    conference_data_enabled = True
                 
-                result = await self.calendar_client.create_event(**event_data)
+                # Passar conference_data como parâmetro separado
+                result = await self.calendar_client.create_event(
+                    **event_data,
+                    conference_data=conference_data_enabled
+                )
             
             if result and result.get("google_event_id"):
                 # Salvar no banco
@@ -317,7 +322,7 @@ class CalendarAgent:
                 if qualification_record:
                     try:
                         # Atualizar qualificação com o ID do evento
-                        await supabase_client.client.table('leads_qualifications').update({
+                        supabase_client.client.table('leads_qualifications').update({
                             'google_event_id': result.get("google_event_id"),
                             'updated_at': datetime.now().isoformat()
                         }).eq('id', qualification_record['id']).execute()
@@ -345,7 +350,7 @@ class CalendarAgent:
                         'lead_id': lead_id,
                         'type': 'MEETING_REMINDER',
                         'scheduled_at': reminder_24h_time.isoformat(),
-                        'status': 'PENDING',
+                        'status': 'pending',
                         'priority': 'high',
                         'message': f'Lembrete 24h - Reunião "{title}" amanhã às {time}',
                         'metadata': {
@@ -361,7 +366,7 @@ class CalendarAgent:
                         'lead_id': lead_id,
                         'type': 'MEETING_REMINDER',
                         'scheduled_at': reminder_2h_time.isoformat(),
-                        'status': 'PENDING',
+                        'status': 'pending',
                         'priority': 'critical',
                         'message': f'Lembrete 2h - Reunião "{title}" às {time}',
                         'metadata': {
@@ -377,12 +382,40 @@ class CalendarAgent:
                 
                 logger.info(f"✅ Reunião agendada: {title} em {date} às {time}")
                 
+                # Debug do resultado
+                logger.info(f"📊 Resultado do create_event: {result}")
+                
+                # Verificar se tem meet_link ou hangout_link
+                meet_link = result.get("meet_link") or result.get("hangout_link", "")
+                if meet_link:
+                    logger.info(f"🎥 Google Meet link criado: {meet_link}")
+                else:
+                    logger.warning("⚠️ Google Meet link não foi criado. Gerando link alternativo...")
+                    # Gerar link alternativo se não tiver Google Meet
+                    meet_link = self._generate_alternative_meet_link(title, result["google_event_id"])
+                    
+                    # Atualizar a descrição do evento com o link alternativo
+                    try:
+                        updated_description = description
+                        if updated_description:
+                            updated_description += f"\n\n🔗 Link da reunião: {meet_link}"
+                        else:
+                            updated_description = f"🔗 Link da reunião: {meet_link}"
+                        
+                        await self.calendar_client.update_event(
+                            event_id=result["google_event_id"],
+                            updates={"description": updated_description}
+                        )
+                        logger.info(f"✅ Link alternativo adicionado à descrição do evento")
+                    except Exception as update_error:
+                        logger.error(f"Erro ao atualizar descrição com link alternativo: {update_error}")
+                
                 return {
                     "success": True,
                     "google_event_id": result["google_event_id"],  # Adicionar google_event_id
                     "event_id": result["google_event_id"],
                     "html_link": result.get("html_link", ""),
-                    "meet_link": result.get("meet_link", ""),
+                    "meet_link": meet_link,  # Sempre terá um link (Google Meet ou alternativo)
                     "start_time": start_time.isoformat(),
                     "end_time": end_time.isoformat(),
                     "message": f"Reunião agendada para {date} às {time}"
@@ -1213,6 +1246,29 @@ class CalendarAgent:
             return "Tarde"
         else:
             return "Noite"
+    
+    def _generate_alternative_meet_link(self, title: str, event_id: str) -> str:
+        """
+        Gera link alternativo de reunião (Jitsi Meet) quando Google Meet não está disponível
+        
+        Args:
+            title: Título da reunião
+            event_id: ID do evento
+            
+        Returns:
+            URL do Jitsi Meet
+        """
+        # Limpar título para URL
+        import re
+        room_name = re.sub(r'[^a-zA-Z0-9]', '', title.replace(' ', ''))[:30]
+        room_name = f"SolarPrime{room_name}{event_id[:8]}"
+        
+        # Gerar link Jitsi
+        jitsi_link = f"https://meet.jit.si/{room_name}"
+        
+        logger.info(f"🔗 Link alternativo Jitsi criado: {jitsi_link}")
+        
+        return jitsi_link
     
     async def create_recurring_meeting(
         self,

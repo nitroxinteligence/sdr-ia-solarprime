@@ -3535,8 +3535,12 @@ Retorne em formato estruturado:
         """Personaliza resposta do Team com toque do AGENTIC SDR"""
         
         # Adicionar personalização baseada no estado emocional
+        # Otimização: limitar tamanho da resposta para evitar timeout
+        max_response_length = 800
+        truncated_response = team_response[:max_response_length] if len(team_response) > max_response_length else team_response
+        
         personalization_prompt = f"""
-        Resposta técnica: {team_response}
+        Resposta técnica: {truncated_response}
         
         Emoção do lead: {emotional_triggers.get('dominant_emotion')}
         Seu estado emocional: {emotional_state}
@@ -3547,7 +3551,7 @@ Retorne em formato estruturado:
         
         # Em AGNO v1.7.6, usar run()
         # Usar arun() para suporte assíncrono com timeout
-        PERSONALIZATION_TIMEOUT = 15  # timeout menor para personalização
+        PERSONALIZATION_TIMEOUT = 25  # timeout aumentado para evitar falhas
         
         try:
             if hasattr(self.agent, 'arun'):

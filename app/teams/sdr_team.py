@@ -716,18 +716,15 @@ Meet Link: {result.get('meet_link', 'Será gerado')}
 </RACIOCINIO>
 
 <RESPOSTA_FINAL>
-✅ Perfeito! Sua reunião está confirmada!
+Ótimo! Sua reunião está confirmada!
 
-📅 Data: {meeting_info['date']} às {meeting_info['time']}
-⏱️ Duração: 1 hora
-📧 Convite: {meeting_info['email'] if meeting_info['email'] else 'Será enviado em breve'}
-🎥 Google Meet: {result.get('meet_link', 'Link será gerado')}
+Data: {meeting_info['date']} às {meeting_info['time']}
+Convite: {meeting_info['email'] if meeting_info['email'] else 'Será enviado em breve'}
+Google Meet: {result.get('meet_link', 'Link será gerado')}
 
-Você receberá lembretes:
-• 24 horas antes
-• 2 horas antes
+Você receberá lembretes 24 horas antes e 2 horas antes da reunião, tá bom?
 
-Até lá! 😊
+Até lá!
 </RESPOSTA_FINAL>"""
                             else:
                                 error_msg = result.get('error', 'Erro ao criar evento') if result else 'Sem resposta'
@@ -738,13 +735,12 @@ Erro: {error_msg}
 </RACIOCINIO>
 
 <RESPOSTA_FINAL>
-Ops! Tive um pequeno problema técnico ao criar seu agendamento. 
+Ops! Tive um pequeno problema aqui na agenda ao criar seu agendamento. 
 
-Mas não se preocupe! Posso tentar novamente. Me confirma:
-- Qual dia você prefere?
-- Qual horário seria melhor para você?
+Mas não se preocupe! Posso tentar novamente. Me confirma
+Qual dia você prefere e qual horário seria melhor para você?
 
-Vou garantir que tudo funcione perfeitamente! 😊
+Vou garantir que tudo funcione perfeitamente!
 </RESPOSTA_FINAL>"""
                                 
                         except Exception as e:
@@ -755,7 +751,7 @@ Exceção: {e}
 </RACIOCINIO>
 
 <RESPOSTA_FINAL>
-Desculpe, tive um probleminha técnico ao processar seu agendamento.
+Tive um probleminha técnico ao criar seu agendamento.
 
 Vamos fazer assim: me passa o melhor dia e horário para você que eu anoto aqui e nossa equipe confirma o agendamento, pode ser?
 

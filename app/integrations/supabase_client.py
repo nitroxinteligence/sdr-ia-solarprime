@@ -307,7 +307,7 @@ class SupabaseClient:
             now = datetime.now().isoformat()
             
             result = self.client.table('follow_ups').select("*").eq(
-                'status', 'PENDING'
+                'status', 'pending'
             ).lte('scheduled_at', now).order('priority', desc=True).execute()
             
             return result.data or []
