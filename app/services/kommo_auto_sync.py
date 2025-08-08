@@ -69,7 +69,14 @@ class KommoAutoSyncService:
         
         # Mapeamento de estágios do sistema para Kommo
         self.stage_mapping = {
+            # Valores que o agente REALMENTE retorna (em português)
             "INITIAL_CONTACT": "novo_lead",
+            "EM_QUALIFICACAO": "em_qualificacao",
+            "QUALIFICADO": "qualificado",
+            "REUNIAO_AGENDADA": "reuniao_agendada",
+            "NAO_INTERESSADO": "nao_interessado",
+            "EM_NEGOCIACAO": "em_negociacao",
+            # Manter valores antigos para compatibilidade
             "IDENTIFYING_NEED": "em_negociacao",
             "QUALIFYING": "em_qualificacao",
             "QUALIFIED": "qualificado",

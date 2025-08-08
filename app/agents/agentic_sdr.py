@@ -967,7 +967,11 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             "reagendar", "remarcar reunião", "cancelar reunião",
             "que dia pode ser", "qual horário", "quando podemos nos reunir",
             "semana que vem para reunião", "próxima semana reunião", 
-            "amanhã para reunião", "hoje para reunião", "vamos marcar"
+            "amanhã para reunião", "hoje para reunião", "vamos marcar",
+            # NOVO: Detecção específica da agenda do Leonardo
+            "agenda do leonardo", "horários disponíveis", "leonardo está disponível",
+            "leonardo pode", "disponibilidade do leonardo", "quando leonardo pode",
+            "consultar agenda", "verificar agenda", "ver agenda", "checar agenda"
         ]
         
         # ✅ NOVO: Filtro de saudação para evitar falsos positivos
@@ -982,13 +986,24 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         followup_indicators = ["reengajamento", "follow-up", "não é agendamento", "parou de responder"]
         is_followup_message = any(indicator in current_message.lower() for indicator in followup_indicators)
         
+        # ✅ NOVO: Detecção de alta confiança para agenda do Leonardo
+        high_confidence_calendar = any(phrase in current_message.lower() for phrase in [
+            "agenda do leonardo", "verificar agenda", "consultar agenda", 
+            "horários disponíveis", "leonardo está disponível"
+        ])
+        
         # ✅ CORRIGIDO: Lógica mais inteligente para detectar agendamento REAL
         calendar_detected = any(word in current_message.lower() for word in calendar_keywords)
         is_real_calendar_request = calendar_detected and not is_simple_greeting and not has_negative_context and not is_followup_message
         
+        # RETORNO IMEDIATO para alta confiança
+        if high_confidence_calendar and not has_negative_context:
+            logger.info("🚨 ALTA CONFIANÇA: Detecção de agenda do Leonardo - retornando imediatamente!")
+            return True, "CalendarAgent", "Alta confiança: Solicitação explícita de verificação de agenda"
+        
         if is_real_calendar_request:
-            # ✅ CORRIGIDO: Score mais conservador para evitar ativação desnecessária
-            decision_factors["complexity_score"] += 0.6  # Reduzido de 0.8 para 0.6
+            # ✅ CORRIGIDO: Score mais alto para garantir ativação
+            decision_factors["complexity_score"] += 0.8  # Aumentado para 0.8
             decision_factors["recommended_agent"] = "CalendarAgent"
             decision_factors["reasoning"].append("🗓️ Solicitação de agendamento detectada - Ativando CalendarAgent")
             
@@ -1035,7 +1050,8 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             decision_factors["reasoning"].append("Follow-up estratégico necessário")
         
         # Decisão final baseada em threshold inteligente
-        should_call = decision_factors["complexity_score"] >= 0.7
+        # REDUZIDO de 0.7 para 0.3 para ser mais sensível
+        should_call = decision_factors["complexity_score"] >= 0.3
         
         if should_call:
             reason = f"Score de complexidade: {decision_factors['complexity_score']:.2f}. " + \
@@ -3008,6 +3024,33 @@ Retorne em formato estruturado:
                     """
                             if len(multimodal_result.get('content', '')) > 1000:
                                 contextual_prompt += "\n[... documento truncado para contexto]"
+                    
+                    # VALIDAÇÃO DE CALENDÁRIO - CRÍTICO
+                    calendar_keywords = [
+                        "agenda", "horário", "disponibilidade", "marcar", "reunião",
+                        "encontro", "meeting", "agendar", "leonardo está", "leonardo pode",
+                        "quando pode", "que dia", "que hora", "horários disponíveis"
+                    ]
+                    
+                    needs_calendar = any(keyword in message.lower() for keyword in calendar_keywords)
+                    
+                    if needs_calendar:
+                        contextual_prompt += """
+                    
+                    🚨🚨🚨 ATENÇÃO CRÍTICA - CALENDÁRIO DETECTADO 🚨🚨🚨
+                    
+                    ⚠️ O LEAD ESTÁ PEDINDO INFORMAÇÕES DE AGENDA/HORÁRIOS!
+                    
+                    VOCÊ DEVE OBRIGATORIAMENTE:
+                    1. DELEGAR para SDR_TEAM (CalendarAgent) IMEDIATAMENTE
+                    2. NÃO INVENTAR horários disponíveis
+                    3. NÃO DIZER que "consultou a agenda" sem consultar
+                    
+                    RESPONDA ALGO COMO:
+                    "Vou verificar a agenda do Leonardo agora mesmo para te passar os melhores horários!"
+                    
+                    E ENTÃO DELEGUE A TAREFA!
+                    """
                     
                     contextual_prompt += f"""
                     
