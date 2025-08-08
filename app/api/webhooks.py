@@ -165,7 +165,7 @@ def extract_final_response(full_response: str) -> str:
             emoji_logger.system_error("extract_final_response", f"📝 Conteúdo original (primeiros 200 chars): {full_response[:200]}...")
             
             # ✅ RESPOSTA SEGURA: fallback controlado que não vaza raciocínio
-            safe_fallback = "Oi! Desculpe, estou processando sua mensagem. Me dê só um minutinho que já te respondo! 😊"
+            safe_fallback = "Oi! Me dê só um minutinho que já te respondo!"
             
             emoji_logger.system_warning(f"🔒 Usando resposta segura para evitar vazamento de raciocínio interno")
             return safe_fallback
@@ -176,7 +176,7 @@ def extract_final_response(full_response: str) -> str:
         
         # 🚨 CORREÇÃO CRÍTICA: NUNCA retornar resposta completa em caso de erro
         # ✅ RESPOSTA SEGURA: fallback de emergência que não vaza raciocínio
-        emergency_fallback = "Oi! Tive um probleminha técnico processando sua mensagem. Me dê só um momento que já resolvo! 🔧"
+        emergency_fallback = "Oi! Me dê só um momento que já te retorno! 🔧"
         
         emoji_logger.system_warning(f"🔒 Usando resposta de emergência para evitar vazamento em caso de erro")
         return emergency_fallback
@@ -1575,7 +1575,7 @@ async def _schedule_inactivity_followup(lead_id: str, phone: str, conversation_i
     Usa infraestrutura existente - ZERO COMPLEXIDADE
     """
     try:
-        from datetime import timedelta
+        from datetime import timedelta, timezone
         from app.utils.time_utils import get_business_aware_datetime
         
         # CORREÇÃO: Agendamento respeitando horário comercial e fuso horário correto
@@ -1596,7 +1596,8 @@ async def _schedule_inactivity_followup(lead_id: str, phone: str, conversation_i
         
         # Criar registro na tabela follow_ups (usa estrutura existente)
         # CRUCIAL: Timestamp atual da resposta do agente para validação de inatividade
-        agent_response_timestamp = datetime.now().isoformat()
+        # CORREÇÃO: Usar timezone UTC para consistência
+        agent_response_timestamp = datetime.now(timezone.utc).isoformat()
         
         followup_data = {
             "lead_id": lead_id,

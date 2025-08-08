@@ -68,10 +68,16 @@ class FollowUpExecutorService:
             
         self.running = True
         emoji_logger.system_ready("FollowUp Executor")
+        logger.info("🚀 DEBUG: FollowUp Executor iniciado com sucesso!")
+        logger.info(f"⏰ DEBUG: Check interval: {self.check_interval}s")
+        logger.info("📋 DEBUG: Templates de mensagens carregados:")
+        for tipo, msgs in self.templates.items():
+            logger.info(f"  - {tipo}: {len(msgs)} templates")
         
         # Iniciar loop principal
         asyncio.create_task(self._execution_loop())
         asyncio.create_task(self._meeting_reminder_loop())
+        logger.info("🔄 DEBUG: Loops de execução iniciados (follow-ups e lembretes)")
         
     async def stop(self):
         """Para o serviço executor"""
@@ -105,6 +111,7 @@ class FollowUpExecutorService:
         """
         try:
             now = datetime.now(timezone.utc)
+            logger.info(f"🔍 DEBUG: Verificando follow-ups pendentes às {now.isoformat()}")
             
             # Buscar follow-ups pendentes
             result = self.db.client.table('follow_ups').select("*").eq(
@@ -113,10 +120,28 @@ class FollowUpExecutorService:
                 'scheduled_at', now.isoformat()
             ).order('scheduled_at').limit(10).execute()
             
+            # DEBUG: Log detalhado do resultado
+            logger.info(f"📊 DEBUG: Query executada. Result data: {result.data is not None}, Count: {len(result.data) if result.data else 0}")
+            
             if not result.data:
+                logger.debug("🔍 DEBUG: Nenhum follow-up pendente encontrado no momento")
+                # DEBUG: Verificar se existem follow-ups futuros
+                future_result = self.db.client.table('follow_ups').select("scheduled_at, type, status").eq(
+                    'status', 'pending'
+                ).order('scheduled_at').limit(5).execute()
+                
+                if future_result.data:
+                    logger.info(f"📅 DEBUG: Próximos follow-ups agendados:")
+                    for f in future_result.data:
+                        logger.info(f"  - {f['scheduled_at']} | {f['type']} | {f['status']}")
+                else:
+                    logger.info("📭 DEBUG: Nenhum follow-up agendado na tabela")
                 return
             
             logger.info(f"📋 {len(result.data)} follow-ups pendentes encontrados")
+            logger.info(f"📝 DEBUG: Detalhes dos follow-ups:")
+            for idx, f in enumerate(result.data):
+                logger.info(f"  {idx+1}. Lead: {f.get('lead_id')} | Type: {f.get('type')} | Scheduled: {f.get('scheduled_at')}")
             
             for followup in result.data:
                 await self._execute_followup(followup)
@@ -217,6 +242,12 @@ class FollowUpExecutorService:
             lead_id = followup.get('lead_id')
             followup_type = followup.get('type', 'CUSTOM')
             
+            logger.info(f"🎯 DEBUG: Iniciando execução de follow-up")
+            logger.info(f"  - ID: {followup.get('id')}")
+            logger.info(f"  - Lead ID: {lead_id}")
+            logger.info(f"  - Type: {followup_type}")
+            logger.info(f"  - Scheduled: {followup.get('scheduled_at')}")
+            
             # 🔒 LOCK DISTRIBUÍDO POR LEAD - Previne envios duplicados
             lock_key = f"followup:{lead_id}"
             lock_acquired = await redis_client.acquire_lock(lock_key, ttl=60)
@@ -267,25 +298,34 @@ class FollowUpExecutorService:
                 # SANITIZAÇÃO FINAL - Remove qualquer tag remanescente
                 message = self._sanitize_final_message(message)
                 
+                logger.info(f"📤 DEBUG: Preparando envio via Evolution API")
+                logger.info(f"  - Phone: {phone}")
+                logger.info(f"  - Message length: {len(message)}")
+                logger.info(f"  - Message preview: {message[:100]}...")
+                
                 # Enviar mensagem via WhatsApp
                 result = await self.evolution.send_text_message(
                     phone=phone,
                     message=message
                 )
+                
+                logger.info(f"📱 DEBUG: Resultado do envio Evolution: {result}")
             
                 if result:
                     # Marcar como executado
-                    self.db.client.table('follow_ups').update({
+                    update_result = self.db.client.table('follow_ups').update({
                         'status': 'executed',
                         'executed_at': datetime.now(timezone.utc).isoformat(),
                         'response': json.dumps({'evolution_result': result})
                     }).eq('id', followup['id']).execute()
                     
+                    logger.info(f"✅ DEBUG: Follow-up marcado como executado no banco")
                     emoji_logger.whatsapp_sent(f"Follow-up enviado para {lead.get('name')}")
                     
                     # Agendar próximo follow-up se necessário
                     await self._schedule_next_followup(followup_type, lead, followup)
                 else:
+                    logger.error(f"❌ DEBUG: Falha no envio via Evolution. Result: {result}")
                     await self._mark_followup_failed(followup['id'], "Falha no envio")
                     
             finally:

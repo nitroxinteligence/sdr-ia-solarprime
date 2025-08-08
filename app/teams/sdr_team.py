@@ -708,32 +708,76 @@ class SDRTeam:
                                 event_id = result.get('google_event_id', 'Aguardando confirmação')
                                 logger.info(f"✅ REUNIÃO AGENDADA COM SUCESSO! Event ID: {event_id}")
                                 
-                                # Retornar mensagem de confirmação REAL
-                                return f"""✅ Perfeito! Sua reunião está confirmada!
+                                # Retornar mensagem de confirmação REAL com tags RESPOSTA_FINAL
+                                return f"""<RACIOCINIO>
+CalendarAgent executou agendamento real no Google Calendar
+Event ID: {result.get('google_event_id')}
+Meet Link: {result.get('meet_link', 'Será gerado')}
+</RACIOCINIO>
 
-📅 **Data**: {meeting_info['date']} às {meeting_info['time']}
-⏱️ **Duração**: 1 hora
-📧 **Convite**: {meeting_info['email'] if meeting_info['email'] else 'Será enviado em breve'}
-🎥 **Google Meet**: {result.get('meet_link', 'Link será gerado')}
-📋 **ID do Evento**: {result.get('google_event_id')}
+<RESPOSTA_FINAL>
+✅ Perfeito! Sua reunião está confirmada!
+
+📅 Data: {meeting_info['date']} às {meeting_info['time']}
+⏱️ Duração: 1 hora
+📧 Convite: {meeting_info['email'] if meeting_info['email'] else 'Será enviado em breve'}
+🎥 Google Meet: {result.get('meet_link', 'Link será gerado')}
 
 Você receberá lembretes:
 • 24 horas antes
 • 2 horas antes
 
-Até lá! 😊"""
+Até lá! 😊
+</RESPOSTA_FINAL>"""
                             else:
                                 error_msg = result.get('error', 'Erro ao criar evento') if result else 'Sem resposta'
                                 logger.error(f"❌ Falha ao agendar: {error_msg}")
-                                return f"Ops! Tive um problema ao agendar. Vou tentar novamente... Erro: {error_msg}"
+                                return f"""<RACIOCINIO>
+CalendarAgent tentou agendar mas falhou
+Erro: {error_msg}
+</RACIOCINIO>
+
+<RESPOSTA_FINAL>
+Ops! Tive um pequeno problema técnico ao criar seu agendamento. 
+
+Mas não se preocupe! Posso tentar novamente. Me confirma:
+- Qual dia você prefere?
+- Qual horário seria melhor para você?
+
+Vou garantir que tudo funcione perfeitamente! 😊
+</RESPOSTA_FINAL>"""
                                 
                         except Exception as e:
                             logger.error(f"❌ Erro ao executar agendamento: {e}")
-                            return f"Desculpe, encontrei um erro ao agendar: {e}. Vou verificar e tentar novamente."
+                            return f"""<RACIOCINIO>
+CalendarAgent encontrou exceção durante agendamento
+Exceção: {e}
+</RACIOCINIO>
+
+<RESPOSTA_FINAL>
+Desculpe, tive um probleminha técnico ao processar seu agendamento.
+
+Vamos fazer assim: me passa o melhor dia e horário para você que eu anoto aqui e nossa equipe confirma o agendamento, pode ser?
+
+Qual seria o melhor momento para conversarmos sobre sua economia na conta de luz? 😊
+</RESPOSTA_FINAL>"""
                     
                     else:
                         logger.error("❌ CalendarAgent NÃO está disponível! Verifique as configurações")
-                        return "No momento não consigo agendar reuniões. Por favor, entre em contato pelo telefone."
+                        return """<RACIOCINIO>
+CalendarAgent não está disponível no sistema
+Configuração pode estar desabilitada
+</RACIOCINIO>
+
+<RESPOSTA_FINAL>
+Opa! Percebi que nosso sistema de agendamento está passando por uma manutenção rápida.
+
+Mas não se preocupe! Tenho uma solução: 
+- Me passa seu melhor dia e horário
+- Anoto aqui e nossa equipe confirma em seguida
+
+Qual seria o melhor momento para você? Manhã, tarde ou noite? 😊
+</RESPOSTA_FINAL>"""
                 
                 # Para outros agentes, manter comportamento original
                 else:

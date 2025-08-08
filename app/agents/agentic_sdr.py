@@ -974,6 +974,14 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             "consultar agenda", "verificar agenda", "ver agenda", "checar agenda"
         ]
         
+        # NOVO: Palavras temporais que indicam possível interesse em agendamento
+        temporal_keywords = [
+            "amanhã", "hoje", "semana que vem", "próxima semana", 
+            "segunda", "terça", "quarta", "quinta", "sexta",
+            "manhã", "tarde", "noite", "horário", "hora",
+            "disponível", "disponibilidade", "pode ser", "tem pra"
+        ]
+        
         # ✅ NOVO: Filtro de saudação para evitar falsos positivos
         greeting_indicators = ["olá", "oi", "bom dia", "boa tarde", "boa noite", "tudo bem", "tchau", "obrigado"]
         is_simple_greeting = any(greeting in current_message.lower() for greeting in greeting_indicators) and len(current_message.split()) <= 5
@@ -992,9 +1000,25 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             "horários disponíveis", "leonardo está disponível"
         ])
         
+        # NOVO: Detecção de palavras temporais que podem indicar agendamento
+        has_temporal_keyword = any(word in current_message.lower() for word in temporal_keywords)
+        
+        # NOVO: Detecção específica para mensagens curtas com tempo
+        # Ex: "Tem pra amanhã?", "Pode ser hoje?"
+        is_short_temporal_question = (
+            has_temporal_keyword and 
+            len(current_message.split()) <= 5 and
+            any(q in current_message.lower() for q in ["?", "tem", "pode", "disponível"])
+        )
+        
         # ✅ CORRIGIDO: Lógica mais inteligente para detectar agendamento REAL
         calendar_detected = any(word in current_message.lower() for word in calendar_keywords)
-        is_real_calendar_request = calendar_detected and not is_simple_greeting and not has_negative_context and not is_followup_message
+        is_real_calendar_request = (
+            (calendar_detected or is_short_temporal_question) and 
+            not is_simple_greeting and 
+            not has_negative_context and 
+            not is_followup_message
+        )
         
         # RETORNO IMEDIATO para alta confiança
         if high_confidence_calendar and not has_negative_context:
@@ -1025,12 +1049,12 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             decision_factors["reasoning"].append("Análise de conta necessária")
         
         # Fator 3: Lead de alto valor
+        # REMOVIDO: QualificationAgent não existe mais - qualificação é feita pelo prompt-agente.md
         qualification_signals = context_analysis.get("qualification_signals", {})
         if qualification_signals.get("bill_value", 0) > 4000:
             decision_factors["complexity_score"] += 0.3
-            if not decision_factors["recommended_agent"]:
-                decision_factors["recommended_agent"] = "QualificationAgent"
-            decision_factors["reasoning"].append("Lead de alto valor detectado")
+            # Não atribuir agente específico - deixar o AgenticSDR qualificar
+            decision_factors["reasoning"].append("Lead de alto valor detectado - qualificação pelo AgenticSDR")
         
         # Fator 4: Múltiplas objeções
         if len(context_analysis.get("objections_raised", [])) > 2:
