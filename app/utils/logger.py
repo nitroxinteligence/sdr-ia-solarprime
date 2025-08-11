@@ -257,6 +257,39 @@ class EmojiLogger:
         kwargs.update({"table": table, "records_updated": count})
         cls.log_with_emoji("DEBUG", "supabase_update", f"Update {table}: {count} registros", **kwargs)
     
+    # 🚀 NOVO: Métodos para Services diretos
+    @classmethod
+    def service_ready(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "system_ready", f"Service: {message}", **kwargs)
+    
+    @classmethod
+    def service_warning(cls, message: str, **kwargs):
+        cls.log_with_emoji("WARNING", "system_warning", f"Service: {message}", **kwargs)
+    
+    @classmethod
+    def service_error(cls, message: str, **kwargs):
+        cls.log_with_emoji("ERROR", "system_error", f"Service: {message}", **kwargs)
+    
+    @classmethod
+    def service_call(cls, message: str, **kwargs):
+        cls.log_with_emoji("DEBUG", "webhook_process", f"Service Call: {message}", **kwargs)
+    
+    @classmethod
+    def calendar_event(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "team_calendar", f"Calendar: {message}", **kwargs)
+    
+    @classmethod
+    def crm_event(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "team_crm", f"CRM: {message}", **kwargs)
+    
+    @classmethod
+    def crm_note(cls, message: str, **kwargs):
+        cls.log_with_emoji("DEBUG", "team_crm", f"CRM Note: {message}", **kwargs)
+    
+    @classmethod
+    def followup_event(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "team_followup", f"FollowUp: {message}", **kwargs)
+    
     @classmethod
     def supabase_error(cls, error: str, table: str = None, **kwargs):
         if table:

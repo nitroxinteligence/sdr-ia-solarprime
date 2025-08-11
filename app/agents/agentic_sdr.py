@@ -497,6 +497,12 @@ class AgenticSDR:
             auto_upgrade_schema=True  # Auto-atualiza schema se necessário
         )
         
+        # 🚀 NOVO: Serviços diretos integrados (substituem SDRTeam complexo)
+        self.calendar_service = None
+        self.crm_service = None
+        self.followup_service = None
+        self._services_initialized = False
+        
         # Setup models BEFORE Memory (needed for fallback)
         self._setup_models()
         
@@ -2384,17 +2390,21 @@ Retorne em formato estruturado:
             # Carregar knowledge base do SUPABASE (não de arquivos locais!)
             await self._load_knowledge_from_supabase()
             
-            # Inicializar SDR Team se necessário (com fallback)
-            try:
-                if not self.sdr_team:
-                    from app.teams.sdr_team import create_sdr_team
-                    self.sdr_team = create_sdr_team()
-                    await self.sdr_team.initialize()
-                    emoji_logger.system_ready("SDR Team inicializado")
-            except Exception as team_error:
-                emoji_logger.system_warning(f"SDR Team não inicializado: {str(team_error)[:50]}")
-                self.sdr_team = None
-                # Continuar sem SDR Team
+            # 🚀 NOVO: Inicializar serviços diretos (substitui SDR Team complexo)
+            await self._initialize_services()
+            
+            # Manter compatibilidade com SDR Team (legacy) se ainda necessário
+            if settings.ENABLE_SDR_TEAM and not self._services_initialized:
+                try:
+                    if not self.sdr_team:
+                        from app.teams.sdr_team import create_sdr_team
+                        self.sdr_team = create_sdr_team()
+                        await self.sdr_team.initialize()
+                        emoji_logger.system_ready("SDR Team inicializado (legacy)")
+                except Exception as team_error:
+                    emoji_logger.system_warning(f"SDR Team não inicializado: {str(team_error)[:50]}")
+                    self.sdr_team = None
+                    # Continuar sem SDR Team
             
             self.is_initialized = True
             emoji_logger.system_ready("AGENTIC SDR", startup_time=0.5)
@@ -2403,6 +2413,157 @@ Retorne em formato estruturado:
             emoji_logger.system_error("AGENTIC SDR", f"Erro crítico na inicialização: {e}")
             # Marcar como inicializado mesmo com erro para permitir funcionamento básico
             self.is_initialized = True
+    
+    async def _initialize_services(self):
+        """
+        🚀 NOVO: Inicializa serviços diretos de forma SIMPLES
+        Substitui a complexidade do SDR Team
+        """
+        try:
+            # Inicializar Calendar Service
+            if settings.ENABLE_CALENDAR_AGENT:
+                try:
+                    from app.services.calendar_service import CalendarService
+                    self.calendar_service = CalendarService()
+                    await self.calendar_service.initialize()
+                    emoji_logger.service_ready("📅 CalendarService")
+                except Exception as e:
+                    emoji_logger.service_warning(f"CalendarService não inicializado: {e}")
+            
+            # Inicializar CRM Service
+            if settings.ENABLE_CRM_AGENT:
+                try:
+                    from app.services.crm_service import CRMService
+                    self.crm_service = CRMService()
+                    await self.crm_service.initialize()
+                    emoji_logger.service_ready("📊 CRMService")
+                except Exception as e:
+                    emoji_logger.service_warning(f"CRMService não inicializado: {e}")
+            
+            # Inicializar FollowUp Service
+            if settings.ENABLE_FOLLOWUP_AGENT:
+                try:
+                    from app.services.followup_service import FollowUpService
+                    self.followup_service = FollowUpService()
+                    await self.followup_service.initialize()
+                    emoji_logger.service_ready("🔄 FollowUpService")
+                except Exception as e:
+                    emoji_logger.service_warning(f"FollowUpService não inicializado: {e}")
+            
+            self._services_initialized = True
+            emoji_logger.system_ready("✅ Serviços diretos inicializados com sucesso")
+            
+        except Exception as e:
+            emoji_logger.system_error(f"Erro ao inicializar serviços: {e}")
+            # Continuar mesmo sem serviços (fallback resiliente)
+    
+    async def _execute_service_directly(self, 
+                                       service_name: str,
+                                       context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        🚀 NOVO: Executa serviços diretamente sem complexidade do SDR Team
+        
+        Args:
+            service_name: Nome do serviço a executar
+            context: Contexto da conversa
+            
+        Returns:
+            Resposta do serviço
+        """
+        try:
+            message = context.get("current_message", "")
+            lead_info = context.get("lead_info", {})
+            
+            # CalendarAgent → CalendarService
+            if service_name == "CalendarAgent" and self.calendar_service:
+                emoji_logger.service_call("📅 Executando CalendarService")
+                
+                # Verificar disponibilidade ou agendar
+                if "agendar" in message.lower() or "marcar" in message.lower():
+                    # Extrair data/hora da mensagem (simplificado)
+                    import re
+                    time_match = re.search(r'(\d{1,2}[:h]\d{2})', message)
+                    date_match = re.search(r'(\d{1,2}/\d{1,2})', message)
+                    
+                    if time_match and date_match:
+                        result = await self.calendar_service.schedule_meeting(
+                            date=date_match.group(1),
+                            time=time_match.group(1),
+                            lead_info=lead_info
+                        )
+                    else:
+                        result = await self.calendar_service.check_availability(message)
+                else:
+                    result = await self.calendar_service.check_availability(message)
+                
+                return {
+                    "success": result.get("success", True),
+                    "response": result.get("message", "Vou verificar a agenda do Leonardo."),
+                    "service": "calendar"
+                }
+            
+            # CRMAgent → CRMService
+            elif service_name == "CRMAgent" and self.crm_service:
+                emoji_logger.service_call("📊 Executando CRMService")
+                
+                # Criar/atualizar lead
+                result = await self.crm_service.create_or_update_lead(lead_info)
+                
+                # Adicionar nota sobre a conversa
+                if result.get("success") and result.get("lead_id"):
+                    await self.crm_service.add_note(
+                        result["lead_id"],
+                        f"Conversa: {message[:200]}"
+                    )
+                
+                return {
+                    "success": result.get("success", True),
+                    "response": "Informações registradas com sucesso.",
+                    "service": "crm"
+                }
+            
+            # FollowUpAgent → FollowUpService
+            elif service_name == "FollowUpAgent" and self.followup_service:
+                emoji_logger.service_call("🔄 Executando FollowUpService")
+                
+                # Determinar tipo de follow-up baseado no contexto
+                lead_stage = context.get("lead_stage", "novo")
+                
+                # Criar follow-up apropriado
+                result = await self.followup_service.create_followup(
+                    lead_data=lead_info,
+                    followup_type=lead_stage,
+                    delay_hours=24
+                )
+                
+                # Gerar mensagem de follow-up
+                followup_message = self.followup_service.get_best_followup_message(
+                    lead_stage,
+                    context
+                )
+                
+                return {
+                    "success": result.get("success", True),
+                    "response": followup_message,
+                    "service": "followup"
+                }
+            
+            # Serviço não disponível - usar resposta genérica
+            else:
+                emoji_logger.service_warning(f"Serviço {service_name} não disponível")
+                return {
+                    "success": True,
+                    "response": "Entendi sua solicitação. Como posso ajudar?",
+                    "service": "generic"
+                }
+                
+        except Exception as e:
+            emoji_logger.service_error(f"Erro ao executar serviço {service_name}: {e}")
+            return {
+                "success": False,
+                "response": "Desculpe, houve um erro ao processar sua solicitação.",
+                "service": "error"
+            }
     
     async def _load_knowledge_from_supabase(self):
         """Carrega knowledge base diretamente do Supabase"""
@@ -2902,10 +3063,17 @@ Retorne em formato estruturado:
                         "multimodal_result": multimodal_result
                     }
                     
-                    # Chamar SDR Team com contexto completo
-                    team_response = await self.sdr_team.process_message_with_context(
-                        enriched_context
-                    )
+                    # 🚀 NOVO: Usar serviços diretos se disponíveis (mais simples e eficiente)
+                    if self._services_initialized and recommended_agent:
+                        team_response = await self._execute_service_directly(
+                            recommended_agent,
+                            enriched_context
+                        )
+                    else:
+                        # Fallback para SDR Team se ainda necessário
+                        team_response = await self.sdr_team.process_message_with_context(
+                            enriched_context
+                        )
                     
                     # AGENTIC SDR ainda personaliza a resposta final
                     response = await self._personalize_team_response(
@@ -3703,4 +3871,4 @@ async def reset_singleton():
     global _singleton_instance, _singleton_initialized
     _singleton_instance = None
     _singleton_initialized = False
-    emoji_logger.system_update("🔄 Singleton AgenticSDR resetado")
+    emoji_logger.system_warning("🔄 Singleton AgenticSDR resetado")
