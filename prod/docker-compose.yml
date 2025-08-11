@@ -1,0 +1,50 @@
+# Docker Compose para Easypanel (sem version - removido por ser obsoleto)
+# Configuração otimizada para backend com Redis e Evolution API
+
+services:
+  sdr-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Easypanel gerencia container_name e ports automaticamente
+    # Não definir aqui para evitar conflitos
+    environment:
+      # Ambiente
+      - ENVIRONMENT=production
+      - DEBUG=False
+      
+      # Redis (nome do serviço interno no Easypanel)
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      
+      # Evolution API (nome do serviço interno no Easypanel)
+      - EVOLUTION_API_URL=http://evolution-api:8080
+      
+      # Outras variáveis serão definidas no Easypanel
+    networks:
+      - easypanel
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+networks:
+  easypanel:
+    external: true

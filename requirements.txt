@@ -1,0 +1,116 @@
+# Core Dependencies
+agno==1.7.6
+google-genai
+openai>=1.0.0
+python-dotenv==1.0.0
+pydantic==2.8.2
+pydantic-settings==2.3.4
+
+# AI/LLM
+google-generativeai==0.8.3
+anthropic==0.39.0
+cohere==5.0.0  # For reranking in Knowledge Search
+tiktoken==0.5.2  # For token counting
+
+# API Framework
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+httpx
+aiohttp>=3.9.0
+
+# Database
+supabase
+sqlalchemy[postgresql]==2.0.30
+alembic==1.13.1
+asyncpg==0.29.0
+psycopg2-binary==2.9.10
+pgvector==0.3.6
+
+# Cache and Queue
+redis[hiredis]==5.0.1
+aioredis==2.0.1
+celery==5.3.4
+
+# WhatsApp Integration
+websockets==13.1
+aiofiles==24.1.0
+
+# Retry and Circuit Breaker
+tenacity==8.2.3
+backoff==2.2.1
+
+# Document Processing
+pypdf==3.17.4  # PDF reading
+PyMuPDF==1.24.5  # PDF processing with OCR support (provides 'fitz')
+python-docx==1.1.2  # DOCX reading and writing
+docx2txt==0.8  # DOCX reading fallback
+pdfplumber==0.10.3  # Advanced PDF extraction
+markdown==3.5.1  # Markdown processing
+nltk==3.8.1  # Natural Language Processing for smart text splitting
+
+# Image Processing & OCR
+pytesseract==0.3.13
+tesseract==0.1.3  # Python wrapper for tesseract-ocr
+opencv-python==4.10.0.84
+
+# Audio Processing
+pydub==0.25.1
+SpeechRecognition==3.10.3
+moviepy==1.0.3  # Video processing
+
+# Utilities
+colorama==0.4.6
+rich==13.7.1
+asyncio==3.4.3
+pytz==2024.1
+python-multipart==0.0.12
+python-dateutil==2.9.0
+croniter==3.0.3
+regex==2024.11.6  # Para suporte a grapheme clusters (emojis)
+
+# Development
+pytest==8.2.2
+pytest-asyncio==0.23.7
+pytest-mock==3.12.0
+pytest-cov==6.0.0
+black==24.4.2
+flake8==7.1.0
+mypy==1.13.0
+
+# Security
+cryptography==43.0.3
+bcrypt==4.2.0
+python-jose[cryptography]==3.3.0
+passlib==1.7.4
+
+# HTTP & API
+requests==2.32.3
+urllib3==2.2.3
+
+# Data Processing
+pandas==2.2.3
+numpy==1.26.4  # Versão compatível com scipy e NLTK
+scipy==1.11.4  # Para funcionalidades estatísticas do NLTK
+
+# Logging
+loguru==0.7.2
+
+# Image Processing (for multimodal)
+Pillow==10.3.0
+python-magic>=0.4.27
+# python-magic-bin>=0.4.14  # Apenas para Windows, comentado para Linux
+
+# PDF Processing
+pdf2image>=1.16.3  # Para conversão de PDF para imagem
+
+# PDF Generation (for testing)
+reportlab==4.0.9
+
+# Monitoring
+prometheus-client==0.19.0
+sentry-sdk[fastapi]==2.18.0
+
+# Google Calendar Integration
+google-api-python-client==2.111.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.0

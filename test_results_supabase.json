@@ -1,0 +1,90 @@
+{
+  "timestamp": "2025-08-08T03:55:28.761804",
+  "tables": {
+    "leads": {
+      "table": "leads",
+      "tests": {
+        "create": "✅ PASSOU",
+        "read": "✅ PASSOU",
+        "update": "✅ PASSOU",
+        "delete": "✅ PASSOU"
+      }
+    },
+    "conversations": {
+      "table": "conversations",
+      "tests": {
+        "create": "✅ PASSOU",
+        "read": "✅ PASSOU",
+        "update": "✅ PASSOU"
+      }
+    },
+    "messages": {
+      "table": "messages",
+      "tests": {
+        "create": "✅ PASSOU",
+        "read": "✅ PASSOU",
+        "update": "✅ PASSOU"
+      }
+    },
+    "agent_sessions": {
+      "table": "agent_sessions",
+      "tests": {
+        "create": "✅ PASSOU",
+        "read": "✅ PASSOU",
+        "update": "✅ PASSOU"
+      }
+    },
+    "follow_ups": {
+      "table": "follow_ups",
+      "tests": {},
+      "error": "{'message': \"Could not find the 'phone_number' column of 'follow_ups' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    "knowledge_base": {
+      "table": "knowledge_base",
+      "tests": {
+        "create": "✅ PASSOU",
+        "read": "✅ PASSOU",
+        "update": "✅ PASSOU"
+      }
+    },
+    "embeddings": {
+      "table": "embeddings",
+      "tests": {
+        "create": "✅ PASSOU",
+        "read": "✅ PASSOU",
+        "update": "✅ PASSOU"
+      }
+    },
+    "leads_qualifications": {
+      "table": "leads_qualifications",
+      "tests": {
+        "exists": "✅ TABELA EXISTE",
+        "create": "⏭️ PULADO",
+        "read": "⏭️ PULADO",
+        "update": "⏭️ PULADO"
+      }
+    },
+    "analytics": {
+      "table": "analytics",
+      "tests": {
+        "create": "✅ PASSOU",
+        "read": "✅ PASSOU",
+        "update": "✅ PASSOU"
+      }
+    },
+    "profiles": {
+      "table": "profiles",
+      "tests": {
+        "create": "✅ PASSOU",
+        "read": "✅ PASSOU",
+        "update": "✅ PASSOU"
+      }
+    }
+  },
+  "summary": {
+    "total_tables": 10,
+    "passed": 8,
+    "failed": 0,
+    "errors": 1
+  }
+}
