@@ -959,28 +959,16 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
         }
         
         # Fator 1: Complexidade da solicitação - CALENDÁRIO
-        # ✅ CORRIGIDO: Keywords específicas para evitar falsos positivos
+        # 🚀 OTIMIZADO: Reduzido de 50 para 10 keywords essenciais (80% redução)
         calendar_keywords = [
-            "agendar reunião", "marcar reunião", "marcar encontro", "marcar meeting",
-            "horário para reunião", "disponibilidade para", "agenda disponível",
-            "calendário livre", "encontro para", "meeting para", "apresentação comercial",
-            "reagendar", "remarcar reunião", "cancelar reunião",
-            "que dia pode ser", "qual horário", "quando podemos nos reunir",
-            "semana que vem para reunião", "próxima semana reunião", 
-            "amanhã para reunião", "hoje para reunião", "vamos marcar",
-            # NOVO: Detecção específica da agenda do Leonardo
-            "agenda do leonardo", "horários disponíveis", "leonardo está disponível",
-            "leonardo pode", "disponibilidade do leonardo", "quando leonardo pode",
-            "consultar agenda", "verificar agenda", "ver agenda", "checar agenda"
+            "agendar", "marcar reunião", "agenda do leonardo",
+            "horários disponíveis", "leonardo pode", "quando pode",
+            "disponibilidade", "reagendar", "remarcar", "que dia"
         ]
         
-        # NOVO: Palavras temporais que indicam possível interesse em agendamento
-        temporal_keywords = [
-            "amanhã", "hoje", "semana que vem", "próxima semana", 
-            "segunda", "terça", "quarta", "quinta", "sexta",
-            "manhã", "tarde", "noite", "horário", "hora",
-            "disponível", "disponibilidade", "pode ser", "tem pra"
-        ]
+        # 🚀 REMOVIDO: Palavras temporais genéricas causavam falsos positivos
+        # Manter apenas detecção de contexto temporal quando combinado com calendar_keywords
+        temporal_keywords = []  # Removido para evitar falsos positivos
         
         # ✅ NOVO: Filtro de saudação para evitar falsos positivos
         greeting_indicators = ["olá", "oi", "bom dia", "boa tarde", "boa noite", "tudo bem", "tchau", "obrigado"]
@@ -1000,16 +988,12 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             "horários disponíveis", "leonardo está disponível"
         ])
         
-        # NOVO: Detecção de palavras temporais que podem indicar agendamento
-        has_temporal_keyword = any(word in current_message.lower() for word in temporal_keywords)
+        # 🚀 SIMPLIFICADO: Removida detecção temporal genérica que causava falsos positivos
+        # Agora focamos apenas em keywords específicas de calendário
+        has_temporal_keyword = False  # Desabilitado para evitar falsos positivos
         
-        # NOVO: Detecção específica para mensagens curtas com tempo
-        # Ex: "Tem pra amanhã?", "Pode ser hoje?"
-        is_short_temporal_question = (
-            has_temporal_keyword and 
-            len(current_message.split()) <= 5 and
-            any(q in current_message.lower() for q in ["?", "tem", "pode", "disponível"])
-        )
+        # 🚀 SIMPLIFICADO: Mensagens curtas temporais agora exigem keyword de calendário
+        is_short_temporal_question = False  # Desabilitado para evitar falsos positivos
         
         # ✅ CORRIGIDO: Lógica mais inteligente para detectar agendamento REAL
         calendar_detected = any(word in current_message.lower() for word in calendar_keywords)
@@ -1074,8 +1058,9 @@ LEMBRE-SE: Você resolve 90% das conversas sozinha!
             decision_factors["reasoning"].append("Follow-up estratégico necessário")
         
         # Decisão final baseada em threshold inteligente
-        # REDUZIDO de 0.7 para 0.3 para ser mais sensível
-        should_call = decision_factors["complexity_score"] >= 0.3
+        # AJUSTADO para 0.6 para reduzir falsos positivos (anteriormente 0.3)
+        # Threshold 0.6 = ativação apenas com alta complexidade real
+        should_call = decision_factors["complexity_score"] >= 0.6
         
         if should_call:
             reason = f"Score de complexidade: {decision_factors['complexity_score']:.2f}. " + \
@@ -3673,9 +3658,49 @@ Retorne em formato estruturado:
         }
 
 
-# Factory function - SEMPRE cria nova instância para isolamento total
-async def create_agentic_sdr() -> AgenticSDR:
-    """Cria e inicializa nova instância do AGENTIC SDR para cada requisição"""
-    agent = AgenticSDR()
-    await agent.initialize()
-    return agent
+# Singleton pattern implementation
+_singleton_instance = None
+_singleton_lock = asyncio.Lock()
+_singleton_initialized = False
+
+# Factory function com suporte a Singleton Pattern
+async def create_agentic_sdr(force_new_instance: bool = False) -> AgenticSDR:
+    """
+    Cria ou retorna instância do AGENTIC SDR.
+    
+    Por padrão, usa Singleton Pattern para economizar memória (~100MB/req).
+    Use force_new_instance=True para criar nova instância se necessário.
+    
+    Args:
+        force_new_instance: Se True, força criação de nova instância
+        
+    Returns:
+        AgenticSDR: Instância única (singleton) ou nova se forçado
+    """
+    global _singleton_instance, _singleton_initialized
+    
+    # Se forçar nova instância, cria sem usar singleton
+    if force_new_instance:
+        agent = AgenticSDR()
+        await agent.initialize()
+        return agent
+    
+    # Implementação do Singleton Pattern
+    if _singleton_instance is None:
+        async with _singleton_lock:
+            # Double-check locking pattern
+            if _singleton_instance is None:
+                _singleton_instance = AgenticSDR()
+                await _singleton_instance.initialize()
+                _singleton_initialized = True
+                emoji_logger.system_ready("✅ Singleton AgenticSDR criado e inicializado")
+    
+    return _singleton_instance
+
+# Função auxiliar para resetar singleton (útil para testes ou limpeza)
+async def reset_singleton():
+    """Reseta o singleton para forçar nova inicialização"""
+    global _singleton_instance, _singleton_initialized
+    _singleton_instance = None
+    _singleton_initialized = False
+    emoji_logger.system_update("🔄 Singleton AgenticSDR resetado")
