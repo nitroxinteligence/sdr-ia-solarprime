@@ -1071,13 +1071,15 @@ async def process_message_with_agent(
         
         try:
             response = await agentic.process_message(
-                phone=phone,
                 message=message_content,
-                lead_data=lead,
-                conversation_id=conversation_id,
-                media=media_data,
-                message_id=message_id,
-                current_emotional_state=current_emotional_state
+                metadata={
+                    "phone": phone,
+                    "lead_data": lead,
+                    "conversation_id": conversation_id,
+                    "media": media_data,
+                    "message_id": message_id,
+                    "current_emotional_state": current_emotional_state
+                }
             )
             
             # Verificar se é estrutura enriquecida ou string simples (compatibilidade)
@@ -1125,12 +1127,14 @@ async def process_message_with_agent(
                     
                     # Tentar processar novamente
                     response = await new_agent.process_message(
-                        phone=phone,
                         message=message_content,
-                        lead_data=lead,
-                        conversation_id=conversation_id,
-                        media=media_data,
-                        message_id=message_id
+                        metadata={
+                            "phone": phone,
+                            "lead_data": lead,
+                            "conversation_id": conversation_id,
+                            "media": media_data,
+                            "message_id": message_id
+                        }
                     )
                     
                     if response:
@@ -1345,12 +1349,14 @@ async def process_message_with_agent(
             await asyncio.sleep(1)  # Delay de 1 segundo
             
             response = await recovery_agent.process_message(
-                phone=phone,
                 message=message_content,
-                lead_data=lead,
-                conversation_id=conversation_id,
-                media=media_data,
-                message_id=message_id
+                metadata={
+                    "phone": phone,
+                    "lead_data": lead,
+                    "conversation_id": conversation_id,
+                    "media": media_data,
+                    "message_id": message_id
+                }
             )
             
             if response:

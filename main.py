@@ -76,11 +76,14 @@ async def lifespan(app: FastAPI):
         # Sincronização agora é feita diretamente pelo CRMServiceReal
         
         
-        # Inicializa FollowUp Executor Service
+        # Inicializa FollowUp Executor Service (versão segura)
         if settings.enable_follow_up_automation:
-            from app.services.followup_executor_service import followup_executor_service
-            await followup_executor_service.start()
-            emoji_logger.system_ready("FollowUp Executor", check_interval="1min", types="30min, 24h")
+            try:
+                from app.services.followup_executor_safe import start_followup_executor
+                asyncio.create_task(start_followup_executor())  # Roda em background
+                emoji_logger.system_ready("FollowUp Executor", check_interval="1min", types="30min, 24h")
+            except Exception as e:
+                emoji_logger.system_warning(f"⚠️ FollowUp Executor não iniciado: {str(e)}")
         
         # PRÉ-AQUECIMENTO: Cria agente singleton na inicialização com retry
         from app.api.webhooks import get_agentic_agent
