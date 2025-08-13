@@ -1,0 +1,47 @@
+# EasyPanel Deployment Configuration
+# AGENTIC SDR - SOLAR PRIME v0.3
+
+name: agentic-sdr-solar-prime
+services:
+  app:
+    type: app
+    build:
+      type: dockerfile
+      dockerfile: Dockerfile
+    env:
+      # Copiado do .env.transbordo
+      - HUMAN_INTERVENTION_PAUSE_HOURS=24
+      - KOMMO_PIPELINE_ID=11672895
+      - KOMMO_HUMAN_HANDOFF_STAGE_ID=90421387
+      - KOMMO_NOT_INTERESTED_STAGE_ID=89709599
+      - KOMMO_MEETING_SCHEDULED_STAGE_ID=89709595
+      - KOMMO_AGENT_USER_ID=11031887
+      
+      # Adicione suas variáveis de ambiente aqui
+      # - SUPABASE_URL=
+      # - SUPABASE_KEY=
+      # - EVOLUTION_API_URL=
+      # - EVOLUTION_API_KEY=
+      # - EVOLUTION_INSTANCE_NAME=
+      # - KOMMO_BASE_URL=
+      # - KOMMO_LONG_LIVED_TOKEN=
+      # - GOOGLE_API_KEY=
+      # - GOOGLE_CALENDAR_ID=
+      
+    domains:
+      - host: agentic-sdr.yourdomain.com
+        port: 8000
+    resources:
+      memoryLimit: 2048
+      cpuLimit: 1000
+    deploy:
+      replicas: 1
+      restartPolicy: unless-stopped
+    volumes:
+      - /app/logs:/app/logs
+    healthCheck:
+      enabled: true
+      path: /health
+      interval: 30
+      timeout: 10
+      retries: 3
