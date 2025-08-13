@@ -1692,10 +1692,21 @@ async def kommo_webhook(request: Request):
     Usado para detectar intervenção humana e ativar transbordo
     """
     try:
-        # Obter dados do webhook
-        data = await request.json()
+        # Obter dados do webhook - Kommo envia form-data URL-encoded
+        content_type = request.headers.get("content-type", "")
         
-        emoji_logger.webhook_received("kommo", data)
+        if "application/json" in content_type:
+            data = await request.json()
+        elif "application/x-www-form-urlencoded" in content_type:
+            # Kommo envia dados como form-data
+            form_data = await request.form()
+            data = dict(form_data)
+        else:
+            # Tenta processar como form-data por padrão (caso mais comum do Kommo)
+            form_data = await request.form()
+            data = dict(form_data)
+        
+        emoji_logger.log_with_emoji("INFO", "Webhook", f"ℹ️ Kommo recebido: {data.get('event', 'unknown')}")
         
         # Processar diferentes tipos de eventos
         event_type = data.get("event")
