@@ -631,6 +631,83 @@ class RedisClient:
             logger.error(f"Erro ao inscrever em canais: {e}")
             return None
     
+    # ==================== TRANSBORDO/HANDOFF ====================
+    
+    async def set_human_handoff_pause(
+        self,
+        phone: str,
+        hours: int = 24
+    ) -> bool:
+        """
+        Define pausa para intervenção humana
+        
+        Args:
+            phone: Número do telefone
+            hours: Horas de pausa (padrão 24h)
+            
+        Returns:
+            True se sucesso
+        """
+        if not self.redis_client:
+            return False
+            
+        try:
+            key = f"lead:pause:{phone}"
+            ttl = hours * 3600  # Converter horas para segundos
+            
+            await self.redis_client.setex(key, ttl, "1")
+            logger.info(f"🤝 Handoff humano ativado para {phone} por {hours} horas")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erro ao definir pausa handoff {phone}: {e}")
+            return False
+    
+    async def is_human_handoff_active(self, phone: str) -> bool:
+        """
+        Verifica se há pausa ativa para intervenção humana
+        
+        Args:
+            phone: Número do telefone
+            
+        Returns:
+            True se há pausa ativa
+        """
+        if not self.redis_client:
+            return False
+            
+        try:
+            key = f"lead:pause:{phone}"
+            return await self.redis_client.exists(key) > 0
+            
+        except Exception as e:
+            logger.error(f"Erro ao verificar pausa handoff {phone}: {e}")
+            return False
+    
+    async def clear_human_handoff_pause(self, phone: str) -> bool:
+        """
+        Remove pausa de intervenção humana
+        
+        Args:
+            phone: Número do telefone
+            
+        Returns:
+            True se removido
+        """
+        if not self.redis_client:
+            return False
+            
+        try:
+            key = f"lead:pause:{phone}"
+            result = await self.redis_client.delete(key)
+            if result > 0:
+                logger.info(f"✅ Pausa handoff removida para {phone}")
+            return result > 0
+            
+        except Exception as e:
+            logger.error(f"Erro ao remover pausa handoff {phone}: {e}")
+            return False
+    
     # ==================== ANALYTICS ====================
     
     async def increment_counter(

@@ -65,7 +65,8 @@ class MessageBuffer:
     
     async def _process_queue(self, phone: str) -> None:
         """
-        Processa queue - INTELIGENTE: imediato se livre, com timeout se ocupado
+        Processa queue - SIMPLIFICADO e FUNCIONAL
+        Aguarda timeout para agrupar mensagens, depois processa
         
         Args:
             phone: Número do telefone
@@ -74,48 +75,42 @@ class MessageBuffer:
         if phone not in self.processing_locks:
             self.processing_locks[phone] = asyncio.Lock()
         
-        lock = self.processing_locks[phone]
         queue = self.queues[phone]
         
         try:
-            # CORREÇÃO: Usar try_acquire para evitar race condition
-            acquired_immediately = False
+            # Coleta mensagens com timeout simples
+            messages = []
+            
+            # Aguarda primeira mensagem
             try:
-                # Tenta adquirir lock sem bloquear
-                acquired_immediately = lock.locked() == False
-                
-                if acquired_immediately:
-                    # Agente LIVRE → aguarda por mensagens subsequentes (usuário digitando)
-                    emoji_logger.system_debug(f"Agente livre para {phone}, aguardando 7s por mais mensagens...")
-                    first_message = await queue.get()
-                    messages = [first_message]
+                first_msg = await asyncio.wait_for(queue.get(), timeout=30.0)  # 30s max wait
+                if first_msg:
+                    messages.append(first_msg)
+                    emoji_logger.system_debug(f"Primeira mensagem recebida para {phone}")
+            except asyncio.TimeoutError:
+                # Nenhuma mensagem em 30s, encerra
+                return
+            
+            # Aguarda mensagens adicionais com timeout menor
+            start_time = asyncio.get_event_loop().time()
+            while (asyncio.get_event_loop().time() - start_time) < self.timeout:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=0.5)
+                    if msg is None:  # Sinal para processar
+                        break
+                    if msg:
+                        messages.append(msg)
+                        emoji_logger.system_debug(f"Mensagem adicional recebida para {phone}")
+                except asyncio.TimeoutError:
+                    # Continua aguardando até timeout total
+                    continue
+            
+            # Processa mensagens agrupadas
+            if messages:
+                emoji_logger.system_debug(f"Processando {len(messages)} mensagens agrupadas para {phone}")
+                async with self.processing_locks[phone]:
+                    await self._process_messages(phone, messages)
                     
-                    # CORREÇÃO: Aguarda 7s por mensagens subsequentes (tempo médio de digitação)
-                    try:
-                        wait_start = asyncio.get_event_loop().time()
-                        while (asyncio.get_event_loop().time() - wait_start) < 7.0:
-                            try:
-                                msg = await asyncio.wait_for(queue.get(), timeout=1.0)
-                                if msg:
-                                    messages.append(msg)
-                            except asyncio.TimeoutError:
-                                # Continua esperando até 7s total
-                                pass
-                    except Exception:
-                        pass
-                else:
-                    # Agente OCUPADO → aguarda timeout para agrupar mensagens
-                    emoji_logger.system_debug(f"Agente ocupado para {phone}, aguardando timeout...")
-                    messages = await self._collect_with_timeout(queue)
-                
-                # Processa com lock garantido (sem race condition)
-                if messages:
-                    async with lock:
-                        await self._process_messages(phone, messages)
-                        
-            except Exception as e:
-                logger.error(f"Erro no processamento de queue: {e}")
-                
         except Exception as e:
             logger.error(f"Erro ao processar queue: {e}")
         finally:

@@ -1,0 +1,14 @@
+{
+  "timestamp": "2025-08-11T22:53:12.468861",
+  "test_results": {
+    "meeting_to_stage": false,
+    "followup_to_not_interested": true
+  },
+  "total_tests": 2,
+  "passed_tests": 1,
+  "success_rate": "50.0%",
+  "critical_flows": {
+    "meeting_schedule": "Agendamento move card para REUNIAO_AGENDADA",
+    "followup_no_response": "Follow-ups sem resposta move para NAO_INTERESSADO"
+  }
+}

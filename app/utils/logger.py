@@ -413,6 +413,55 @@ class EmojiLogger:
     def perf_memory(cls, component: str, memory_mb: float, **kwargs):
         kwargs.update({"component": component, "memory_mb": round(memory_mb, 2)})
         cls.log_with_emoji("DEBUG", "perf_memory", f"Memória {component}: {memory_mb:.2f}MB", **kwargs)
+    
+    # Métodos adicionais para compatibilidade
+    @classmethod
+    def system_event(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "system_info", f"Sistema: {message}", **kwargs)
+    
+    @classmethod
+    def service_ready(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "success", f"Service: {message}", **kwargs)
+    
+    @classmethod
+    def service_warning(cls, message: str, **kwargs):
+        cls.log_with_emoji("WARNING", "warning", f"Service: {message}", **kwargs)
+    
+    @classmethod
+    def service_error(cls, message: str, **kwargs):
+        cls.log_with_emoji("ERROR", "error", f"Service: {message}", **kwargs)
+    
+    @classmethod
+    def service_event(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "info", f"Service: {message}", **kwargs)
+    
+    @classmethod
+    def service_info(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "info", f"Service: {message}", **kwargs)
+    
+    @classmethod
+    def model_error(cls, message: str, **kwargs):
+        cls.log_with_emoji("ERROR", "error", f"Model: {message}", **kwargs)
+    
+    @classmethod
+    def model_warning(cls, message: str, **kwargs):
+        cls.log_with_emoji("WARNING", "warning", f"Model: {message}", **kwargs)
+    
+    @classmethod
+    def multimodal_event(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "agentic_multimodal", message, **kwargs)
+    
+    @classmethod
+    def calendar_event(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "team_calendar", message, **kwargs)
+    
+    @classmethod
+    def followup_event(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "team_followup", message, **kwargs)
+    
+    @classmethod
+    def conversation_event(cls, message: str, **kwargs):
+        cls.log_with_emoji("INFO", "agentic_response", message, **kwargs)
 
 
 # Configurar logger no import

@@ -4,7 +4,6 @@ create table public.profiles (
   name character varying(100) null,
   email character varying(100) null,
   document character varying(20) null,
-  profile_picture_url text null,
   preferences jsonb null,
   total_messages integer null default 0,
   last_interaction_at timestamp with time zone null,

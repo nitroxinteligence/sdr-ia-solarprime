@@ -14,6 +14,7 @@ create table public.conversations (
   channel character varying(50) null default 'whatsapp'::character varying,
   metadata jsonb null,
   status character varying(20) null default 'ACTIVE'::character varying,
+  emotional_state text null default 'ENTUSIASMADA'::text,
   constraint conversations_pkey primary key (id),
   constraint conversations_session_id_key unique (session_id),
   constraint conversations_lead_id_fkey foreign KEY (lead_id) references leads (id) on delete CASCADE,
@@ -59,6 +60,8 @@ create table public.conversations (
     )
   )
 ) TABLESPACE pg_default;
+
+create index IF not exists idx_conversations_emotional_state on public.conversations using btree (emotional_state) TABLESPACE pg_default;
 
 create index IF not exists idx_conversations_lead on public.conversations using btree (lead_id) TABLESPACE pg_default;
 

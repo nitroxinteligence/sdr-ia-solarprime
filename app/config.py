@@ -43,12 +43,15 @@ class Settings(BaseSettings):
     evolution_api_url: str = Field(env="EVOLUTION_API_URL")
     evolution_api_key: str = Field(env="EVOLUTION_API_KEY")
     evolution_instance_name: str = Field(env="EVOLUTION_INSTANCE_NAME")
+    evolution_base_url: str = Field(default="", env="EVOLUTION_BASE_URL")  # Alias
+    evolution_instance: str = Field(default="", env="EVOLUTION_INSTANCE")  # Alias
     
     # Supabase
     supabase_url: str = Field(default="", env="SUPABASE_URL")
     supabase_anon_key: str = Field(default="", env="SUPABASE_ANON_KEY")
     supabase_service_key: str = Field(default="", env="SUPABASE_SERVICE_KEY")
     supabase_db_url: str = Field(default="", env="SUPABASE_DB_URL")  # URL PostgreSQL direta
+    supabase_key: str = Field(default="", env="SUPABASE_KEY")  # Alias para compatibilidade
     
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0", env="REDIS_URL")
@@ -57,15 +60,27 @@ class Settings(BaseSettings):
     redis_password: Optional[str] = Field(default=None, env="REDIS_PASSWORD")
     redis_username: str = Field(default="default", env="REDIS_USERNAME")
     
-    # Google Calendar
-    google_use_service_account: bool = Field(default=True, env="GOOGLE_USE_SERVICE_ACCOUNT")
+    # Google Calendar - OAuth 2.0 Configuration (NEW)
+    google_auth_method: str = Field(default="oauth", env="GOOGLE_AUTH_METHOD")  # "oauth" or "service_account"
+    
+    # OAuth 2.0 Credentials (NEW)
+    google_oauth_client_id: str = Field(default="", env="GOOGLE_OAUTH_CLIENT_ID")
+    google_oauth_client_secret: str = Field(default="", env="GOOGLE_OAUTH_CLIENT_SECRET")
+    google_oauth_redirect_uri: str = Field(default="http://localhost:8000/google/callback", env="GOOGLE_OAUTH_REDIRECT_URI")
+    google_oauth_refresh_token: str = Field(default="", env="GOOGLE_OAUTH_REFRESH_TOKEN")
+    
+    # Service Account (Legacy - mantido para compatibilidade)
+    google_use_service_account: bool = Field(default=False, env="GOOGLE_USE_SERVICE_ACCOUNT")
     google_service_account_email: str = Field(default="", env="GOOGLE_SERVICE_ACCOUNT_EMAIL")
     google_private_key: str = Field(default="", env="GOOGLE_PRIVATE_KEY")
     google_project_id: str = Field(default="", env="GOOGLE_PROJECT_ID")
     google_private_key_id: str = Field(default="", env="GOOGLE_PRIVATE_KEY_ID")
     google_client_id: str = Field(default="", env="GOOGLE_CLIENT_ID")
+    
+    # Calendar Settings
     google_calendar_id: str = Field(default="", env="GOOGLE_CALENDAR_ID")
     disable_google_calendar: bool = Field(default=False, env="DISABLE_GOOGLE_CALENDAR")
+    google_workspace_user_email: str = Field(default="", env="GOOGLE_WORKSPACE_USER_EMAIL")  # Email do usuário para OAuth
     
     # Kommo CRM
     kommo_client_id: str = Field(default="", env="KOMMO_CLIENT_ID")
@@ -75,6 +90,15 @@ class Settings(BaseSettings):
     kommo_redirect_uri: str = Field(default="", env="KOMMO_REDIRECT_URI")
     kommo_pipeline_id: str = Field(default="", env="KOMMO_PIPELINE_ID")
     kommo_long_lived_token: str = Field(default="", env="KOMMO_LONG_LIVED_TOKEN")
+    kommo_access_token: str = Field(default="", env="KOMMO_ACCESS_TOKEN")  # Token de acesso
+    
+    # Configurações de Transbordo (Handoff)
+    human_intervention_pause_hours: int = Field(default=24, env="HUMAN_INTERVENTION_PAUSE_HOURS")
+    kommo_human_handoff_pipeline_id: str = Field(default="11672895", env="KOMMO_HUMAN_HANDOFF_PIPELINE_ID")
+    kommo_human_handoff_stage_id: int = Field(default=90421387, env="KOMMO_HUMAN_HANDOFF_STAGE_ID")  # Atendimento Humano
+    kommo_not_interested_stage_id: int = Field(default=89709599, env="KOMMO_NOT_INTERESTED_STAGE_ID")  # Não Interessado
+    kommo_meeting_scheduled_stage_id: int = Field(default=89709595, env="KOMMO_MEETING_SCHEDULED_STAGE_ID")  # Reunião Agendada
+    kommo_agent_user_id: int = Field(default=11031887, env="KOMMO_AGENT_USER_ID")
     
     # URLs da API
     api_base_url: str = Field(default="http://localhost:8000", env="API_BASE_URL")

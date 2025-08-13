@@ -25,14 +25,22 @@ try:
     
     # Verificar se os dados necessários estão disponíveis
     try:
-        nltk.data.find('tokenizers/punkt')
+        # Tentar o novo formato primeiro (punkt_tab)
+        try:
+            nltk.data.find('tokenizers/punkt_tab')
+        except LookupError:
+            # Fallback para formato antigo
+            nltk.data.find('tokenizers/punkt')
     except LookupError:
         # Tentar baixar os dados necessários
         try:
-            # Baixar apenas o tokenizer punkt (específico para sentenças)
-            nltk.download('punkt', quiet=True, download_dir=nltk_data_dir)
+            # Baixar o tokenizer punkt_tab (nova versão)
+            nltk.download('punkt_tab', quiet=True, download_dir=nltk_data_dir)
             # Verificar novamente
-            nltk.data.find('tokenizers/punkt')
+            try:
+                nltk.data.find('tokenizers/punkt_tab')
+            except:
+                nltk.data.find('tokenizers/punkt')
         except Exception as e:
             print(f"Erro ao baixar dados do NLTK: {e}")
             raise ImportError(f"Não foi possível configurar NLTK: {e}")

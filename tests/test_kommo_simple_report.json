@@ -1,0 +1,11 @@
+{
+  "timestamp": "2025-08-11T22:36:28.482141",
+  "test_results": {
+    "create_and_move": true,
+    "agent_conversation": true,
+    "sdr_team": true
+  },
+  "total_tests": 3,
+  "passed_tests": 3,
+  "success_rate": "100.0%"
+}

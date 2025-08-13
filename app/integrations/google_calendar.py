@@ -45,23 +45,83 @@ class GoogleCalendarClient:
     SCOPES = ['https://www.googleapis.com/auth/calendar']
     
     def __init__(self):
-        """Inicializa o cliente do Google Calendar com Service Account"""
+        """Inicializa o cliente do Google Calendar com OAuth ou Service Account"""
         self.service = None
         self.calendar_id = settings.google_calendar_id or "primary"
         self.credentials = None
         self.delegated_user = None  # Para domain-wide delegation
+        self.auth_method = settings.google_auth_method  # "oauth" ou "service_account"
+        self.oauth_handler = None
         self._authenticate()
     
     def _authenticate(self):
         """
-        Autentica com Google Calendar usando Service Account
-        Implementação 100% correta conforme documentação oficial 2025
+        Autentica com Google Calendar usando OAuth 2.0 ou Service Account
+        Suporta ambos os métodos baseado na configuração
         """
         try:
             # Verificar se Google Calendar está habilitado
             if settings.disable_google_calendar:
                 logger.warning("Google Calendar está desabilitado nas configurações")
                 return
+            
+            # Decidir método de autenticação
+            if self.auth_method == "oauth":
+                self._authenticate_oauth()
+            else:
+                self._authenticate_service_account()
+        except Exception as e:
+            logger.error(f"❌ Erro na autenticação: {e}")
+            self.service = None
+    
+    def _authenticate_oauth(self):
+        """
+        Autentica usando OAuth 2.0 - Suporta Google Meet e Participantes!
+        """
+        try:
+            from app.integrations.google_oauth_handler import get_oauth_handler
+            
+            logger.info("🔐 Iniciando autenticação OAuth 2.0...")
+            
+            # Obter handler OAuth
+            self.oauth_handler = get_oauth_handler()
+            
+            # Construir serviço
+            self.service = self.oauth_handler.build_calendar_service()
+            
+            if self.service:
+                logger.info("✅ Google Calendar autenticado com sucesso via OAuth 2.0")
+                logger.info("🎉 Suporte completo para Google Meet e Participantes habilitado!")
+                
+                # Testar conexão
+                import asyncio
+                try:
+                    # Verificar se já existe um loop rodando
+                    loop = asyncio.get_running_loop()
+                    # Se sim, criar task ao invés de asyncio.run
+                    test_task = loop.create_task(self.oauth_handler.test_connection())
+                    # Não aguardar aqui para não bloquear
+                    logger.info("📋 Teste de conexão OAuth agendado")
+                except RuntimeError:
+                    # Não há loop rodando, usar asyncio.run normal
+                    test_result = asyncio.run(self.oauth_handler.test_connection())
+                    if test_result.get("success"):
+                        logger.info(f"👤 Conectado como: {test_result.get('user_email')}")
+                    self.calendar_id = test_result.get('calendar_id', 'primary')
+            else:
+                logger.warning("⚠️ Serviço OAuth não disponível - autorização necessária")
+                logger.info("📝 Execute GET /google/auth para iniciar fluxo de autorização")
+                
+        except Exception as e:
+            logger.error(f"❌ Erro na autenticação OAuth: {e}")
+            self.service = None
+    
+    def _authenticate_service_account(self):
+        """
+        Autentica usando Service Account (método legado)
+        """
+        try:
+            logger.info("🔐 Usando autenticação Service Account (legado)...")
             
             # Caminho para o arquivo de credenciais Service Account
             service_account_file = os.path.join(
@@ -275,15 +335,21 @@ class GoogleCalendarClient:
                     event['description'] = f"Link da reunião: {meeting_link}"
             
             # Adicionar participantes se fornecidos
-            # NOTA: Service Accounts não podem convidar attendees sem Domain-Wide Delegation
-            if attendees and self.delegated_user:
-                # Só adiciona attendees se tiver domain-wide delegation configurado
+            # OAuth: Funciona sempre! | Service Account: Requer Domain-Wide Delegation
+            if attendees and (self.auth_method == "oauth" or self.delegated_user):
+                # OAuth sempre funciona, Service Account precisa de delegation
                 event['attendees'] = [
                     {'email': email, 'responseStatus': 'needsAction'}
                     for email in attendees
                 ]
+                logger.info(f"👥 {len(attendees)} participantes serão convidados")
             elif attendees:
-                logger.warning("⚠️ Service Account não pode convidar participantes sem Domain-Wide Delegation. Ignorando attendees.")
+                # Com OAuth funcionaria, mas estamos em Service Account
+                if self.auth_method == "oauth":
+                    # Se tivermos OAuth mas sem service por algum motivo
+                    logger.warning("⚠️ OAuth não inicializado corretamente")
+                else:
+                    logger.warning("⚠️ Service Account não pode convidar participantes sem Domain-Wide Delegation. Use OAuth para esta funcionalidade.")
             
             # Configurar Google Meet se solicitado
             # Usa handler inteligente que detecta capacidades

@@ -2,16 +2,16 @@
 Agents Module - Agentes Inteligentes com AGNO Framework
 """
 
-from app.agents.agentic_sdr import (
+from app.agents.agentic_sdr_refactored import (
     AgenticSDR,
-    create_agentic_sdr,
-    ConversationContext,
-    EmotionalState
+    get_agentic_agent,
+    reset_agent,
+    prewarm_agent
 )
 
 __all__ = [
     "AgenticSDR",
-    "create_agentic_sdr",
-    "ConversationContext",
-    "EmotionalState"
+    "get_agentic_agent",
+    "reset_agent",
+    "prewarm_agent"
 ]

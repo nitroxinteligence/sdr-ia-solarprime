@@ -13,7 +13,7 @@ from app.utils.logger import emoji_logger
 from app.integrations.supabase_client import supabase_client
 from app.integrations.redis_client import redis_client
 from app.integrations.evolution import evolution_client
-from app.agents.agentic_sdr import create_agentic_sdr  # Importa o AGENTIC SDR
+from app.agents.agentic_sdr_refactored import get_agentic_agent as create_agentic_sdr  # Importa o AGENTIC SDR Refatorado
 from app.config import settings
 from app.services.message_buffer import MessageBuffer, set_message_buffer
 from app.services.message_splitter import MessageSplitter, set_message_splitter
@@ -1021,6 +1021,51 @@ async def process_message_with_agent(
         # Obter estado emocional atual da conversa
         current_emotional_state = await supabase_client.get_conversation_emotional_state(conversation_id)
         
+        # ===== VERIFICAÇÃO DE TRANSBORDO (HANDOFF) =====
+        # 1. Verificar se há pausa ativa no Redis (intervenção humana)
+        is_paused = await redis_client.is_human_handoff_active(phone)
+        if is_paused:
+            emoji_logger.system_info(f"🤝 Lead {phone} está em pausa por intervenção humana - ignorando mensagem")
+            return  # Não processa mensagem se há pausa ativa
+        
+        # 2. Verificar se o lead está em estágio bloqueado no Kommo
+        # Estágios bloqueados: "ATENDIMENTO HUMANO", "NAO INTERESSADO", "REUNIAO AGENDADA"
+        blocked_stages = [
+            settings.kommo_human_handoff_stage_id,  # ATENDIMENTO HUMANO
+            settings.kommo_not_interested_stage_id if hasattr(settings, 'kommo_not_interested_stage_id') else None,
+            settings.kommo_meeting_scheduled_stage_id if hasattr(settings, 'kommo_meeting_scheduled_stage_id') else None
+        ]
+        
+        # Buscar informações do lead no Kommo se tiver kommo_lead_id
+        if lead.get("kommo_lead_id"):
+            try:
+                from app.services.crm_service_100_real import CRMServiceReal
+                crm = CRMServiceReal()
+                await crm.initialize()
+                
+                kommo_lead = await crm.get_lead_by_id(lead["kommo_lead_id"])
+                if kommo_lead and kommo_lead.get("status_id") in [s for s in blocked_stages if s]:
+                    status_name = "bloqueado"
+                    if kommo_lead.get("status_id") == settings.kommo_human_handoff_stage_id:
+                        status_name = "ATENDIMENTO HUMANO"
+                    elif hasattr(settings, 'kommo_not_interested_stage_id') and kommo_lead.get("status_id") == settings.kommo_not_interested_stage_id:
+                        status_name = "NAO INTERESSADO"
+                    elif hasattr(settings, 'kommo_meeting_scheduled_stage_id') and kommo_lead.get("status_id") == settings.kommo_meeting_scheduled_stage_id:
+                        status_name = "REUNIAO AGENDADA"
+                        # Para REUNIAO AGENDADA, podemos enviar apenas lembretes
+                        # Por ora, vamos apenas bloquear
+                    
+                    emoji_logger.system_info(f"🚫 Lead {phone} está em estágio {status_name} - agente bloqueado")
+                    
+                    await crm.close()
+                    return  # Não processa mensagem se está em estágio bloqueado
+                
+                await crm.close()
+            except Exception as e:
+                emoji_logger.system_warning(f"Erro ao verificar estágio no Kommo: {e}")
+                # Continua processamento em caso de erro na verificação
+        # ================================================
+        
         # Variável para capturar erro do agente
         agent_error = None
         
@@ -1633,6 +1678,104 @@ async def _schedule_inactivity_followup(lead_id: str, phone: str, conversation_i
     except Exception as e:
         emoji_logger.system_error("Follow-up", f"Erro ao agendar follow-up: {e}")
         # Não re-lançar erro para não quebrar o fluxo principal
+
+@router.post("/kommo/events")
+async def kommo_webhook(request: Request):
+    """
+    Recebe eventos do Kommo CRM (webhooks)
+    Usado para detectar intervenção humana e ativar transbordo
+    """
+    try:
+        # Obter dados do webhook
+        data = await request.json()
+        
+        emoji_logger.webhook_received("kommo", data)
+        
+        # Processar diferentes tipos de eventos
+        event_type = data.get("event")
+        
+        if event_type == "note_added":
+            # Nota adicionada ao lead - verificar se foi humano
+            await process_kommo_note_added(data)
+        elif event_type == "lead_status_changed":
+            # Status do lead mudou - verificar se foi para estágio bloqueado
+            await process_kommo_lead_status_changed(data)
+        else:
+            logger.info(f"Evento Kommo não processado: {event_type}")
+        
+        return {"status": "ok"}
+        
+    except Exception as e:
+        emoji_logger.system_error("Kommo Webhook", str(e))
+        logger.exception("Erro detalhado no webhook Kommo:")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def process_kommo_note_added(data: Dict[str, Any]):
+    """
+    Processa evento de nota adicionada no Kommo
+    Se foi adicionada por humano, ativa pausa no agente
+    """
+    try:
+        # Extrair informações do evento
+        created_by = data.get("created_by")
+        entity_id = data.get("entity_id")  # ID do lead
+        note_text = data.get("text", "")
+        
+        # Verificar se foi o agente que criou a nota
+        if created_by == settings.kommo_agent_user_id:
+            emoji_logger.system_info(f"📝 Nota criada pelo próprio agente - ignorando")
+            return
+        
+        # Foi um humano que adicionou a nota
+        emoji_logger.system_info(f"👤 Nota adicionada por humano (user_id: {created_by}) no lead {entity_id}")
+        
+        # Buscar telefone do lead no Kommo
+        try:
+            from app.services.crm_service_100_real import CRMServiceReal
+            crm = CRMServiceReal()
+            await crm.initialize()
+            
+            lead_info = await crm.get_lead_by_id(entity_id)
+            if lead_info and lead_info.get("phone"):
+                phone = lead_info["phone"]
+                
+                # Ativar pausa de 24 horas
+                hours = settings.human_intervention_pause_hours
+                await redis_client.set_human_handoff_pause(phone, hours)
+                
+                emoji_logger.system_info(f"⏸️ Pausa de {hours}h ativada para {phone} devido a intervenção humana")
+                
+                # Se a nota contém "Atendimento Humano", marcar permanentemente
+                if "atendimento humano" in note_text.lower():
+                    emoji_logger.system_info(f"🤝 Nota contém 'Atendimento Humano' - transbordo permanente ativado")
+                    # O bloqueio permanente já é feito pelo estágio no pipeline
+            
+            await crm.close()
+            
+        except Exception as e:
+            emoji_logger.system_error("Kommo Note Processing", f"Erro ao buscar lead: {e}")
+            
+    except Exception as e:
+        emoji_logger.system_error("Kommo Note Added", str(e))
+
+async def process_kommo_lead_status_changed(data: Dict[str, Any]):
+    """
+    Processa mudança de status do lead no Kommo
+    """
+    try:
+        lead_id = data.get("entity_id")
+        new_status_id = data.get("status_id")
+        pipeline_id = data.get("pipeline_id")
+        
+        emoji_logger.system_info(f"📊 Lead {lead_id} mudou para status {new_status_id} no pipeline {pipeline_id}")
+        
+        # Se mudou para estágio de atendimento humano
+        if new_status_id == settings.kommo_human_handoff_stage_id:
+            emoji_logger.system_info(f"🤝 Lead {lead_id} movido para ATENDIMENTO HUMANO")
+            # O bloqueio é feito automaticamente pela verificação de estágio
+            
+    except Exception as e:
+        emoji_logger.system_error("Kommo Status Changed", str(e))
 
 @router.post("/test")
 async def test_webhook(data: Dict[str, Any]):

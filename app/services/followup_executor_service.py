@@ -29,7 +29,7 @@ class FollowUpExecutorService:
         self.db = SupabaseClient()
         self.evolution = evolution_client
         self.running = False
-        self.check_interval = 60  # 1 minuto
+        self.check_interval = 15  # 15 segundos para maior precisão em follow-ups de 30min
         
         # Templates de mensagens por tipo
         self.templates = {
@@ -144,7 +144,7 @@ class FollowUpExecutorService:
                 logger.info(f"  {idx+1}. Lead: {f.get('lead_id')} | Type: {f.get('type')} | Scheduled: {f.get('scheduled_at')}")
             
             for followup in result.data:
-                await self._execute_followup(followup)
+                await self._execute_followup_with_retry(followup)
                 
         except Exception as e:
             logger.error(f"❌ Erro ao processar follow-ups: {e}")
@@ -236,6 +236,35 @@ class FollowUpExecutorService:
         except Exception as e:
             logger.error(f"❌ Erro ao processar lembretes de reunião: {e}")
     
+    async def _execute_followup_with_retry(self, followup: Dict[str, Any], max_retries: int = 3):
+        """Executa um follow-up com retry automático em caso de falha"""
+        for attempt in range(max_retries):
+            try:
+                result = await self._execute_followup(followup)
+                if result and result.get("success"):
+                    return result
+                
+                # Se falhou mas ainda tem tentativas
+                if attempt < max_retries - 1:
+                    delay = 2 ** attempt * 30  # 30s, 60s, 120s
+                    logger.warning(f"⚠️ Follow-up falhou, tentativa {attempt + 1}/{max_retries}. Aguardando {delay}s...")
+                    await asyncio.sleep(delay)
+                    
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"❌ Follow-up {followup.get('id')} falhou após {max_retries} tentativas: {e}")
+                    # Marcar como falho no banco
+                    await self.db.update_follow_up_status(
+                        followup['id'], 
+                        'failed',
+                        executed_at=datetime.now(timezone.utc)
+                    )
+                else:
+                    delay = 2 ** attempt * 30
+                    await asyncio.sleep(delay)
+        
+        return {"success": False, "error": "Max retries exceeded"}
+    
     async def _execute_followup(self, followup: Dict[str, Any]):
         """Executa um follow-up individual"""
         try:
@@ -249,7 +278,9 @@ class FollowUpExecutorService:
             logger.info(f"  - Scheduled: {followup.get('scheduled_at')}")
             
             # 🔒 LOCK DISTRIBUÍDO POR LEAD - Previne envios duplicados
-            lock_key = f"followup:{lead_id}"
+            # Usar phone_number como fallback se não tiver lead_id
+            lock_identifier = lead_id or followup.get('phone_number') or followup.get('id')
+            lock_key = f"followup:{lock_identifier}"
             lock_acquired = await redis_client.acquire_lock(lock_key, ttl=60)
             
             if not lock_acquired:
@@ -257,13 +288,29 @@ class FollowUpExecutorService:
                 return
                 
             try:
-                # Buscar dados do lead
-                lead_result = self.db.client.table('leads').select("*").eq(
-                    'id', lead_id
-                ).single().execute()
+                # Buscar dados do lead - Suportar busca por ID ou telefone
+                if lead_id:
+                    # Tentar buscar por ID primeiro
+                    lead_result = self.db.client.table('leads').select("*").eq(
+                        'id', lead_id
+                    ).single().execute()
+                else:
+                    # Se não tem lead_id, buscar pelo telefone do follow-up
+                    followup_phone = followup.get('phone_number')
+                    if not followup_phone:
+                        logger.error("Follow-up sem lead_id e sem phone_number")
+                        await self._mark_followup_failed(followup['id'], "Lead ID e telefone não encontrados")
+                        return
+                    
+                    lead_result = self.db.client.table('leads').select("*").eq(
+                        'phone_number', followup_phone
+                    ).limit(1).execute()
+                    
+                    if lead_result.data:
+                        lead_result.data = lead_result.data[0]  # Pegar primeiro resultado
                 
                 if not lead_result.data:
-                    logger.error(f"Lead {lead_id} não encontrado")
+                    logger.error(f"Lead não encontrado - ID: {lead_id}, Phone: {followup.get('phone_number')}")
                     await self._mark_followup_failed(followup['id'], "Lead não encontrado")
                     return
                 
@@ -336,7 +383,8 @@ class FollowUpExecutorService:
             logger.error(f"❌ Erro ao executar follow-up: {e}")
             await self._mark_followup_failed(followup.get('id'), str(e))
             # Garantir liberação do lock mesmo em caso de erro
-            await redis_client.release_lock(lock_key)
+            if 'lock_key' in locals():
+                await redis_client.release_lock(lock_key)
     
     async def _send_meeting_reminder_v2(self, lead_data: Dict[str, Any], google_event: Dict[str, Any], hours_before: int, qualification_id: str):
         """
@@ -560,15 +608,31 @@ class FollowUpExecutorService:
                               priority: str = "medium", attempt: int = 0):
         """Cria novo follow-up no banco"""
         try:
+            # AVISO: Este método recebe lead_id como int do Kommo
+            # NÃO deve ser usado diretamente no Supabase que espera UUID
+            # TODO: Refatorar para usar UUID adequadamente
+            
+            from uuid import uuid4
+            # Por agora, criar UUID temporário se lead_id for integer do Kommo
+            if isinstance(lead_id, int):
+                logger.warning(f"⚠️ USANDO LEAD_ID INTEGER ({lead_id}) - DEVE SER REFATORADO PARA UUID")
+                # Usar None ao invés de integer inválido
+                supabase_lead_id = None
+            else:
+                supabase_lead_id = lead_id
+            
             followup_data = {
-                'lead_id': lead_id,
+                'lead_id': supabase_lead_id,  # UUID válido ou None
                 'type': followup_type,
                 'scheduled_at': scheduled_at.isoformat(),
                 'status': 'pending',
                 'priority': priority,
                 'message': message,
                 'attempt': attempt,
-                'created_at': datetime.now(timezone.utc).isoformat()
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'metadata': {
+                    'kommo_lead_id': lead_id if isinstance(lead_id, int) else None  # Preservar ID do Kommo
+                }
             }
             
             self.db.client.table('follow_ups').insert(followup_data).execute()
@@ -582,7 +646,7 @@ class FollowUpExecutorService:
         try:
             self.db.client.table('follow_ups').update({
                 'status': 'failed',
-                'failed_at': datetime.now(timezone.utc).isoformat(),
+                'executed_at': datetime.now(timezone.utc).isoformat(),  # Usar executed_at em vez de failed_at
                 'error_reason': reason
             }).eq('id', followup_id).execute()
             
@@ -733,16 +797,18 @@ Contexto da conversa anterior:
 OBJETIVO: Gerar mensagem empática de reengajamento para reativar conversa onde parou. NÃO mencionar agendamentos a menos que o histórico mostre interesse específico nisso."""
             
             # 5. CHAMAR AGENTIC SDR PARA GERAR MENSAGEM INTELIGENTE
-            from app.agents.agentic_sdr import create_agentic_sdr
+            from app.agents.agentic_sdr_refactored import get_agentic_agent
             
-            sdr_agent = await create_agentic_sdr()
+            sdr_agent = await get_agentic_agent()
             
             # Chamar AgenticSDR com contexto da conversa
             response = await sdr_agent.process_message(
-                phone=phone or lead.get('phone_number', ''),
                 message=followup_trigger_message,
-                lead_data=lead,
-                conversation_id=conversation_id
+                metadata={
+                    "phone": phone or lead.get('phone_number', ''),
+                    "lead_data": lead,
+                    "conversation_id": conversation_id
+                }
             )
             
             if response:
@@ -840,15 +906,17 @@ OBJETIVO: Gerar mensagem empática de reengajamento para reativar conversa onde 
 - NÃO seja genérica, use detalhes específicos da conversa quando possível"""
             
             # 3. CHAMAR AGENTIC SDR COM CONTEXTO DE LEMBRETE
-            from app.agents.agentic_sdr import create_agentic_sdr
+            from app.agents.agentic_sdr_refactored import get_agentic_agent
             
-            sdr_agent = await create_agentic_sdr()
+            sdr_agent = await get_agentic_agent()
             
             response = await sdr_agent.process_message(
-                phone=phone,
                 message=meeting_context,
-                lead_data=lead_data,
-                conversation_id=conversation_id
+                metadata={
+                    "phone": phone,
+                    "lead_data": lead_data,
+                    "conversation_id": conversation_id
+                }
             )
             
             if response:

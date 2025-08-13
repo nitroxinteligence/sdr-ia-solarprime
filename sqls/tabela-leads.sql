@@ -32,8 +32,27 @@ create table public.leads (
     end
   ) STORED null,
   last_interaction timestamp with time zone null default now(),
+  chosen_flow character varying(100) null,
+  google_event_link text null,
   constraint leads_pkey primary key (id),
   constraint leads_phone_number_key unique (phone_number),
+  constraint leads_chosen_flow_check check (
+    (
+      (chosen_flow is null)
+      or (
+        (chosen_flow)::text = any (
+          (
+            array[
+              'Instalação Usina Própria'::character varying,
+              'Aluguel de Lote'::character varying,
+              'Compra com Desconto'::character varying,
+              'Usina Investimento'::character varying
+            ]
+          )::text[]
+        )
+      )
+    )
+  ),
   constraint leads_property_type_check check (
     (
       (property_type)::text = any (
@@ -96,6 +115,14 @@ create index IF not exists idx_leads_created_brin on public.leads using brin (cr
 create index IF not exists idx_leads_status_qualified on public.leads using btree (qualification_status, qualification_score) TABLESPACE pg_default
 where
   ((qualification_status)::text = 'QUALIFIED'::text);
+
+create index IF not exists idx_leads_chosen_flow on public.leads using btree (chosen_flow) TABLESPACE pg_default
+where
+  (chosen_flow is not null);
+
+create index IF not exists idx_leads_google_event_link on public.leads using btree (google_event_link) TABLESPACE pg_default
+where
+  (google_event_link is not null);
 
 create index IF not exists idx_leads_is_qualified on public.leads using btree (is_qualified) TABLESPACE pg_default
 where

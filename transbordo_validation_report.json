@@ -1,0 +1,110 @@
+{
+  "timestamp": "2025-08-12T14:30:38.086390",
+  "success_rate": 100.0,
+  "total_tests": 20,
+  "passed_tests": 20,
+  "critical_errors": [],
+  "warnings": [],
+  "test_results": [
+    {
+      "test": "Redis fallback - set_human_handoff_pause",
+      "passed": true,
+      "details": "Returned False without Redis"
+    },
+    {
+      "test": "Redis fallback - is_human_handoff_active",
+      "passed": true,
+      "details": "Returned False without Redis"
+    },
+    {
+      "test": "Redis fallback - clear_human_handoff_pause",
+      "passed": true,
+      "details": "Returned False without Redis"
+    },
+    {
+      "test": "Webhook processing without Redis",
+      "passed": true,
+      "details": "System continues normally"
+    },
+    {
+      "test": "Stage blocking - ATENDIMENTO HUMANO",
+      "passed": true,
+      "details": "Stage 90421387 blocking: True"
+    },
+    {
+      "test": "Stage blocking - NAO INTERESSADO",
+      "passed": true,
+      "details": "Stage 89709599 blocking: True"
+    },
+    {
+      "test": "Stage blocking - REUNIAO AGENDADA",
+      "passed": true,
+      "details": "Stage 89709595 blocking: True"
+    },
+    {
+      "test": "Stage blocking - EM QUALIFICACAO",
+      "passed": true,
+      "details": "Stage 89709463 blocking: False"
+    },
+    {
+      "test": "Stage blocking - QUALIFICADO",
+      "passed": true,
+      "details": "Stage 89709467 blocking: False"
+    },
+    {
+      "test": "Error handling - CRM connection failure",
+      "passed": true,
+      "details": "Correctly handled: continue_processing"
+    },
+    {
+      "test": "Error handling - Supabase connection failure",
+      "passed": true,
+      "details": "Correctly handled: graceful_failure"
+    },
+    {
+      "test": "Error handling - Invalid phone format",
+      "passed": true,
+      "details": "Correctly handled: validation_error"
+    },
+    {
+      "test": "Production check - Redis fallback",
+      "passed": true,
+      "details": "Ready"
+    },
+    {
+      "test": "Production check - Error logging",
+      "passed": true,
+      "details": "Ready"
+    },
+    {
+      "test": "Production check - Config validation",
+      "passed": true,
+      "details": "Ready"
+    },
+    {
+      "test": "Production check - Webhook endpoints",
+      "passed": true,
+      "details": "Ready"
+    },
+    {
+      "test": "Production check - CRM integration",
+      "passed": true,
+      "details": "Ready"
+    },
+    {
+      "test": "Production check - Message processing",
+      "passed": true,
+      "details": "Ready"
+    },
+    {
+      "test": "Production check - Graceful degradation",
+      "passed": true,
+      "details": "Ready"
+    },
+    {
+      "test": "Production check - Security",
+      "passed": true,
+      "details": "Ready"
+    }
+  ]
+}

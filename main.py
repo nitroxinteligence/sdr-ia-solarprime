@@ -15,7 +15,7 @@ from app.config import settings
 from app.api import health, webhooks  # teams module not yet implemented
 from app.integrations.supabase_client import supabase_client
 from app.integrations.redis_client import redis_client
-from app.teams import create_sdr_team
+# from app.teams import create_sdr_team  # Removed - using refactored system
 
 # Configuração do logger
 logger.add(
@@ -68,27 +68,12 @@ async def lifespan(app: FastAPI):
             set_message_splitter(message_splitter)
             emoji_logger.system_ready("Message Splitter", max_length=settings.message_max_length)
         
-        # Inicializa o Team SDR
-        team = create_sdr_team()  # create_sdr_team is not async
-        await team.initialize()  # Initialize the team asynchronously
-        emoji_logger.system_ready("SDR Team", members_count=len(team.agents) if hasattr(team, 'agents') else 0)
+        # Team SDR removido - usando sistema refatorado com módulos centrais
+        # Os serviços são inicializados diretamente quando necessário
+        emoji_logger.system_ready("Sistema Refatorado", modules="Core + Services")
         
-        # Inicializa campos do CRM automaticamente
-        if hasattr(team, 'crm_agent'):
-            await team.crm_agent.initialize()
-            emoji_logger.system_ready("Kommo CRM")
-        
-        # Inicializa Kommo Auto Sync Service
-        if settings.enable_kommo_auto_sync:
-            from app.services.kommo_auto_sync import kommo_auto_sync_service
-            
-            # Inicializar com o modelo e storage do team
-            model = team.model if hasattr(team, 'model') else None
-            storage = team.storage if hasattr(team, 'storage') else None
-            
-            await kommo_auto_sync_service.initialize(model=model, storage=storage)
-            await kommo_auto_sync_service.start()
-            emoji_logger.system_ready("Kommo Auto Sync", sync_interval="30s", features="leads, tags, pipeline, fields")
+        # Kommo Auto Sync removido - usava sistema antigo de teams
+        # Sincronização agora é feita diretamente pelo CRMServiceReal
         
         
         # Inicializa FollowUp Executor Service
@@ -127,11 +112,7 @@ async def lifespan(app: FastAPI):
     emoji_logger.system_info("Encerrando SDR IA Solar Prime...")
     
     try:
-        # Para Kommo Auto Sync Service
-        if settings.enable_kommo_auto_sync:
-            from app.services.kommo_auto_sync import kommo_auto_sync_service
-            await kommo_auto_sync_service.stop()
-            emoji_logger.system_info("Kommo Auto Sync encerrado")
+        # Kommo Auto Sync removido - usava sistema antigo
         
         
         # Para FollowUp Executor Service
@@ -180,6 +161,10 @@ app.include_router(webhooks.router)
 # Registra webhook do Kommo
 from app.api import kommo_webhook
 app.include_router(kommo_webhook.router)
+
+# Registra rotas do Google OAuth
+from app.api import google_auth
+app.include_router(google_auth.router)
 
 # Rotas de teste (apenas em desenvolvimento)
 if settings.debug:
