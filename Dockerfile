@@ -50,8 +50,8 @@ WORKDIR /app
 COPY . .
 
 # Setup NLTK data (download punkt tokenizer for sentence splitting)
-# SIMPLES: Pre-download para evitar download em runtime
-RUN python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True)" || true
+# SIMPLES: Pre-download para evitar download em runtime - apenas punkt padrão
+RUN python -c "import nltk; nltk.download('punkt', quiet=True)" || true
 
 # Clean Python cache to force fresh imports
 RUN find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \

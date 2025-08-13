@@ -7,44 +7,24 @@ import os
 import sys
 
 def setup_nltk():
-    """Configura NLTK com todos os recursos necessários"""
+    """Configura NLTK com recursos necessários"""
     
     print("🔧 Configurando NLTK para divisão inteligente de mensagens...")
     
-    # Criar diretório de dados se não existir
-    nltk_data_dir = os.path.expanduser('~/nltk_data')
-    if not os.path.exists(nltk_data_dir):
-        os.makedirs(nltk_data_dir, exist_ok=True)
-        print(f"✅ Diretório criado: {nltk_data_dir}")
-    
-    # Adicionar ao path do NLTK
-    if nltk_data_dir not in nltk.data.path:
-        nltk.data.path.append(nltk_data_dir)
-    
-    # Lista de recursos necessários
-    resources = [
-        'punkt',        # Tokenizador de sentenças original
-        'punkt_tab',    # Nova versão do tokenizador
-    ]
-    
-    # Baixar recursos
-    for resource in resources:
+    # Baixar apenas punkt padrão (mais estável)
+    try:
+        # Verificar se punkt já existe
         try:
-            # Verificar se já existe
-            try:
-                if resource == 'punkt_tab':
-                    nltk.data.find('tokenizers/punkt_tab')
-                else:
-                    nltk.data.find(f'tokenizers/{resource}')
-                print(f"✅ {resource} já instalado")
-            except LookupError:
-                # Baixar se não existir
-                print(f"📥 Baixando {resource}...")
-                nltk.download(resource, download_dir=nltk_data_dir, quiet=False)
-                print(f"✅ {resource} instalado com sucesso")
-        except Exception as e:
-            print(f"⚠️ Erro ao instalar {resource}: {e}")
-            # Continuar com próximo recurso
+            nltk.data.find('tokenizers/punkt')
+            print("✅ punkt já instalado")
+        except LookupError:
+            # Baixar se não existir
+            print("📥 Baixando punkt...")
+            nltk.download('punkt', quiet=False)
+            print("✅ punkt instalado com sucesso")
+    except Exception as e:
+        print(f"⚠️ Erro ao instalar punkt: {e}")
+        return False
     
     # Verificar instalação
     print("\n🔍 Verificando instalação...")

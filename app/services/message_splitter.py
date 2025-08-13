@@ -12,41 +12,20 @@ except ImportError:
 try:
     from nltk.tokenize import sent_tokenize
     import nltk
-    import os
     
-    # Configurar diretório de dados do NLTK
-    nltk_data_dir = os.path.expanduser('~/nltk_data')
-    if not os.path.exists(nltk_data_dir):
-        os.makedirs(nltk_data_dir, exist_ok=True)
-    
-    # Adicionar diretório aos caminhos do NLTK
-    if nltk_data_dir not in nltk.data.path:
-        nltk.data.path.append(nltk_data_dir)
-    
-    # Verificar se os dados necessários estão disponíveis
+    # Verificar se punkt está disponível
     try:
-        # Tentar o novo formato primeiro (punkt_tab)
-        try:
-            nltk.data.find('tokenizers/punkt_tab')
-        except LookupError:
-            # Fallback para formato antigo
-            nltk.data.find('tokenizers/punkt')
+        nltk.data.find('tokenizers/punkt')
     except LookupError:
-        # Tentar baixar os dados necessários
+        # Tentar baixar apenas punkt padrão
         try:
-            # Baixar o tokenizer punkt_tab (nova versão)
-            nltk.download('punkt_tab', quiet=True, download_dir=nltk_data_dir)
-            # Verificar novamente
-            try:
-                nltk.data.find('tokenizers/punkt_tab')
-            except:
-                nltk.data.find('tokenizers/punkt')
-        except Exception as e:
-            print(f"Erro ao baixar dados do NLTK: {e}")
-            raise ImportError(f"Não foi possível configurar NLTK: {e}")
+            nltk.download('punkt', quiet=True)
+        except Exception:
+            # Se não conseguir baixar, desabilitar NLTK
+            raise ImportError("Não foi possível baixar dados punkt do NLTK")
     
     HAS_NLTK = True
-except ImportError as e:
+except (ImportError, LookupError) as e:
     HAS_NLTK = False
     print(f"NLTK não disponível: {e}")
     
